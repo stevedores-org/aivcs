@@ -6,7 +6,12 @@ pub use oxidized_state::{
     CommitId, CommitRecord, BranchRecord, SnapshotRecord, MemoryRecord, SurrealHandle,
 };
 
-pub use nix_env_manager::{NixHash, generate_environment_hash, generate_logic_hash};
+pub use nix_env_manager::{
+    NixHash, HashSource, FlakeMetadata,
+    generate_environment_hash, generate_logic_hash,
+    AtticClient, AtticConfig,
+    is_nix_available, is_attic_available,
+};
 
 pub use semantic_rag_merge::{
     VectorStoreDelta, MemoryConflict, AutoResolvedValue, MergeResult,

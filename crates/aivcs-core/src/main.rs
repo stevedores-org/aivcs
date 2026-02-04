@@ -12,6 +12,11 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use nix_env_manager::{
+    generate_environment_hash, generate_logic_hash,
+    AtticClient, NixHash,
+    is_nix_available, is_attic_available,
+};
 use oxidized_state::{CommitId, CommitRecord, BranchRecord, SurrealHandle};
 use std::path::PathBuf;
 use tracing::{info, Level};
@@ -110,6 +115,12 @@ enum Commands {
         /// Second commit/branch
         b: String,
     },
+
+    /// Environment management (Nix/Attic)
+    Env {
+        #[command(subcommand)]
+        action: EnvAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -132,6 +143,35 @@ enum BranchAction {
         /// Branch name
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+enum EnvAction {
+    /// Show environment hash for a flake
+    Hash {
+        /// Path to flake directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Show hash of Rust source code (logic hash)
+    LogicHash {
+        /// Path to source directory
+        #[arg(default_value = "src")]
+        path: PathBuf,
+    },
+
+    /// Check Attic cache status
+    CacheInfo,
+
+    /// Check if environment is cached
+    IsCached {
+        /// Environment hash to check
+        hash: String,
+    },
+
+    /// Show system info (Nix/Attic availability)
+    Info,
 }
 
 #[tokio::main]
@@ -167,6 +207,13 @@ async fn main() -> Result<()> {
             cmd_merge(&handle, &source, &target, message.as_deref()).await
         }
         Commands::Diff { a, b } => cmd_diff(&handle, &a, &b).await,
+        Commands::Env { action } => match action {
+            EnvAction::Hash { path } => cmd_env_hash(&path).await,
+            EnvAction::LogicHash { path } => cmd_logic_hash(&path).await,
+            EnvAction::CacheInfo => cmd_cache_info().await,
+            EnvAction::IsCached { hash } => cmd_is_cached(&hash).await,
+            EnvAction::Info => cmd_env_info().await,
+        },
     }
 }
 
@@ -454,6 +501,121 @@ fn truncate(s: &str, max_len: usize) -> String {
     } else {
         format!("{}...", &s[..max_len])
     }
+}
+
+// ========== Environment Commands (Phase 2) ==========
+
+/// Generate and display environment hash
+async fn cmd_env_hash(path: &PathBuf) -> Result<()> {
+    let hash = generate_environment_hash(path)
+        .context(format!("Failed to generate environment hash for {:?}", path))?;
+
+    println!("Environment Hash: {}", hash.hash);
+    println!("Source: {:?}", hash.source);
+    println!("Short: {}", hash.short());
+
+    Ok(())
+}
+
+/// Generate and display logic hash (Rust source)
+async fn cmd_logic_hash(path: &PathBuf) -> Result<()> {
+    let hash = generate_logic_hash(path)
+        .context(format!("Failed to generate logic hash for {:?}", path))?;
+
+    println!("Logic Hash: {}", hash);
+    println!("Short: {}", &hash[..12.min(hash.len())]);
+
+    Ok(())
+}
+
+/// Show Attic cache information
+async fn cmd_cache_info() -> Result<()> {
+    let client = AtticClient::from_env();
+    let info = client.get_cache_info().await
+        .context("Failed to get cache info")?;
+
+    println!("Cache Name: {}", info.name);
+    println!("Server: {}", info.server);
+    println!("Available: {}", if info.available { "yes" } else { "no" });
+
+    if let Some(details) = info.info {
+        println!("\nDetails:");
+        println!("{}", details);
+    }
+
+    Ok(())
+}
+
+/// Check if environment is cached
+async fn cmd_is_cached(hash: &str) -> Result<()> {
+    let client = AtticClient::from_env();
+    let nix_hash = NixHash::new(hash.to_string(), nix_env_manager::HashSource::FlakeLock);
+
+    let cached = client.is_environment_cached(&nix_hash).await;
+
+    if cached {
+        println!("Environment {} is CACHED", &hash[..12.min(hash.len())]);
+    } else {
+        println!("Environment {} is NOT cached", &hash[..12.min(hash.len())]);
+    }
+
+    Ok(())
+}
+
+/// Show environment system info
+async fn cmd_env_info() -> Result<()> {
+    println!("AIVCS Environment Info");
+    println!("======================");
+    println!();
+
+    // Nix availability
+    let nix = is_nix_available();
+    println!("Nix installed: {}", if nix { "yes" } else { "no" });
+
+    if nix {
+        // Get Nix version
+        if let Ok(output) = std::process::Command::new("nix").arg("--version").output() {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout);
+                println!("Nix version: {}", version.trim());
+            }
+        }
+    }
+
+    // Attic availability
+    let attic = is_attic_available();
+    println!("Attic installed: {}", if attic { "yes" } else { "no" });
+
+    if attic {
+        if let Ok(output) = std::process::Command::new("attic").arg("--version").output() {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout);
+                println!("Attic version: {}", version.trim());
+            }
+        }
+    }
+
+    println!();
+
+    // Environment variables
+    println!("Environment Variables:");
+    if let Ok(server) = std::env::var("ATTIC_SERVER") {
+        println!("  ATTIC_SERVER: {}", server);
+    } else {
+        println!("  ATTIC_SERVER: (not set)");
+    }
+    if let Ok(cache) = std::env::var("ATTIC_CACHE") {
+        println!("  ATTIC_CACHE: {}", cache);
+    } else {
+        println!("  ATTIC_CACHE: (not set)");
+    }
+    if std::env::var("ATTIC_TOKEN").is_ok() {
+        println!("  ATTIC_TOKEN: (set)");
+    } else {
+        println!("  ATTIC_TOKEN: (not set)");
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

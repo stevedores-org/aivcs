@@ -66,6 +66,26 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 | `log` | Show commit history |
 | `merge` | Merge two branches with semantic resolution |
 | `diff` | Show differences between commits/branches |
+| `env` | Environment management (Nix/Attic integration) |
+
+### Environment Commands (Phase 2)
+
+```bash
+# Show environment hash for a Nix Flake
+aivcs env hash /path/to/flake
+
+# Show logic hash (Rust source code)
+aivcs env logic-hash src/
+
+# Check Attic cache status
+aivcs env cache-info
+
+# Check if environment is cached
+aivcs env is-cached <hash>
+
+# Show system info (Nix/Attic availability)
+aivcs env info
+```
 
 ## Crate Structure
 
@@ -98,8 +118,8 @@ cargo build --release -v
 
 | Phase | Status | Features |
 |-------|--------|----------|
-| 1 - Snapshot Core | ✅ MVP | commit, restore, branch, log |
-| 2 - Environment Lock | 🔜 | Nix Flake hashing, Attic cache |
+| 1 - Snapshot Core | ✅ Complete | commit, restore, branch, log |
+| 2 - Environment Lock | ✅ Complete | Nix Flake hashing, Attic cache, logic hashing |
 | 3 - Semantic Merge | 🔜 | LLM arbiter, memory synthesis |
 | 4 - Parallel Simulation | 🔜 | Concurrent exploration, pruning |
 
