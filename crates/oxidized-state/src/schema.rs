@@ -7,7 +7,6 @@
 //! - memories: Agent memory/context snapshots
 
 use chrono::{DateTime, Utc};
-use surrealdb::sql::Datetime as SurrealDatetime;
 
 /// Module for serializing chrono DateTime to SurrealDB datetime format
 mod surreal_datetime {

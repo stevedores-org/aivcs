@@ -10,7 +10,6 @@
 use anyhow::Result;
 use oxidized_state::{CommitId, MemoryRecord, SurrealHandle};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Difference between two memory vector stores
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -296,5 +295,75 @@ mod tests {
         assert!(resolved.confidence > 0.0);
         assert!(resolved.favored_branch.is_some());
         assert!(!resolved.reasoning.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_merge_synthesizes_two_memories_into_one_new_commit() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        // Create commit IDs
+        let commit_id_a = oxidized_state::CommitId::from_state(b"branch-a");
+        let commit_id_b = oxidized_state::CommitId::from_state(b"branch-b");
+
+        // Create commits with divergent memories
+        let commit_a = oxidized_state::CommitRecord::new(
+            commit_id_a.clone(),
+            None,
+            "Branch A commit",
+            "agent-a",
+        );
+        handle.save_commit(&commit_a).await.unwrap();
+
+        let commit_b = oxidized_state::CommitRecord::new(
+            commit_id_b.clone(),
+            None,
+            "Branch B commit",
+            "agent-b",
+        );
+        handle.save_commit(&commit_b).await.unwrap();
+
+        // Add unique memories to each branch
+        let mem_a_only = MemoryRecord::new(&commit_id_a.hash, "learned-from-a", "Strategy A knowledge");
+        let mem_b_only = MemoryRecord::new(&commit_id_b.hash, "learned-from-b", "Strategy B knowledge");
+        let mem_conflict_a = MemoryRecord::new(&commit_id_a.hash, "shared-key", "short");
+        let mem_conflict_b = MemoryRecord::new(&commit_id_b.hash, "shared-key", "longer and more detailed content");
+
+        handle.save_memory(&mem_a_only).await.unwrap();
+        handle.save_memory(&mem_b_only).await.unwrap();
+        handle.save_memory(&mem_conflict_a).await.unwrap();
+        handle.save_memory(&mem_conflict_b).await.unwrap();
+
+        // Perform semantic merge
+        let result = semantic_merge(
+            &handle,
+            &commit_id_a.hash,
+            &commit_id_b.hash,
+            "Merge A and B",
+            "agent-git",
+        ).await.unwrap();
+
+        // Verify merge commit was created
+        assert!(!result.merge_commit_id.hash.is_empty());
+
+        // Verify all memories were synthesized
+        let merged_memories = handle.get_memories(&result.merge_commit_id.hash).await.unwrap();
+
+        // Should have 3 memories: 2 unique + 1 resolved conflict
+        assert_eq!(merged_memories.len(), 3, "Expected 3 merged memories");
+
+        // Verify unique memories were preserved
+        let keys: Vec<_> = merged_memories.iter().map(|m| m.key.as_str()).collect();
+        assert!(keys.contains(&"learned-from-a"), "Missing memory from branch A");
+        assert!(keys.contains(&"learned-from-b"), "Missing memory from branch B");
+        assert!(keys.contains(&"shared-key"), "Missing resolved conflict");
+
+        // Verify conflict was resolved (longer content should win with heuristic)
+        let resolved = merged_memories.iter().find(|m| m.key == "shared-key").unwrap();
+        assert!(resolved.content.contains("longer") || resolved.content.contains("detailed"),
+            "Conflict resolution should favor more detailed content");
+
+        // Verify summary is informative
+        assert!(result.summary.contains("2") || result.summary.contains("memories"),
+            "Summary should mention merged memories");
     }
 }

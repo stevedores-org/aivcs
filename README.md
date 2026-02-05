@@ -120,7 +120,7 @@ cargo build --release -v
 |-------|--------|----------|
 | 1 - Snapshot Core | ✅ Complete | commit, restore, branch, log |
 | 2 - Environment Lock | ✅ Complete | Nix Flake hashing, Attic cache, logic hashing |
-| 3 - Semantic Merge | 🔜 | LLM arbiter, memory synthesis |
+| 3 - Semantic Merge | ✅ Complete | Memory diff, conflict arbiter, memory synthesis |
 | 4 - Parallel Simulation | 🔜 | Concurrent exploration, pruning |
 
 ## References
