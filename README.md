@@ -125,10 +125,40 @@ cargo test test_snapshot_is_atomic
 cargo build --release -v
 ```
 
+## Database Configuration
+
+AIVCS supports both in-memory (local development) and SurrealDB Cloud (production) backends.
+
+### Local Development (Default)
+
+No configuration needed - uses in-memory SurrealDB automatically.
+
+### SurrealDB Cloud
+
+1. Create an account at [SurrealDB Cloud](https://surrealdb.com/cloud)
+2. Create a database user with Editor/Owner role at `Authentication > Database Users`
+3. Copy `.env.example` to `.env` and configure:
+
+```bash
+cp .env.example .env
+```
+
+```env
+SURREALDB_ENDPOINT=wss://YOUR_INSTANCE.aws-use1.surrealdb.cloud
+SURREALDB_USERNAME=your_username
+SURREALDB_PASSWORD=your_password
+SURREALDB_NAMESPACE=aivcs
+SURREALDB_DATABASE=main
+```
+
+The library automatically detects cloud credentials:
+- If `SURREALDB_ENDPOINT` is set, connects to cloud
+- Otherwise, falls back to in-memory database
+
 ## Tech Stack
 
 - **Rust** - Core implementation
-- **SurrealDB** - Graph + Document database for commits and state
+- **SurrealDB** - Graph + Document database for commits and state (local or cloud)
 - **Nix/Attic** - Hermetic environment versioning (Phase 2)
 - **Tokio** - Async runtime for parallel exploration
 

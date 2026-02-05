@@ -5,31 +5,129 @@
 //! - save_commit_graph_edge
 //! - get_branch_head
 //! - CRUD for commits, branches, agents, memories
+//!
+//! Supports both local (in-memory) and cloud (WebSocket) connections.
 
 use crate::error::StateError;
 use crate::schema::{
     AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord, SnapshotRecord,
 };
 use crate::Result;
-use surrealdb::engine::local::{Db, Mem};
+use surrealdb::engine::any::Any;
+use surrealdb::opt::auth::{Database, Root};
 use surrealdb::sql::Datetime as SurrealDatetime;
 use surrealdb::Surreal;
 use tracing::{debug, info, instrument};
 
+/// Configuration for SurrealDB Cloud connection
+#[derive(Debug, Clone)]
+pub struct CloudConfig {
+    /// WebSocket endpoint URL (e.g., "wss://xxx.aws-use1.surrealdb.cloud")
+    pub endpoint: String,
+    /// Database username
+    pub username: String,
+    /// Database password
+    pub password: String,
+    /// Namespace (default: "aivcs")
+    pub namespace: String,
+    /// Database name (default: "main")
+    pub database: String,
+    /// Whether this is a root user (true) or database user (false)
+    pub is_root: bool,
+}
+
+impl CloudConfig {
+    /// Create a new cloud configuration for a database user
+    pub fn new(endpoint: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            username: username.into(),
+            password: password.into(),
+            namespace: "aivcs".to_string(),
+            database: "main".to_string(),
+            is_root: false,
+        }
+    }
+
+    /// Create a new cloud configuration for a root user
+    pub fn new_root(endpoint: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            username: username.into(),
+            password: password.into(),
+            namespace: "aivcs".to_string(),
+            database: "main".to_string(),
+            is_root: true,
+        }
+    }
+
+    /// Set custom namespace
+    pub fn with_namespace(mut self, ns: impl Into<String>) -> Self {
+        self.namespace = ns.into();
+        self
+    }
+
+    /// Set custom database
+    pub fn with_database(mut self, db: impl Into<String>) -> Self {
+        self.database = db.into();
+        self
+    }
+
+    /// Set whether this is a root user
+    pub fn with_root(mut self, is_root: bool) -> Self {
+        self.is_root = is_root;
+        self
+    }
+
+    /// Create from environment variables
+    ///
+    /// Reads:
+    /// - SURREALDB_ENDPOINT (required)
+    /// - SURREALDB_USERNAME (required)
+    /// - SURREALDB_PASSWORD (required)
+    /// - SURREALDB_NAMESPACE (optional, default: "aivcs")
+    /// - SURREALDB_DATABASE (optional, default: "main")
+    /// - SURREALDB_ROOT (optional, default: "false") - set to "true" for root users
+    pub fn from_env() -> std::result::Result<Self, String> {
+        let endpoint = std::env::var("SURREALDB_ENDPOINT")
+            .map_err(|_| "SURREALDB_ENDPOINT not set")?;
+        let username = std::env::var("SURREALDB_USERNAME")
+            .map_err(|_| "SURREALDB_USERNAME not set")?;
+        let password = std::env::var("SURREALDB_PASSWORD")
+            .map_err(|_| "SURREALDB_PASSWORD not set")?;
+        let namespace = std::env::var("SURREALDB_NAMESPACE")
+            .unwrap_or_else(|_| "aivcs".to_string());
+        let database = std::env::var("SURREALDB_DATABASE")
+            .unwrap_or_else(|_| "main".to_string());
+        let is_root = std::env::var("SURREALDB_ROOT")
+            .map(|v| v.to_lowercase() == "true")
+            .unwrap_or(false);
+
+        Ok(Self {
+            endpoint,
+            username,
+            password,
+            namespace,
+            database,
+            is_root,
+        })
+    }
+}
+
 /// SurrealDB connection handle for AIVCS
 pub struct SurrealHandle {
-    db: Surreal<Db>,
+    db: Surreal<Any>,
 }
 
 impl SurrealHandle {
-    /// Connect to SurrealDB and set up schema
+    /// Connect to SurrealDB in-memory and set up schema
     ///
     /// # TDD: test_surreal_connection_and_schema_creation
     #[instrument(skip_all)]
     pub async fn setup_db() -> Result<Self> {
         info!("Connecting to SurrealDB (in-memory)");
 
-        let db = Surreal::new::<Mem>(())
+        let db = surrealdb::engine::any::connect("mem://")
             .await
             .map_err(|e| StateError::Connection(e.to_string()))?;
 
@@ -44,6 +142,77 @@ impl SurrealHandle {
 
         info!("SurrealDB connected and schema initialized");
         Ok(handle)
+    }
+
+    /// Connect to SurrealDB Cloud
+    ///
+    /// # Example
+    /// ```ignore
+    /// let config = CloudConfig::new(
+    ///     "wss://xxx.aws-use1.surrealdb.cloud",
+    ///     "your_username",
+    ///     "your_password",
+    /// );
+    /// let handle = SurrealHandle::setup_cloud(config).await?;
+    /// ```
+    #[instrument(skip(config), fields(endpoint = %config.endpoint, namespace = %config.namespace, database = %config.database))]
+    pub async fn setup_cloud(config: CloudConfig) -> Result<Self> {
+        info!("Connecting to SurrealDB Cloud (root={})", config.is_root);
+
+        let db = surrealdb::engine::any::connect(&config.endpoint)
+            .await
+            .map_err(|e| StateError::Connection(format!("Failed to connect to {}: {}", config.endpoint, e)))?;
+
+        // Authenticate based on user type
+        if config.is_root {
+            // Root user authentication
+            db.signin(Root {
+                username: &config.username,
+                password: &config.password,
+            })
+            .await
+            .map_err(|e| StateError::Connection(format!("Root authentication failed: {}", e)))?;
+        } else {
+            // Database user authentication - requires namespace and database
+            db.signin(Database {
+                namespace: &config.namespace,
+                database: &config.database,
+                username: &config.username,
+                password: &config.password,
+            })
+            .await
+            .map_err(|e| StateError::Connection(format!("Database authentication failed: {}", e)))?;
+        }
+
+        // Select namespace and database
+        db.use_ns(&config.namespace)
+            .use_db(&config.database)
+            .await
+            .map_err(|e| StateError::Connection(format!("Failed to select namespace/database: {}", e)))?;
+
+        let handle = SurrealHandle { db };
+        handle.init_schema().await?;
+
+        info!("SurrealDB Cloud connected and schema initialized");
+        Ok(handle)
+    }
+
+    /// Connect using environment variables
+    ///
+    /// If SURREALDB_ENDPOINT is set, connects to cloud.
+    /// Otherwise, falls back to in-memory.
+    #[instrument(skip_all)]
+    pub async fn setup_from_env() -> Result<Self> {
+        match CloudConfig::from_env() {
+            Ok(config) => {
+                info!("Cloud config found, connecting to SurrealDB Cloud");
+                Self::setup_cloud(config).await
+            }
+            Err(_) => {
+                info!("No cloud config found, using in-memory database");
+                Self::setup_db().await
+            }
+        }
     }
 
     /// Initialize the database schema

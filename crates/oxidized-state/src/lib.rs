@@ -19,7 +19,7 @@ mod handle;
 mod schema;
 
 pub use error::StateError;
-pub use handle::SurrealHandle;
+pub use handle::{CloudConfig, SurrealHandle};
 pub use schema::{
     AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord, SnapshotRecord,
 };
