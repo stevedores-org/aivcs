@@ -541,4 +541,55 @@ mod tests {
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().message, "Initial commit");
     }
+
+    #[tokio::test]
+    async fn test_get_trace_for_commit_id_returns_correct_cot() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        // Create a chain of commits: initial -> step1 -> step2 -> step3
+        let state_0 = serde_json::json!({"step": 0, "thought": "Starting exploration"});
+        let state_1 = serde_json::json!({"step": 1, "thought": "Trying strategy A"});
+        let state_2 = serde_json::json!({"step": 2, "thought": "Strategy A failed, pivoting"});
+        let state_3 = serde_json::json!({"step": 3, "thought": "Strategy B succeeded"});
+
+        let id_0 = CommitId::from_state(b"state-0");
+        let id_1 = CommitId::from_state(b"state-1");
+        let id_2 = CommitId::from_state(b"state-2");
+        let id_3 = CommitId::from_state(b"state-3");
+
+        // Save snapshots
+        handle.save_snapshot(&id_0, state_0.clone()).await.unwrap();
+        handle.save_snapshot(&id_1, state_1.clone()).await.unwrap();
+        handle.save_snapshot(&id_2, state_2.clone()).await.unwrap();
+        handle.save_snapshot(&id_3, state_3.clone()).await.unwrap();
+
+        // Save commits with parent chain
+        let commit_0 = CommitRecord::new(id_0.clone(), None, "Step 0", "agent");
+        let commit_1 = CommitRecord::new(id_1.clone(), Some(id_0.hash.clone()), "Step 1", "agent");
+        let commit_2 = CommitRecord::new(id_2.clone(), Some(id_1.hash.clone()), "Step 2", "agent");
+        let commit_3 = CommitRecord::new(id_3.clone(), Some(id_2.hash.clone()), "Step 3", "agent");
+
+        handle.save_commit(&commit_0).await.unwrap();
+        handle.save_commit(&commit_1).await.unwrap();
+        handle.save_commit(&commit_2).await.unwrap();
+        handle.save_commit(&commit_3).await.unwrap();
+
+        // Get reasoning trace from step 3
+        let trace = handle.get_reasoning_trace(&id_3.hash).await.unwrap();
+
+        // Should have 4 snapshots in reverse order (newest first)
+        assert_eq!(trace.len(), 4, "Trace should contain all 4 commits");
+
+        // Verify order (most recent first)
+        assert_eq!(trace[0].state["step"], 3);
+        assert_eq!(trace[1].state["step"], 2);
+        assert_eq!(trace[2].state["step"], 1);
+        assert_eq!(trace[3].state["step"], 0);
+
+        // Verify Chain-of-Thought is preserved
+        assert_eq!(trace[0].state["thought"], "Strategy B succeeded");
+        assert_eq!(trace[1].state["thought"], "Strategy A failed, pivoting");
+        assert_eq!(trace[2].state["thought"], "Trying strategy A");
+        assert_eq!(trace[3].state["thought"], "Starting exploration");
+    }
 }

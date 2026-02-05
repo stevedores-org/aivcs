@@ -2,6 +2,8 @@
 //!
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
+pub mod parallel;
+
 pub use oxidized_state::{
     CommitId, CommitRecord, BranchRecord, SnapshotRecord, MemoryRecord, SurrealHandle,
 };
@@ -16,6 +18,10 @@ pub use nix_env_manager::{
 pub use semantic_rag_merge::{
     VectorStoreDelta, MemoryConflict, AutoResolvedValue, MergeResult,
     diff_memory_vectors, resolve_conflict_state, synthesize_memory, semantic_merge,
+};
+
+pub use parallel::{
+    fork_agent_parallel, ForkResult, BranchStatus, ParallelConfig, ParallelManager,
 };
 
 /// AIVCS version

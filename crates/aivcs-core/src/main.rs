@@ -19,8 +19,12 @@ use nix_env_manager::{
 };
 use oxidized_state::{CommitId, CommitRecord, BranchRecord, SurrealHandle};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
+
+mod parallel;
+use parallel::{fork_agent_parallel, ParallelConfig, ParallelManager};
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -121,6 +125,31 @@ enum Commands {
         #[command(subcommand)]
         action: EnvAction,
     },
+
+    /// Fork multiple parallel branches for exploration (Phase 4)
+    Fork {
+        /// Parent branch or commit to fork from
+        #[arg(default_value = "main")]
+        parent: String,
+
+        /// Number of branches to create
+        #[arg(short, long, default_value = "5")]
+        count: u8,
+
+        /// Branch name prefix
+        #[arg(short, long, default_value = "experiment")]
+        prefix: String,
+    },
+
+    /// Show reasoning trace for time-travel debugging (Phase 4)
+    Trace {
+        /// Commit ID or branch to trace
+        commit: String,
+
+        /// Maximum depth of trace
+        #[arg(short, long, default_value = "20")]
+        depth: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -214,6 +243,10 @@ async fn main() -> Result<()> {
             EnvAction::IsCached { hash } => cmd_is_cached(&hash).await,
             EnvAction::Info => cmd_env_info().await,
         },
+        Commands::Fork { parent, count, prefix } => {
+            cmd_fork(&handle, &parent, count, &prefix).await
+        }
+        Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
     }
 }
 
@@ -614,6 +647,106 @@ async fn cmd_env_info() -> Result<()> {
     } else {
         println!("  ATTIC_TOKEN: (not set)");
     }
+
+    Ok(())
+}
+
+// ========== Parallel Simulation Commands (Phase 4) ==========
+
+/// Fork multiple parallel branches for exploration
+async fn cmd_fork(
+    handle: &SurrealHandle,
+    parent: &str,
+    count: u8,
+    prefix: &str,
+) -> Result<()> {
+    // Resolve parent reference (branch name or commit ID)
+    let parent_commit = if let Ok(Some(branch)) = handle.get_branch(parent).await {
+        branch.head_commit_id
+    } else {
+        parent.to_string()
+    };
+
+    println!("Forking {} branches from {} with prefix '{}'", count, &parent_commit[..8.min(parent_commit.len())], prefix);
+
+    let handle_arc = Arc::new(SurrealHandle::setup_db().await?);
+
+    // Copy parent snapshot to new handle
+    let parent_snapshot = handle.load_snapshot(&parent_commit).await?;
+    let parent_id = CommitId::from_state(parent_commit.as_bytes());
+    handle_arc.save_snapshot(&parent_id, parent_snapshot.state.clone()).await?;
+
+    // Create parent commit in new handle
+    let parent_record = CommitRecord::new(parent_id.clone(), None, "Fork parent", "fork");
+    handle_arc.save_commit(&parent_record).await?;
+
+    let result = fork_agent_parallel(
+        handle_arc,
+        &parent_id.hash,
+        count,
+        prefix,
+    ).await?;
+
+    println!("\nCreated {} parallel branches:", result.branches.len());
+    for (i, branch) in result.branches.iter().enumerate() {
+        println!("  {} -> {}", branch, result.commit_ids[i].short());
+    }
+
+    println!("\nUse 'aivcs branch list' to see all branches");
+    println!("Use 'aivcs trace <commit>' to debug a branch's reasoning");
+
+    Ok(())
+}
+
+/// Show reasoning trace for time-travel debugging
+async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Result<()> {
+    // Resolve reference
+    let commit_hash = if let Ok(Some(branch)) = handle.get_branch(reference).await {
+        branch.head_commit_id
+    } else {
+        reference.to_string()
+    };
+
+    println!("Reasoning Trace for {}", &commit_hash[..12.min(commit_hash.len())]);
+    println!("=========================================\n");
+
+    // Get commit history (limited by depth)
+    let history = handle.get_commit_history(&commit_hash, depth).await?;
+
+    if history.is_empty() {
+        println!("No commits found for '{}'", reference);
+        return Ok(());
+    }
+
+    // Load snapshots and display trace
+    for (i, commit) in history.iter().enumerate() {
+        let step_marker = if i == 0 { "HEAD" } else { &format!("~{}", i) };
+
+        println!("[{}] {} - {}", step_marker, commit.commit_id.short(), commit.message);
+        println!("    Author: {} | {}", commit.author, commit.created_at.format("%Y-%m-%d %H:%M:%S"));
+
+        // Try to load and display state summary
+        if let Ok(snapshot) = handle.load_snapshot(&commit.commit_id.hash).await {
+            if let Some(obj) = snapshot.state.as_object() {
+                // Show key state fields
+                let keys: Vec<_> = obj.keys().take(5).collect();
+                for key in keys {
+                    if let Some(value) = obj.get(key) {
+                        let value_str = match value {
+                            serde_json::Value::String(s) => truncate(s, 40),
+                            serde_json::Value::Number(n) => n.to_string(),
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            _ => format!("{}", value).chars().take(40).collect(),
+                        };
+                        println!("    {}: {}", key, value_str);
+                    }
+                }
+            }
+        }
+        println!();
+    }
+
+    println!("Showing {} of {} commits (use --depth to see more)", history.len(), depth);
 
     Ok(())
 }

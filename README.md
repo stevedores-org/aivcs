@@ -67,6 +67,8 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 | `merge` | Merge two branches with semantic resolution |
 | `diff` | Show differences between commits/branches |
 | `env` | Environment management (Nix/Attic integration) |
+| `fork` | Fork multiple parallel branches for exploration |
+| `trace` | Time-travel debugging - show reasoning trace |
 
 ### Environment Commands (Phase 2)
 
@@ -85,6 +87,22 @@ aivcs env is-cached <hash>
 
 # Show system info (Nix/Attic availability)
 aivcs env info
+```
+
+### Parallel Simulation Commands (Phase 4)
+
+```bash
+# Fork 5 parallel branches from main for exploration
+aivcs fork main --count 5 --prefix experiment
+
+# Fork 3 branches from a specific commit
+aivcs fork abc123 -c 3 -p strategy
+
+# Show reasoning trace (time-travel debugging)
+aivcs trace main
+
+# Show trace with more depth
+aivcs trace experiment-0 --depth 50
 ```
 
 ## Crate Structure
@@ -121,7 +139,7 @@ cargo build --release -v
 | 1 - Snapshot Core | ✅ Complete | commit, restore, branch, log |
 | 2 - Environment Lock | ✅ Complete | Nix Flake hashing, Attic cache, logic hashing |
 | 3 - Semantic Merge | ✅ Complete | Memory diff, conflict arbiter, memory synthesis |
-| 4 - Parallel Simulation | 🔜 | Concurrent exploration, pruning |
+| 4 - Parallel Simulation | ✅ Complete | Concurrent fork, branch pruning, time-travel trace |
 
 ## References
 
