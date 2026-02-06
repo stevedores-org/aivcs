@@ -24,7 +24,7 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod parallel;
-use parallel::{fork_agent_parallel, ParallelConfig, ParallelManager};
+use parallel::fork_agent_parallel;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]

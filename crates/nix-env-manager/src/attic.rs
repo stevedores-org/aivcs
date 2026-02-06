@@ -188,7 +188,7 @@ impl AtticClient {
     }
 
     /// Push using Attic CLI
-    async fn push_cli(&self, hash: &NixHash, store_path: &Path) -> Result<()> {
+    async fn push_cli(&self, _hash: &NixHash, store_path: &Path) -> Result<()> {
         // Check if attic CLI is available
         let attic_available = Command::new("attic")
             .arg("--version")
