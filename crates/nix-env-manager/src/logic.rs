@@ -135,6 +135,7 @@ fn normalize_source(content: &[u8]) -> Vec<u8> {
 }
 
 /// Generate hash for a Cargo.toml file (dependencies affect logic)
+#[allow(dead_code)]
 pub fn generate_cargo_hash(cargo_path: &Path) -> Result<String> {
     let content = std::fs::read(cargo_path)?;
 
@@ -145,6 +146,7 @@ pub fn generate_cargo_hash(cargo_path: &Path) -> Result<String> {
 }
 
 /// Generate a combined hash of source + dependencies
+#[allow(dead_code)]
 pub fn generate_full_logic_hash(project_path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
 

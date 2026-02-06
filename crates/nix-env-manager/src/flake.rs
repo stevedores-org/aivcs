@@ -263,6 +263,7 @@ pub fn get_flake_metadata(flake_path: &Path) -> Result<FlakeMetadata> {
 }
 
 /// Lock flake inputs (equivalent to `nix flake lock`)
+#[allow(dead_code)]
 pub fn lock_flake(flake_path: &Path) -> Result<()> {
     let output = Command::new("nix")
         .args(["flake", "lock"])
@@ -278,6 +279,7 @@ pub fn lock_flake(flake_path: &Path) -> Result<()> {
 }
 
 /// Update flake inputs (equivalent to `nix flake update`)
+#[allow(dead_code)]
 pub fn update_flake(flake_path: &Path) -> Result<NixHash> {
     let output = Command::new("nix")
         .args(["flake", "update"])
@@ -296,7 +298,6 @@ pub fn update_flake(flake_path: &Path) -> Result<NixHash> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::tempdir;
 
     #[test]
