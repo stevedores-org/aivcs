@@ -24,7 +24,7 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod parallel;
-use parallel::{fork_agent_parallel, ParallelConfig, ParallelManager};
+use parallel::fork_agent_parallel;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -225,7 +225,7 @@ async fn main() -> Result<()> {
         Commands::Snapshot { state, message, author, branch } => {
             cmd_snapshot(&handle, &state, &message, &author, &branch).await
         }
-        Commands::Restore { commit, output } => cmd_restore(&handle, &commit, output.as_ref().map(|p| p.as_path())).await,
+        Commands::Restore { commit, output } => cmd_restore(&handle, &commit, output.as_deref()).await,
         Commands::Branch { action } => match action {
             BranchAction::List => cmd_branch_list(&handle).await,
             BranchAction::Create { name, from } => cmd_branch_create(&handle, &name, &from).await,

@@ -21,6 +21,7 @@ use tracing::{debug, info, warn};
 #[derive(Debug, Clone)]
 pub struct ForkResult {
     /// Parent commit that was forked from
+    #[allow(dead_code)]
     pub parent_commit: String,
     /// Branch names created
     pub branches: Vec<String>,
@@ -29,6 +30,7 @@ pub struct ForkResult {
 }
 
 /// Status of a running parallel branch
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchStatus {
     /// Branch name
@@ -44,13 +46,16 @@ pub struct BranchStatus {
 }
 
 /// Configuration for parallel exploration
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ParallelConfig {
     /// Minimum score threshold (branches below this get pruned)
     pub score_threshold: f32,
     /// Maximum concurrent branches
+    #[allow(dead_code)]
     pub max_branches: usize,
     /// Auto-prune low performers
+    #[allow(dead_code)]
     pub auto_prune: bool,
 }
 
@@ -150,12 +155,15 @@ pub async fn fork_agent_parallel(
 }
 
 /// Parallel branch manager for tracking and pruning branches
+#[allow(dead_code)]
 pub struct ParallelManager {
+    #[allow(dead_code)]
     handle: Arc<SurrealHandle>,
     config: ParallelConfig,
     branch_status: Arc<Mutex<Vec<BranchStatus>>>,
 }
 
+#[allow(dead_code)]
 impl ParallelManager {
     /// Create a new parallel manager
     pub fn new(handle: Arc<SurrealHandle>, config: ParallelConfig) -> Self {
