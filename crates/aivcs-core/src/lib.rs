@@ -2,26 +2,31 @@
 //!
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
+pub mod domain;
 pub mod parallel;
 
+pub use domain::{
+    AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
+    EventKind, Release, ReleaseEnvironment, ReleasePointer, Result, Run, RunStatus, ScorerConfig,
+    ScorerType,
+};
+
 pub use oxidized_state::{
-    CommitId, CommitRecord, BranchRecord, SnapshotRecord, MemoryRecord, SurrealHandle,
+    BranchRecord, CommitId, CommitRecord, MemoryRecord, SnapshotRecord, SurrealHandle,
 };
 
 pub use nix_env_manager::{
-    NixHash, HashSource, FlakeMetadata,
-    generate_environment_hash, generate_logic_hash,
-    AtticClient, AtticConfig,
-    is_nix_available, is_attic_available,
+    generate_environment_hash, generate_logic_hash, is_attic_available, is_nix_available,
+    AtticClient, AtticConfig, FlakeMetadata, HashSource, NixHash,
 };
 
 pub use semantic_rag_merge::{
-    VectorStoreDelta, MemoryConflict, AutoResolvedValue, MergeResult,
-    diff_memory_vectors, resolve_conflict_state, synthesize_memory, semantic_merge,
+    diff_memory_vectors, resolve_conflict_state, semantic_merge, synthesize_memory,
+    AutoResolvedValue, MemoryConflict, MergeResult, VectorStoreDelta,
 };
 
 pub use parallel::{
-    fork_agent_parallel, ForkResult, BranchStatus, ParallelConfig, ParallelManager,
+    fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
 
 /// AIVCS version
