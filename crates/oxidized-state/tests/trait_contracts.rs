@@ -6,8 +6,8 @@
 use chrono::Utc;
 use oxidized_state::fakes::{MemoryCasStore, MemoryReleaseRegistry, MemoryRunLedger};
 use oxidized_state::storage_traits::*;
-use oxidized_state::SurrealRunLedger;
 use oxidized_state::StorageError;
+use oxidized_state::SurrealRunLedger;
 
 // ===========================================================================
 // CasStore contract tests
