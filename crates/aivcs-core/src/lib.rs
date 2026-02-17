@@ -5,6 +5,7 @@
 pub mod cas;
 pub mod diff;
 pub mod domain;
+pub mod event_adapter;
 pub mod git;
 pub mod parallel;
 pub mod recording;
@@ -17,6 +18,8 @@ pub use domain::{
     EventKind, Release, ReleaseEnvironment, ReleasePointer, Result, Run, RunStatus, ScorerConfig,
     ScorerType, SnapshotMeta,
 };
+
+pub use event_adapter::{subscribe_ledger_to_bus, LedgerHandler};
 
 pub use git::{capture_head_sha, is_git_repo};
 

@@ -57,6 +57,9 @@ hex = "0.4"
 # Testing
 tempfile = "3.10"
 
+# External crates (Stevedores ecosystem)
+oxidizedgraph = { git = "https://github.com/stevedores-org/oxidizedgraph.git" }
+
 # Internal crates
 aivcs-core = { path = "crates/aivcs-core" }
 oxidized-state = { path = "crates/oxidized-state" }
