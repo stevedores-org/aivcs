@@ -568,7 +568,17 @@ impl SurrealHandle {
     pub async fn delete_branch(&self, name: &str) -> Result<()> {
         debug!("Deleting branch");
 
-        let _: Option<BranchRecord> = self.db.delete(("branches", name)).await?;
+        let name_owned = name.to_string();
+        let mut result = self
+            .db
+            .query("DELETE FROM branches WHERE name = $name RETURN BEFORE")
+            .bind(("name", name_owned))
+            .await?;
+
+        let deleted: Vec<BranchRecord> = result.take(0)?;
+        if deleted.is_empty() {
+            return Err(StateError::BranchNotFound(name.to_string()));
+        }
 
         Ok(())
     }
@@ -850,6 +860,26 @@ mod tests {
 
         let new_head = handle.get_branch_head("main").await.unwrap();
         assert_eq!(new_head, "commit-def456");
+    }
+
+    #[tokio::test]
+    async fn test_branch_delete_existing_and_missing() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        let branch = BranchRecord::new("feature/delete-me", "commit-abc123", false);
+        handle.save_branch(&branch).await.unwrap();
+
+        // Existing branch can be deleted.
+        handle.delete_branch("feature/delete-me").await.unwrap();
+        assert!(handle
+            .get_branch("feature/delete-me")
+            .await
+            .unwrap()
+            .is_none());
+
+        // Missing branch returns a typed not-found error.
+        let err = handle.delete_branch("feature/delete-me").await.unwrap_err();
+        assert!(matches!(err, StateError::BranchNotFound(name) if name == "feature/delete-me"));
     }
 
     #[tokio::test]
