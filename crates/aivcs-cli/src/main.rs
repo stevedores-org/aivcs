@@ -16,13 +16,16 @@ use nix_env_manager::{
     generate_environment_hash, generate_logic_hash, is_attic_available, is_nix_available,
     AtticClient, NixHash,
 };
-use oxidized_state::{BranchRecord, CommitId, CommitRecord, SurrealHandle};
+use oxidized_state::{
+    BranchRecord, CommitId, CommitRecord, RunLedger, SurrealHandle, SurrealRunLedger,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use aivcs_core::fork_agent_parallel;
+use aivcs_core::ToolCallChange;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -171,6 +174,24 @@ enum Commands {
         #[arg(short, long, default_value = "20")]
         depth: usize,
     },
+
+    /// Replay all events for a run in sequence order and print a digest
+    Replay {
+        /// Run ID to replay
+        #[arg(long)]
+        run: String,
+    },
+
+    /// Diff the tool-call sequences of two runs
+    DiffRuns {
+        /// First run ID
+        #[arg(long)]
+        run_a: String,
+
+        /// Second run ID
+        #[arg(long)]
+        run_b: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -300,6 +321,18 @@ async fn main() -> Result<()> {
             prefix,
         } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
+        Commands::Replay { run } => {
+            let ledger = SurrealRunLedger::from_env()
+                .await
+                .context("Failed to connect to run ledger")?;
+            cmd_replay(&ledger, &run).await
+        }
+        Commands::DiffRuns { run_a, run_b } => {
+            let ledger = SurrealRunLedger::from_env()
+                .await
+                .context("Failed to connect to run ledger")?;
+            cmd_diff_runs(&ledger, &run_a, &run_b).await
+        }
     }
 }
 
@@ -924,6 +957,81 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
         depth
     );
 
+    Ok(())
+}
+
+/// Replay all events for a run in sequence order and print a digest
+async fn cmd_replay(ledger: &dyn RunLedger, run_id_str: &str) -> Result<()> {
+    let (events, summary) = aivcs_core::replay_run(ledger, run_id_str)
+        .await
+        .with_context(|| format!("replay failed for run: {}", run_id_str))?;
+
+    println!("Run:    {}", summary.run_id);
+    println!("Agent:  {}", summary.agent_name);
+    println!("Status: {:?}", summary.status);
+    println!();
+
+    for event in &events {
+        println!("[{:>6}] {} | {}", event.seq, event.kind, event.payload);
+    }
+
+    println!();
+    println!("Events: {}", summary.event_count);
+    println!("Digest: {}", summary.replay_digest);
+
+    Ok(())
+}
+
+/// Diff the tool-call sequences of two runs
+async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result<()> {
+    let (events_a, summary_a) = aivcs_core::replay_run(ledger, id_a)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_a))?;
+    let (events_b, summary_b) = aivcs_core::replay_run(ledger, id_b)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_b))?;
+
+    let diff = aivcs_core::diff_tool_calls(id_a, &events_a, id_b, &events_b);
+
+    println!("A: {} ({})", summary_a.run_id, summary_a.agent_name);
+    println!("B: {} ({})", summary_b.run_id, summary_b.agent_name);
+    println!();
+
+    if diff.identical {
+        println!("Tool-call sequences are identical.");
+        return Ok(());
+    }
+
+    for change in &diff.changes {
+        match change {
+            ToolCallChange::Added { entry } => {
+                println!("  + [{}] {}", entry.seq, entry.tool_name);
+            }
+            ToolCallChange::Removed { entry } => {
+                println!("  - [{}] {}", entry.seq, entry.tool_name);
+            }
+            ToolCallChange::Reordered {
+                tool_name,
+                seq_a,
+                seq_b,
+            } => {
+                println!("  ~ {} (A:[{}] -> B:[{}])", tool_name, seq_a, seq_b);
+            }
+            ToolCallChange::ParamDelta {
+                tool_name,
+                seq_a,
+                seq_b,
+                changes,
+            } => {
+                println!("  Δ {} (A:[{}] / B:[{}])", tool_name, seq_a, seq_b);
+                for c in changes {
+                    println!("      {} : {} -> {}", c.pointer, c.value_a, c.value_b);
+                }
+            }
+        }
+    }
+
+    println!("\nChanges: {}", diff.changes.len());
     Ok(())
 }
 

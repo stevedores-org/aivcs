@@ -8,6 +8,9 @@ pub mod domain;
 pub mod git;
 pub mod parallel;
 pub mod recording;
+pub mod replay;
+
+pub use diff::{diff_tool_calls, DiffSummary, ParamChange, ToolCallChange, ToolCallEntry};
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
@@ -43,6 +46,7 @@ pub use diff::node_paths::{
 };
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use recording::GraphRunRecorder;
+pub use replay::{replay_run, ReplaySummary};
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
