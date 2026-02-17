@@ -3,7 +3,7 @@
 //! These tests verify that the migration functions properly initialize
 //! all tables with correct constraints and indexes.
 
-use oxidized_state::{RunRecord, RunEventRecord, ReleaseRecordSchema};
+use oxidized_state::{ReleaseRecordSchema, RunEventRecord, RunRecord};
 use serde_json::json;
 
 // Note: Full schema initialization test requires a running SurrealDB instance.
@@ -145,12 +145,7 @@ fn test_unique_constraint_run_id_concept() {
 fn test_monotonic_seq_constraint_concept() {
     // Document the monotonic seq constraint
     // (In-memory test; actual DB constraint is in SurrealDB)
-    let event1 = RunEventRecord::new(
-        "run-123".to_string(),
-        1,
-        "Started".to_string(),
-        json!({}),
-    );
+    let event1 = RunEventRecord::new("run-123".to_string(), 1, "Started".to_string(), json!({}));
 
     let event2 = RunEventRecord::new(
         "run-123".to_string(),
@@ -159,12 +154,7 @@ fn test_monotonic_seq_constraint_concept() {
         json!({}),
     );
 
-    let event3 = RunEventRecord::new(
-        "run-123".to_string(),
-        3,
-        "Completed".to_string(),
-        json!({}),
-    );
+    let event3 = RunEventRecord::new("run-123".to_string(), 3, "Completed".to_string(), json!({}));
 
     // Events have monotonically increasing seq
     assert_eq!(event1.seq, 1);

@@ -967,6 +967,16 @@ mod tests {
             .output()
             .unwrap();
         std::process::Command::new("git")
+            .args(["config", "user.name", "test-user"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
             .args(["commit", "--allow-empty", "-m", "initial"])
             .current_dir(temp_dir.path())
             .output()
