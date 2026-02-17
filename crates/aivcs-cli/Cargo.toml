@@ -1,20 +1,23 @@
 [package]
-name = "aivcs-core"
-description = "Core library for AIVCS domain logic and orchestration"
+name = "aivcs-cli"
+description = "Command-line interface for AIVCS"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "aivcs"
+path = "src/main.rs"
+
 [dependencies]
-# Internal crates
+aivcs-core.workspace = true
 oxidized-state.workspace = true
 nix-env-manager.workspace = true
 semantic-rag-merge.workspace = true
 
 # Async
 tokio.workspace = true
-async-trait.workspace = true
 
 # Serialization
 serde.workspace = true
@@ -22,17 +25,16 @@ serde_json.workspace = true
 
 # Error handling
 anyhow.workspace = true
-thiserror.workspace = true
 
 # Logging
 tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# CLI
+clap.workspace = true
 
 # Utilities
-chrono.workspace = true
-uuid.workspace = true
-sha2.workspace = true
-hex.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
-tempfile.workspace = true

@@ -90,7 +90,11 @@ pub async fn fork_agent_parallel(
     count: u8,
     prefix: &str,
 ) -> Result<ForkResult> {
-    info!("Forking {} parallel branches from {}", count, &parent_commit[..8.min(parent_commit.len())]);
+    info!(
+        "Forking {} parallel branches from {}",
+        count,
+        &parent_commit[..8.min(parent_commit.len())]
+    );
 
     // Get parent snapshot to clone state
     let parent_snapshot = handle.load_snapshot(parent_commit).await?;
@@ -122,13 +126,19 @@ pub async fn fork_agent_parallel(
             handle_clone.save_commit(&commit).await?;
 
             // Create graph edge
-            handle_clone.save_commit_graph_edge(&commit_id.hash, &parent_id).await?;
+            handle_clone
+                .save_commit_graph_edge(&commit_id.hash, &parent_id)
+                .await?;
 
             // Create branch pointer
             let branch = BranchRecord::new(&branch_name, &commit_id.hash, false);
             handle_clone.save_branch(&branch).await?;
 
-            debug!("Created fork branch: {} at {}", branch_name, commit_id.short());
+            debug!(
+                "Created fork branch: {} at {}",
+                branch_name,
+                commit_id.short()
+            );
             Ok((branch_name, commit_id))
         });
 
@@ -268,23 +278,18 @@ mod tests {
             "step": 0
         });
         let parent_id = CommitId::from_state(b"parent-state");
-        handle.save_snapshot(&parent_id, parent_state).await.unwrap();
+        handle
+            .save_snapshot(&parent_id, parent_state)
+            .await
+            .unwrap();
 
-        let parent_commit = CommitRecord::new(
-            parent_id.clone(),
-            None,
-            "Parent commit",
-            "test",
-        );
+        let parent_commit = CommitRecord::new(parent_id.clone(), None, "Parent commit", "test");
         handle.save_commit(&parent_commit).await.unwrap();
 
         // Fork 5 branches concurrently
-        let result = fork_agent_parallel(
-            Arc::clone(&handle),
-            &parent_id.hash,
-            5,
-            "experiment",
-        ).await.unwrap();
+        let result = fork_agent_parallel(Arc::clone(&handle), &parent_id.hash, 5, "experiment")
+            .await
+            .unwrap();
 
         // Verify all 5 branches were created
         assert_eq!(result.branches.len(), 5, "Should create 5 branches");
@@ -330,15 +335,19 @@ mod tests {
 
         // Register branches with different scores
         manager.register_branch("high-performer", "commit-1").await;
-        manager.register_branch("medium-performer", "commit-2").await;
+        manager
+            .register_branch("medium-performer", "commit-2")
+            .await;
         manager.register_branch("low-performer", "commit-3").await;
-        manager.register_branch("very-low-performer", "commit-4").await;
+        manager
+            .register_branch("very-low-performer", "commit-4")
+            .await;
 
         // Set scores
         manager.update_score("high-performer", 0.9).await;
         manager.update_score("medium-performer", 0.6).await;
-        manager.update_score("low-performer", 0.3).await;  // Below threshold
-        manager.update_score("very-low-performer", 0.1).await;  // Below threshold
+        manager.update_score("low-performer", 0.3).await; // Below threshold
+        manager.update_score("very-low-performer", 0.1).await; // Below threshold
 
         // Prune low performers
         let pruned = manager.prune_low_performing_branches().await.unwrap();
