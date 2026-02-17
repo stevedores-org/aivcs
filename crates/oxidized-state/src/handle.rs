@@ -542,7 +542,9 @@ impl SurrealHandle {
             .ok_or_else(|| StateError::BranchNotFound(name.to_string()))?;
 
         if branch.is_default {
-            return Err(StateError::Transaction("Cannot delete the default branch".to_string()).into());
+            return Err(StateError::Transaction(
+                "Cannot delete the default branch".to_string(),
+            ));
         }
 
         let name_owned = name.to_string();
