@@ -531,6 +531,22 @@ impl SurrealHandle {
         Ok(branches)
     }
 
+    /// Delete a branch
+    #[instrument(skip(self))]
+    pub async fn delete_branch(&self, name: &str) -> Result<()> {
+        debug!("Deleting branch: {}", name);
+
+        let name_owned = name.to_string();
+
+        let _result = self
+            .db
+            .query("DELETE FROM branches WHERE name = $name")
+            .bind(("name", name_owned))
+            .await?;
+
+        Ok(())
+    }
+
     // ========== Agent Operations ==========
 
     /// Register an agent
@@ -646,6 +662,26 @@ mod tests {
     async fn test_surreal_connection_and_schema_creation() {
         let handle = SurrealHandle::setup_db().await;
         assert!(handle.is_ok(), "Failed to connect: {:?}", handle.err());
+    }
+
+    #[tokio::test]
+    async fn test_branch_deletion() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        // Create a branch
+        let branch = BranchRecord::new("feature/test", "commit-123", false);
+        handle.save_branch(&branch).await.unwrap();
+
+        // Verify it exists
+        let loaded = handle.get_branch("feature/test").await.unwrap();
+        assert!(loaded.is_some());
+
+        // Delete it
+        handle.delete_branch("feature/test").await.unwrap();
+
+        // Verify it's gone
+        let deleted = handle.get_branch("feature/test").await.unwrap();
+        assert!(deleted.is_none());
     }
 
     #[tokio::test]
