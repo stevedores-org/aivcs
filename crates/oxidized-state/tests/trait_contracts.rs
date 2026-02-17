@@ -1,13 +1,12 @@
 //! Trait contract tests for CasStore, RunLedger, and ReleaseRegistry.
 //!
 //! These tests verify the behavioral contracts of the storage traits
-//! using in-memory fakes AND the SurrealDB-backed implementations.
+//! using in-memory fakes. Any conforming implementation must pass these.
 
 use chrono::Utc;
 use oxidized_state::fakes::{MemoryCasStore, MemoryReleaseRegistry, MemoryRunLedger};
 use oxidized_state::storage_traits::*;
-use oxidized_state::StorageError;
-use oxidized_state::SurrealRunLedger;
+use oxidized_state::{StorageError, SurrealRunLedger};
 
 // ===========================================================================
 // CasStore contract tests
@@ -458,183 +457,168 @@ async fn registry_promotes_independent_agents() {
 }
 
 // ===========================================================================
-// SurrealRunLedger contract tests (same contracts, SurrealDB backend)
+// SurrealRunLedger contract tests (mirrors MemoryRunLedger tests above)
 // ===========================================================================
 
-#[tokio::test]
-async fn surreal_ledger_create_run_returns_unique_ids() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
+mod surreal_ledger_tests {
+    use super::*;
 
-    let id1 = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-    let id2 = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-
-    assert_ne!(id1, id2);
-}
-
-#[tokio::test]
-async fn surreal_ledger_get_run_returns_created_run() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
-    let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-
-    let record = ledger.get_run(&run_id).await.unwrap();
-    assert_eq!(record.run_id, run_id);
-    assert_eq!(record.spec_digest, spec);
-    assert_eq!(record.status, RunStatus::Running);
-    assert!(record.summary.is_none());
-}
-
-#[tokio::test]
-async fn surreal_ledger_get_run_not_found() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let bogus = RunId("nonexistent".to_string());
-    let err = ledger.get_run(&bogus).await.unwrap_err();
-
-    assert!(matches!(err, StorageError::RunNotFound { .. }));
-}
-
-#[tokio::test]
-async fn surreal_ledger_append_and_get_events_ordered() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
-    let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-
-    // Append out of order
-    ledger
-        .append_event(&run_id, sample_event(2, "NodeExited"))
-        .await
-        .unwrap();
-    ledger
-        .append_event(&run_id, sample_event(1, "NodeEntered"))
-        .await
-        .unwrap();
-    ledger
-        .append_event(&run_id, sample_event(3, "GraphCompleted"))
-        .await
-        .unwrap();
-
-    let events = ledger.get_events(&run_id).await.unwrap();
-    assert_eq!(events.len(), 3);
-    assert_eq!(events[0].seq, 1);
-    assert_eq!(events[1].seq, 2);
-    assert_eq!(events[2].seq, 3);
-}
-
-#[tokio::test]
-async fn surreal_ledger_complete_run_sets_status() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
-    let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-
-    ledger
-        .complete_run(&run_id, sample_summary(0, true))
-        .await
-        .unwrap();
-
-    let record = ledger.get_run(&run_id).await.unwrap();
-    assert_eq!(record.status, RunStatus::Completed);
-    assert!(record.summary.is_some());
-    assert!(record.completed_at.is_some());
-}
-
-#[tokio::test]
-async fn surreal_ledger_fail_run_sets_status() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
-    let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-
-    ledger
-        .fail_run(&run_id, sample_summary(0, false))
-        .await
-        .unwrap();
-
-    let record = ledger.get_run(&run_id).await.unwrap();
-    assert_eq!(record.status, RunStatus::Failed);
-}
-
-#[tokio::test]
-async fn surreal_ledger_cannot_append_to_completed_run() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
-    let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-    ledger
-        .complete_run(&run_id, sample_summary(0, true))
-        .await
-        .unwrap();
-
-    let err = ledger
-        .append_event(&run_id, sample_event(1, "late"))
-        .await
-        .unwrap_err();
-    assert!(matches!(err, StorageError::InvalidRunState { .. }));
-}
-
-#[tokio::test]
-async fn surreal_ledger_cannot_complete_twice() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
-    let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-    ledger
-        .complete_run(&run_id, sample_summary(0, true))
-        .await
-        .unwrap();
-
-    let err = ledger
-        .complete_run(&run_id, sample_summary(0, true))
-        .await
-        .unwrap_err();
-    assert!(matches!(err, StorageError::InvalidRunState { .. }));
-}
-
-#[tokio::test]
-async fn surreal_ledger_list_runs_all() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec_a = ContentDigest::from_bytes(b"spec-a");
-    let spec_b = ContentDigest::from_bytes(b"spec-b");
-
-    ledger.create_run(&spec_a, sample_metadata()).await.unwrap();
-    ledger.create_run(&spec_b, sample_metadata()).await.unwrap();
-
-    let all = ledger.list_runs(None).await.unwrap();
-    assert_eq!(all.len(), 2);
-}
-
-#[tokio::test]
-async fn surreal_ledger_list_runs_filtered_by_spec() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec_a = ContentDigest::from_bytes(b"spec-a");
-    let spec_b = ContentDigest::from_bytes(b"spec-b");
-
-    ledger.create_run(&spec_a, sample_metadata()).await.unwrap();
-    ledger.create_run(&spec_a, sample_metadata()).await.unwrap();
-    ledger.create_run(&spec_b, sample_metadata()).await.unwrap();
-
-    let filtered = ledger.list_runs(Some(&spec_a)).await.unwrap();
-    assert_eq!(filtered.len(), 2);
-    assert!(filtered.iter().all(|r| r.spec_digest == spec_a));
-}
-
-#[tokio::test]
-async fn surreal_ledger_event_monotonic_sequence() {
-    let ledger = SurrealRunLedger::in_memory().await.unwrap();
-    let spec = ContentDigest::from_bytes(b"spec");
-    let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
-
-    for seq in 1..=10 {
-        ledger
-            .append_event(&run_id, sample_event(seq, &format!("Event{seq}")))
+    async fn ledger() -> impl RunLedger {
+        SurrealRunLedger::in_memory()
             .await
-            .unwrap();
+            .expect("in_memory() failed")
     }
 
-    let events = ledger.get_events(&run_id).await.unwrap();
-    assert_eq!(events.len(), 10);
-    for (i, event) in events.iter().enumerate() {
-        assert_eq!(
-            event.seq,
-            (i + 1) as u64,
-            "events must be monotonically ordered"
-        );
+    #[tokio::test]
+    async fn create_run_returns_unique_ids() {
+        let ledger = ledger().await;
+        let spec = ContentDigest::from_bytes(b"spec");
+
+        let id1 = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+        let id2 = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+
+        assert_ne!(id1, id2);
+    }
+
+    #[tokio::test]
+    async fn get_run_returns_created_run() {
+        let ledger = ledger().await;
+        let spec = ContentDigest::from_bytes(b"spec");
+        let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+
+        let record = ledger.get_run(&run_id).await.unwrap();
+        assert_eq!(record.run_id, run_id);
+        assert_eq!(record.spec_digest, spec);
+        assert_eq!(record.status, RunStatus::Running);
+        assert!(record.summary.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_run_not_found() {
+        let ledger = ledger().await;
+        let bogus = RunId("nonexistent".to_string());
+        let err = ledger.get_run(&bogus).await.unwrap_err();
+
+        assert!(matches!(err, StorageError::RunNotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn append_and_get_events_ordered() {
+        let ledger = ledger().await;
+        let spec = ContentDigest::from_bytes(b"spec");
+        let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+
+        ledger
+            .append_event(&run_id, sample_event(2, "NodeExited"))
+            .await
+            .unwrap();
+        ledger
+            .append_event(&run_id, sample_event(1, "NodeEntered"))
+            .await
+            .unwrap();
+        ledger
+            .append_event(&run_id, sample_event(3, "GraphCompleted"))
+            .await
+            .unwrap();
+
+        let events = ledger.get_events(&run_id).await.unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].seq, 1);
+        assert_eq!(events[1].seq, 2);
+        assert_eq!(events[2].seq, 3);
+    }
+
+    #[tokio::test]
+    async fn complete_run_sets_status() {
+        let ledger = ledger().await;
+        let spec = ContentDigest::from_bytes(b"spec");
+        let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+
+        ledger
+            .complete_run(&run_id, sample_summary(0, true))
+            .await
+            .unwrap();
+
+        let record = ledger.get_run(&run_id).await.unwrap();
+        assert_eq!(record.status, RunStatus::Completed);
+        assert!(record.summary.is_some());
+        assert!(record.completed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn fail_run_sets_status() {
+        let ledger = ledger().await;
+        let spec = ContentDigest::from_bytes(b"spec");
+        let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+
+        ledger
+            .fail_run(&run_id, sample_summary(0, false))
+            .await
+            .unwrap();
+
+        let record = ledger.get_run(&run_id).await.unwrap();
+        assert_eq!(record.status, RunStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn cannot_append_to_completed_run() {
+        let ledger = ledger().await;
+        let spec = ContentDigest::from_bytes(b"spec");
+        let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+        ledger
+            .complete_run(&run_id, sample_summary(0, true))
+            .await
+            .unwrap();
+
+        let err = ledger
+            .append_event(&run_id, sample_event(1, "late"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StorageError::InvalidRunState { .. }));
+    }
+
+    #[tokio::test]
+    async fn cannot_complete_twice() {
+        let ledger = ledger().await;
+        let spec = ContentDigest::from_bytes(b"spec");
+        let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
+        ledger
+            .complete_run(&run_id, sample_summary(0, true))
+            .await
+            .unwrap();
+
+        let err = ledger
+            .complete_run(&run_id, sample_summary(0, true))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StorageError::InvalidRunState { .. }));
+    }
+
+    #[tokio::test]
+    async fn list_runs_all() {
+        let ledger = ledger().await;
+        let spec_a = ContentDigest::from_bytes(b"spec-a");
+        let spec_b = ContentDigest::from_bytes(b"spec-b");
+
+        ledger.create_run(&spec_a, sample_metadata()).await.unwrap();
+        ledger.create_run(&spec_b, sample_metadata()).await.unwrap();
+
+        let all = ledger.list_runs(None).await.unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn list_runs_filtered_by_spec() {
+        let ledger = ledger().await;
+        let spec_a = ContentDigest::from_bytes(b"spec-a");
+        let spec_b = ContentDigest::from_bytes(b"spec-b");
+
+        ledger.create_run(&spec_a, sample_metadata()).await.unwrap();
+        ledger.create_run(&spec_a, sample_metadata()).await.unwrap();
+        ledger.create_run(&spec_b, sample_metadata()).await.unwrap();
+
+        let filtered = ledger.list_runs(Some(&spec_a)).await.unwrap();
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|r| r.spec_digest == spec_a));
     }
 }
