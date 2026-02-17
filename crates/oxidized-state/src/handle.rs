@@ -38,7 +38,11 @@ pub struct CloudConfig {
 
 impl CloudConfig {
     /// Create a new cloud configuration for a database user
-    pub fn new(endpoint: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
+    pub fn new(
+        endpoint: impl Into<String>,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             username: username.into(),
@@ -50,7 +54,11 @@ impl CloudConfig {
     }
 
     /// Create a new cloud configuration for a root user
-    pub fn new_root(endpoint: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
+    pub fn new_root(
+        endpoint: impl Into<String>,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             username: username.into(),
@@ -89,16 +97,15 @@ impl CloudConfig {
     /// - SURREALDB_DATABASE (optional, default: "main")
     /// - SURREALDB_ROOT (optional, default: "false") - set to "true" for root users
     pub fn from_env() -> std::result::Result<Self, String> {
-        let endpoint = std::env::var("SURREALDB_ENDPOINT")
-            .map_err(|_| "SURREALDB_ENDPOINT not set")?;
-        let username = std::env::var("SURREALDB_USERNAME")
-            .map_err(|_| "SURREALDB_USERNAME not set")?;
-        let password = std::env::var("SURREALDB_PASSWORD")
-            .map_err(|_| "SURREALDB_PASSWORD not set")?;
-        let namespace = std::env::var("SURREALDB_NAMESPACE")
-            .unwrap_or_else(|_| "aivcs".to_string());
-        let database = std::env::var("SURREALDB_DATABASE")
-            .unwrap_or_else(|_| "main".to_string());
+        let endpoint =
+            std::env::var("SURREALDB_ENDPOINT").map_err(|_| "SURREALDB_ENDPOINT not set")?;
+        let username =
+            std::env::var("SURREALDB_USERNAME").map_err(|_| "SURREALDB_USERNAME not set")?;
+        let password =
+            std::env::var("SURREALDB_PASSWORD").map_err(|_| "SURREALDB_PASSWORD not set")?;
+        let namespace =
+            std::env::var("SURREALDB_NAMESPACE").unwrap_or_else(|_| "aivcs".to_string());
+        let database = std::env::var("SURREALDB_DATABASE").unwrap_or_else(|_| "main".to_string());
         let is_root = std::env::var("SURREALDB_ROOT")
             .map(|v| v.to_lowercase() == "true")
             .unwrap_or(false);
@@ -161,7 +168,9 @@ impl SurrealHandle {
 
         let db = surrealdb::engine::any::connect(&config.endpoint)
             .await
-            .map_err(|e| StateError::Connection(format!("Failed to connect to {}: {}", config.endpoint, e)))?;
+            .map_err(|e| {
+                StateError::Connection(format!("Failed to connect to {}: {}", config.endpoint, e))
+            })?;
 
         // Authenticate based on user type
         if config.is_root {
@@ -181,14 +190,18 @@ impl SurrealHandle {
                 password: &config.password,
             })
             .await
-            .map_err(|e| StateError::Connection(format!("Database authentication failed: {}", e)))?;
+            .map_err(|e| {
+                StateError::Connection(format!("Database authentication failed: {}", e))
+            })?;
         }
 
         // Select namespace and database
         db.use_ns(&config.namespace)
             .use_db(&config.database)
             .await
-            .map_err(|e| StateError::Connection(format!("Failed to select namespace/database: {}", e)))?;
+            .map_err(|e| {
+                StateError::Connection(format!("Failed to select namespace/database: {}", e))
+            })?;
 
         let handle = SurrealHandle { db };
         handle.init_schema().await?;
@@ -300,11 +313,7 @@ impl SurrealHandle {
         // Clone to owned value to satisfy SurrealDB lifetime requirements
         let record_owned = record.clone();
 
-        let created: Option<CommitRecord> = self
-            .db
-            .create("commits")
-            .content(record_owned)
-            .await?;
+        let created: Option<CommitRecord> = self.db.create("commits").content(record_owned).await?;
 
         created.ok_or_else(|| StateError::Transaction("Failed to create commit".to_string()))
     }
@@ -332,18 +341,23 @@ impl SurrealHandle {
     ///
     /// # TDD: test_snapshot_is_atomic_and_retrievable
     #[instrument(skip(self, commit_id, state))]
-    pub async fn save_snapshot(&self, commit_id: &CommitId, state: serde_json::Value) -> Result<()> {
+    pub async fn save_snapshot(
+        &self,
+        commit_id: &CommitId,
+        state: serde_json::Value,
+    ) -> Result<()> {
         debug!("Saving snapshot for commit {}", commit_id.short());
 
         let record = SnapshotRecord::new(&commit_id.hash, state);
 
-        let _created: Option<SnapshotRecord> = self
-            .db
-            .create("snapshots")
-            .content(record.clone())
-            .await?;
+        let _created: Option<SnapshotRecord> =
+            self.db.create("snapshots").content(record.clone()).await?;
 
-        info!("Snapshot saved: {} ({} bytes)", commit_id.short(), record.size_bytes);
+        info!(
+            "Snapshot saved: {} ({} bytes)",
+            commit_id.short(),
+            record.size_bytes
+        );
         Ok(())
     }
 
@@ -378,11 +392,7 @@ impl SurrealHandle {
 
         let edge = GraphEdge::new(child_id, parent_id);
 
-        let _created: Option<GraphEdge> = self
-            .db
-            .create("graph_edges")
-            .content(edge)
-            .await?;
+        let _created: Option<GraphEdge> = self.db.create("graph_edges").content(edge).await?;
 
         info!("Graph edge saved: {} -> {}", parent_id, child_id);
         Ok(())
@@ -461,11 +471,8 @@ impl SurrealHandle {
             // Create new branch - clone to owned
             let record_owned = record.clone();
 
-            let created: Option<BranchRecord> = self
-                .db
-                .create("branches")
-                .content(record_owned)
-                .await?;
+            let created: Option<BranchRecord> =
+                self.db.create("branches").content(record_owned).await?;
 
             created.ok_or_else(|| StateError::Transaction("Failed to create branch".to_string()))
         }
@@ -518,11 +525,7 @@ impl SurrealHandle {
 
         let record_owned = record.clone();
 
-        let created: Option<AgentRecord> = self
-            .db
-            .create("agents")
-            .content(record_owned)
-            .await?;
+        let created: Option<AgentRecord> = self.db.create("agents").content(record_owned).await?;
 
         created.ok_or_else(|| StateError::Transaction("Failed to register agent".to_string()))
     }
@@ -551,11 +554,8 @@ impl SurrealHandle {
 
         let record_owned = record.clone();
 
-        let created: Option<MemoryRecord> = self
-            .db
-            .create("memories")
-            .content(record_owned)
-            .await?;
+        let created: Option<MemoryRecord> =
+            self.db.create("memories").content(record_owned).await?;
 
         created.ok_or_else(|| StateError::Transaction("Failed to save memory".to_string()))
     }
@@ -579,7 +579,11 @@ impl SurrealHandle {
 
     /// Get commit history (walk back from a commit)
     #[instrument(skip(self))]
-    pub async fn get_commit_history(&self, start_commit: &str, limit: usize) -> Result<Vec<CommitRecord>> {
+    pub async fn get_commit_history(
+        &self,
+        start_commit: &str,
+        limit: usize,
+    ) -> Result<Vec<CommitRecord>> {
         let mut history = Vec::new();
         let mut current = Some(start_commit.to_string());
 
@@ -642,7 +646,10 @@ mod tests {
         let commit_id = CommitId::from_state(serde_json::to_vec(&state).unwrap().as_slice());
 
         // Save snapshot
-        handle.save_snapshot(&commit_id, state.clone()).await.unwrap();
+        handle
+            .save_snapshot(&commit_id, state.clone())
+            .await
+            .unwrap();
 
         // Retrieve snapshot
         let loaded = handle.load_snapshot(&commit_id.hash).await.unwrap();
@@ -659,7 +666,10 @@ mod tests {
         let child_id = "child-commit-hash";
 
         // Save edge
-        handle.save_commit_graph_edge(child_id, parent_id).await.unwrap();
+        handle
+            .save_commit_graph_edge(child_id, parent_id)
+            .await
+            .unwrap();
 
         // Verify parent can be retrieved
         let parent = handle.get_parent(child_id).await.unwrap();

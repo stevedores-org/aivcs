@@ -21,7 +21,9 @@ mod logic;
 
 pub use attic::{AtticClient, AtticConfig};
 pub use error::NixError;
-pub use flake::{FlakeMetadata, NixHash, HashSource, generate_environment_hash, get_flake_metadata};
+pub use flake::{
+    generate_environment_hash, get_flake_metadata, FlakeMetadata, HashSource, NixHash,
+};
 pub use logic::generate_logic_hash;
 
 /// Result type for nix-env-manager operations

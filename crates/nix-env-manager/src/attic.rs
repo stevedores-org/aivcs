@@ -29,8 +29,7 @@ impl Default for AtticConfig {
         AtticConfig {
             server_url: std::env::var("ATTIC_SERVER")
                 .unwrap_or_else(|_| "https://cache.nixos.org".to_string()),
-            cache_name: std::env::var("ATTIC_CACHE")
-                .unwrap_or_else(|_| "aivcs".to_string()),
+            cache_name: std::env::var("ATTIC_CACHE").unwrap_or_else(|_| "aivcs".to_string()),
             token: std::env::var("ATTIC_TOKEN").ok(),
             use_cli: true,
         }
@@ -102,12 +101,7 @@ impl AtticClient {
         let store_path = format!("/nix/store/{}-aivcs-env", hash.short());
 
         let output = Command::new("nix")
-            .args([
-                "path-info",
-                "--store",
-                &self.config.server_url,
-                &store_path,
-            ])
+            .args(["path-info", "--store", &self.config.server_url, &store_path])
             .output();
 
         match output {
@@ -120,7 +114,9 @@ impl AtticClient {
     async fn is_cached_http(&self, hash: &NixHash) -> bool {
         let url = format!(
             "{}/{}/{}.narinfo",
-            self.config.server_url, self.config.cache_name, hash.short()
+            self.config.server_url,
+            self.config.cache_name,
+            hash.short()
         );
 
         match self.http_client.head(&url).send().await {
@@ -148,12 +144,7 @@ impl AtticClient {
 
         // Try to fetch from cache
         let output = Command::new("nix")
-            .args([
-                "copy",
-                "--from",
-                &self.config.server_url,
-                &store_path,
-            ])
+            .args(["copy", "--from", &self.config.server_url, &store_path])
             .output()?;
 
         if output.status.success() {
