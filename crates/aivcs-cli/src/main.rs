@@ -86,6 +86,21 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
+    /// Replay a recorded run artifact by run ID
+    Replay {
+        /// Run ID to replay
+        #[arg(long)]
+        run: String,
+
+        /// Root directory containing run artifacts (default: .aivcs/runs)
+        #[arg(long)]
+        artifacts_dir: Option<PathBuf>,
+
+        /// Optional output file path for replayed artifact
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
     /// Manage branches
     Branch {
         #[command(subcommand)]
@@ -255,6 +270,11 @@ async fn main() -> Result<()> {
         Commands::Restore { commit, output } => {
             cmd_restore(&handle, &commit, output.as_deref()).await
         }
+        Commands::Replay {
+            run,
+            artifacts_dir,
+            output,
+        } => cmd_replay(&run, artifacts_dir.as_deref(), output.as_deref()),
         Commands::Branch { action } => match action {
             BranchAction::List => cmd_branch_list(&handle).await,
             BranchAction::Create { name, from } => cmd_branch_create(&handle, &name, &from).await,
@@ -415,6 +435,64 @@ async fn cmd_restore(
     Ok(())
 }
 
+/// Replay a recorded run artifact from disk.
+///
+/// Expected layout:
+/// - `<artifacts_dir>/<run_id>/output.json`
+/// - `<artifacts_dir>/<run_id>/output.digest`
+fn cmd_replay(
+    run_id: &str,
+    artifacts_dir: Option<&std::path::Path>,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    let root = artifacts_dir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(".aivcs/runs"));
+    let run_dir = root.join(run_id);
+    let output_path = run_dir.join("output.json");
+    let digest_path = run_dir.join("output.digest");
+
+    if !output_path.exists() {
+        anyhow::bail!("Recorded artifact not found: {:?}", output_path);
+    }
+    if !digest_path.exists() {
+        anyhow::bail!("Recorded digest not found: {:?}", digest_path);
+    }
+
+    let artifact_bytes = std::fs::read(&output_path)
+        .with_context(|| format!("Failed to read recorded artifact: {:?}", output_path))?;
+
+    // Validate artifact is JSON for replayability.
+    let _: serde_json::Value = serde_json::from_slice(&artifact_bytes)
+        .with_context(|| format!("Recorded artifact is not valid JSON: {:?}", output_path))?;
+
+    let expected_digest = std::fs::read_to_string(&digest_path)
+        .with_context(|| format!("Failed to read recorded digest: {:?}", digest_path))?
+        .trim()
+        .to_string();
+
+    let actual_digest = aivcs_core::Digest::compute(&artifact_bytes).to_hex();
+    if actual_digest != expected_digest {
+        anyhow::bail!(
+            "Replay digest mismatch for run {}: expected {}, got {}",
+            run_id,
+            expected_digest,
+            actual_digest
+        );
+    }
+
+    if let Some(path) = output {
+        std::fs::write(path, &artifact_bytes)
+            .with_context(|| format!("Failed to write replay output to {:?}", path))?;
+        println!("Replayed run {} to {:?}", run_id, path);
+    } else {
+        println!("{}", String::from_utf8_lossy(&artifact_bytes));
+    }
+
+    println!("Replay digest verified: {}", actual_digest);
+    Ok(())
+}
+
 /// List all branches
 async fn cmd_branch_list(handle: &SurrealHandle) -> Result<()> {
     let branches = handle.list_branches().await?;
@@ -450,23 +528,22 @@ async fn cmd_branch_create(handle: &SurrealHandle, name: &str, from: &str) -> Re
     let branch = BranchRecord::new(name, &head_commit, false);
     handle.save_branch(&branch).await?;
 
-    println!("Created branch '{}' at {}", name, &head_commit[..8]);
+    println!(
+        "Created branch '{}' at {}",
+        name,
+        &head_commit[..8.min(head_commit.len())]
+    );
 
     Ok(())
 }
 
 /// Delete a branch
 async fn cmd_branch_delete(handle: &SurrealHandle, name: &str) -> Result<()> {
-    let branch = handle
-        .get_branch(name)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Branch not found: {}", name))?;
+    handle
+        .delete_branch(name)
+        .await
+        .context(format!("Failed to delete branch '{}'", name))?;
 
-    if branch.is_default {
-        anyhow::bail!("Cannot delete the default branch");
-    }
-
-    // TODO: Actually delete the branch from DB
     println!("Deleted branch '{}'", name);
 
     Ok(())
@@ -987,5 +1064,38 @@ mod tests {
 
         assert_eq!(expected_sha.len(), 40);
         assert!(expected_sha.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_replay_golden_digest_equality() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let run_id = "run-golden-1";
+        let run_dir = temp_dir.path().join(run_id);
+        std::fs::create_dir_all(&run_dir).unwrap();
+
+        let output_bytes = br#"{"result":"ok","tokens":42}"#;
+        std::fs::write(run_dir.join("output.json"), output_bytes).unwrap();
+        let digest = aivcs_core::Digest::compute(output_bytes).to_hex();
+        std::fs::write(run_dir.join("output.digest"), format!("{}\n", digest)).unwrap();
+
+        let replayed = temp_dir.path().join("replayed.json");
+        let result = cmd_replay(run_id, Some(temp_dir.path()), Some(replayed.as_path()));
+        assert!(result.is_ok(), "replay failed: {:?}", result.err());
+
+        let written = std::fs::read(replayed).unwrap();
+        assert_eq!(written, output_bytes);
+    }
+
+    #[test]
+    fn test_replay_missing_artifact_rejected() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let run_id = "run-missing-1";
+
+        let err = cmd_replay(run_id, Some(temp_dir.path()), None).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("Recorded artifact not found"),
+            "unexpected error: {msg}"
+        );
     }
 }

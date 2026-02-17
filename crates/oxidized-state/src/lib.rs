@@ -31,11 +31,12 @@ pub use handle::{CloudConfig, SurrealHandle};
 pub use migrations::init_schema;
 pub use schema::{
     AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord,
-    ReleaseRecordSchema, RunEventRecord, RunRecord, SnapshotRecord,
+    ReleaseRecordSchema, RunEventRecord as DbRunEventRecord, RunRecord as DbRunRecord,
+    SnapshotRecord,
 };
 pub use storage_traits::{
     CasStore, ContentDigest, ReleaseMetadata, ReleaseRecord, ReleaseRegistry, RunEvent, RunId,
-    RunLedger, RunMetadata, RunStatus, RunSummary, StorageResult,
+    RunLedger, RunMetadata, RunRecord, RunStatus, RunSummary, StorageResult,
 };
 pub use surreal_ledger::SurrealRunLedger;
 pub use surreal_release_registry::SurrealDbReleaseRegistry;

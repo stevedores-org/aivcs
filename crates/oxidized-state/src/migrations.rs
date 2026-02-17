@@ -58,11 +58,10 @@ async fn init_runs_table(db: &Surreal<Any>) -> Result<()> {
 
     // Create table with constraints
     let sql = r#"
-        DEFINE TABLE runs AS
-            SCHEMALESS
+        DEFINE TABLE runs SCHEMALESS
             PERMISSIONS
                 FOR create FULL
-                FOR read FULL
+                FOR select FULL
                 FOR update FULL
                 FOR delete NONE;
 
@@ -79,10 +78,10 @@ async fn init_runs_table(db: &Surreal<Any>) -> Result<()> {
         DEFINE INDEX idx_git_sha ON TABLE runs COLUMNS git_sha;
 
         -- Index created_at for time-range queries
-        DEFINE INDEX idx_created_at ON TABLE runs COLUMNS created_at DESC;
+        DEFINE INDEX idx_created_at ON TABLE runs COLUMNS created_at;
 
         -- Composite index (spec_digest, created_at) for fast agent version history
-        DEFINE INDEX idx_spec_digest_created_at ON TABLE runs COLUMNS spec_digest, created_at DESC;
+        DEFINE INDEX idx_spec_digest_created_at ON TABLE runs COLUMNS spec_digest, created_at;
 
         -- Composite index (run_id, status) for state queries
         DEFINE INDEX idx_run_id_status ON TABLE runs COLUMNS run_id, status;
@@ -114,11 +113,10 @@ async fn init_run_events_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing run_events table");
 
     let sql = r#"
-        DEFINE TABLE run_events AS
-            SCHEMALESS
+        DEFINE TABLE run_events SCHEMALESS
             PERMISSIONS
                 FOR create FULL
-                FOR read FULL
+                FOR select FULL
                 FOR update NONE
                 FOR delete NONE;
 
@@ -166,20 +164,19 @@ async fn init_releases_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing releases table");
 
     let sql = r#"
-        DEFINE TABLE releases AS
-            SCHEMALESS
+        DEFINE TABLE releases SCHEMALESS
             PERMISSIONS
                 FOR create FULL
-                FOR read FULL
+                FOR select FULL
                 FOR update NONE
                 FOR delete NONE;
 
         -- Index agent_name for finding releases by agent
         DEFINE INDEX idx_agent_name ON TABLE releases COLUMNS agent_name;
 
-        -- Composite index (agent_name, created_at DESC) for fast history retrieval
+        -- Composite index (agent_name, created_at) for fast history retrieval
         -- Newer releases first
-        DEFINE INDEX idx_agent_name_created_at ON TABLE releases COLUMNS agent_name, created_at DESC;
+        DEFINE INDEX idx_agent_name_created_at ON TABLE releases COLUMNS agent_name, created_at;
 
         -- Index spec_digest for reverse lookup (which agents have this version)
         DEFINE INDEX idx_spec_digest ON TABLE releases COLUMNS spec_digest;
@@ -198,11 +195,10 @@ async fn init_commits_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing commits table");
 
     let sql = r#"
-        DEFINE TABLE commits AS
-            SCHEMALESS
+        DEFINE TABLE commits SCHEMALESS
             PERMISSIONS
                 FOR create FULL
-                FOR read FULL
+                FOR select FULL
                 FOR update FULL
                 FOR delete NONE;
 
@@ -222,11 +218,10 @@ async fn init_branches_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing branches table");
 
     let sql = r#"
-        DEFINE TABLE branches AS
-            SCHEMALESS
+        DEFINE TABLE branches SCHEMALESS
             PERMISSIONS
                 FOR create FULL
-                FOR read FULL
+                FOR select FULL
                 FOR update FULL
                 FOR delete FULL;
 
