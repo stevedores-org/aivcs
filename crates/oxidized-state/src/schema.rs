@@ -150,12 +150,7 @@ pub struct CommitRecord {
 
 impl CommitRecord {
     /// Create a new commit record
-    pub fn new(
-        commit_id: CommitId,
-        parent_ids: Vec<String>,
-        message: &str,
-        author: &str,
-    ) -> Self {
+    pub fn new(commit_id: CommitId, parent_ids: Vec<String>, message: &str, author: &str) -> Self {
         CommitRecord {
             id: None,
             commit_id,

@@ -333,7 +333,8 @@ async fn cmd_snapshot(
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
     let git_sha = match git_sha_override {
         Some(sha) => sha.to_string(),
-        None => aivcs_core::capture_head_sha(&cwd).unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string()),
+        None => aivcs_core::capture_head_sha(&cwd)
+            .unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string()),
     };
 
     // Generate logic and environment hashes for composite CommitId
@@ -350,7 +351,9 @@ async fn cmd_snapshot(
         .map_err(|e| anyhow::anyhow!("CAS put failed: {e}"))?;
 
     // Get parent commit from branch
-    let parent_ids = handle.get_branch(branch).await?
+    let parent_ids = handle
+        .get_branch(branch)
+        .await?
         .map(|b| vec![b.head_commit_id])
         .unwrap_or_default();
 
@@ -457,7 +460,11 @@ async fn cmd_branch_create(handle: &SurrealHandle, name: &str, from: &str) -> Re
     let branch = BranchRecord::new(name, &head_commit, false);
     handle.save_branch(&branch).await?;
 
-    println!("Created branch '{}' at {}", name, &head_commit[..8.min(head_commit.len())]);
+    println!(
+        "Created branch '{}' at {}",
+        name,
+        &head_commit[..8.min(head_commit.len())]
+    );
 
     Ok(())
 }

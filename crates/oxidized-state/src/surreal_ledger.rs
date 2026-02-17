@@ -354,9 +354,12 @@ impl RunLedger for SurrealRunLedger {
             .take(0)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
 
-        let row = rows.into_iter().next().ok_or_else(|| StorageError::RunNotFound {
-            run_id: run_id.0.clone(),
-        })?;
+        let row = rows
+            .into_iter()
+            .next()
+            .ok_or_else(|| StorageError::RunNotFound {
+                run_id: run_id.0.clone(),
+            })?;
 
         self.run_row_to_record(row)
     }
@@ -380,10 +383,7 @@ impl RunLedger for SurrealRunLedger {
         let events = rows
             .into_iter()
             .map(|row| {
-                let timestamp = row
-                    .timestamp
-                    .parse()
-                    .unwrap_or_else(|_| Utc::now());
+                let timestamp = row.timestamp.parse().unwrap_or_else(|_| Utc::now());
                 RunEvent {
                     seq: row.seq,
                     kind: row.kind,
@@ -422,7 +422,9 @@ impl RunLedger for SurrealRunLedger {
                 .map_err(|e| StorageError::Serialization(e.to_string()))?
         };
 
-        rows.into_iter().map(|r| self.run_row_to_record(r)).collect()
+        rows.into_iter()
+            .map(|r| self.run_row_to_record(r))
+            .collect()
     }
 }
 
@@ -469,7 +471,10 @@ mod tests {
     #[tokio::test]
     async fn get_run_not_found() {
         let ledger = make_ledger().await;
-        let err = ledger.get_run(&RunId("nonexistent".into())).await.unwrap_err();
+        let err = ledger
+            .get_run(&RunId("nonexistent".into()))
+            .await
+            .unwrap_err();
         assert!(matches!(err, StorageError::RunNotFound { .. }));
     }
 
@@ -670,7 +675,11 @@ mod tests {
         let events = ledger.get_events(&run_id).await.unwrap();
         assert_eq!(events.len(), 10);
         for (i, event) in events.iter().enumerate() {
-            assert_eq!(event.seq, (i + 1) as u64, "events must be monotonically ordered");
+            assert_eq!(
+                event.seq,
+                (i + 1) as u64,
+                "events must be monotonically ordered"
+            );
         }
     }
 }

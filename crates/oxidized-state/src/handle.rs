@@ -230,10 +230,16 @@ impl SurrealHandle {
             // Default to local persistence in .aivcs/db
             let path = ".aivcs/db";
             std::fs::create_dir_all(path).map_err(|e| {
-                StateError::Connection(format!("Failed to create database directory {}: {}", path, e))
+                StateError::Connection(format!(
+                    "Failed to create database directory {}: {}",
+                    path, e
+                ))
             })?;
             let url = format!("surrealkv://{}", path);
-            info!("No cloud config or SURREALDB_URL found, using local persistence: {}", url);
+            info!(
+                "No cloud config or SURREALDB_URL found, using local persistence: {}",
+                url
+            );
             url
         };
 
