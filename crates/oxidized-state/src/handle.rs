@@ -563,6 +563,16 @@ impl SurrealHandle {
         Ok(branches)
     }
 
+    /// Delete a branch by name
+    #[instrument(skip(self), fields(branch_name = %name))]
+    pub async fn delete_branch(&self, name: &str) -> Result<()> {
+        debug!("Deleting branch");
+
+        let _: Option<BranchRecord> = self.db.delete(("branches", name)).await?;
+
+        Ok(())
+    }
+
     // ========== Agent Operations ==========
 
     /// Register an agent

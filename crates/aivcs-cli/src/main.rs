@@ -466,7 +466,7 @@ async fn cmd_branch_delete(handle: &SurrealHandle, name: &str) -> Result<()> {
         anyhow::bail!("Cannot delete the default branch");
     }
 
-    // TODO: Actually delete the branch from DB
+    handle.delete_branch(name).await?;
     println!("Deleted branch '{}'", name);
 
     Ok(())
