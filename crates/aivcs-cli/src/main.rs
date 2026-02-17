@@ -825,24 +825,26 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
-        cmd_snapshot(&handle, &state_path, "Base", "agent", "main").await.unwrap();
+        cmd_snapshot(&handle, &state_path, "Base", "agent", "main")
+            .await
+            .unwrap();
 
         // Run fork command
-        let result = cmd_fork(
-            &handle,
-            "main",
-            2,
-            "test-fork",
-        ).await;
+        let result = cmd_fork(&handle, "main", 2, "test-fork").await;
 
         assert!(result.is_ok(), "Fork failed: {:?}", result.err());
 
         // Verify branches exist in the original handle
         let branches = handle.list_branches().await.unwrap();
-        let fork_branches: Vec<_> = branches.iter()
+        let fork_branches: Vec<_> = branches
+            .iter()
             .filter(|b| b.name.starts_with("test-fork"))
             .collect();
 
-        assert_eq!(fork_branches.len(), 2, "Should have created 2 branches in the same DB");
+        assert_eq!(
+            fork_branches.len(),
+            2,
+            "Should have created 2 branches in the same DB"
+        );
     }
 }

@@ -2,6 +2,7 @@
 //!
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
+pub mod cas;
 pub mod domain;
 pub mod parallel;
 
@@ -24,6 +25,9 @@ pub use semantic_rag_merge::{
     diff_memory_vectors, resolve_conflict_state, semantic_merge, synthesize_memory,
     AutoResolvedValue, MemoryConflict, MergeResult, VectorStoreDelta,
 };
+
+pub use cas::fs::FsCasStore;
+pub use cas::{CasError, CasStore, Digest};
 
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
