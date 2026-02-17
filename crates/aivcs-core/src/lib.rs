@@ -6,6 +6,7 @@ pub mod cas;
 pub mod diff;
 pub mod domain;
 pub mod event_adapter;
+pub mod gate;
 pub mod git;
 pub mod parallel;
 pub mod recording;
@@ -55,6 +56,9 @@ pub use diff::state_diff::{
     CHECKPOINT_SAVED_KIND,
 };
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
+pub use gate::{
+    evaluate_gate, CaseResult, EvalReport, GateRule, GateRuleSet, GateVerdict, Violation,
+};
 pub use recording::GraphRunRecorder;
 pub use replay::{replay_run, ReplaySummary};
 
