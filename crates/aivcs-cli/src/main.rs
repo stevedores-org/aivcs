@@ -299,7 +299,7 @@ async fn cmd_init(handle: &SurrealHandle, path: &PathBuf) -> Result<()> {
     handle.save_snapshot(&commit_id, initial_state).await?;
 
     // Create initial commit record
-    let commit = CommitRecord::new(commit_id.clone(), None, "Initial commit", "system");
+    let commit = CommitRecord::new(commit_id.clone(), vec![], "Initial commit", "system");
     handle.save_commit(&commit).await?;
 
     // Create main branch
@@ -329,15 +329,16 @@ async fn cmd_snapshot(
     let state: serde_json::Value =
         serde_json::from_str(&state_content).context("Failed to parse state as JSON")?;
 
-    // Resolve git SHA: use override, or auto-detect from cwd
+    // Resolve git SHA: use override, or auto-detect from cwd (optional)
+    let cwd = std::env::current_dir().context("Failed to get current directory")?;
     let git_sha = match git_sha_override {
         Some(sha) => sha.to_string(),
-        None => {
-            let cwd = std::env::current_dir().context("Failed to get current directory")?;
-            aivcs_core::capture_head_sha(&cwd)
-                .map_err(|e| anyhow::anyhow!("git SHA capture failed: {e}"))?
-        }
+        None => aivcs_core::capture_head_sha(&cwd).unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string()),
     };
+
+    // Generate logic and environment hashes for composite CommitId
+    let logic_hash = generate_logic_hash(&cwd.join("src")).ok();
+    let env_hash = generate_environment_hash(&cwd).ok();
 
     // Store state in CAS
     let cas_root = cas_dir
@@ -349,20 +350,26 @@ async fn cmd_snapshot(
         .map_err(|e| anyhow::anyhow!("CAS put failed: {e}"))?;
 
     // Get parent commit from branch
-    let parent_id = handle.get_branch(branch).await?.map(|b| b.head_commit_id);
+    let parent_ids = handle.get_branch(branch).await?
+        .map(|b| vec![b.head_commit_id])
+        .unwrap_or_default();
 
-    // Create commit ID
-    let commit_id = CommitId::from_state(state_content.as_bytes());
+    // Create composite commit ID
+    let commit_id = CommitId::new(
+        logic_hash.as_deref(),
+        &cas_digest.to_hex(),
+        env_hash.as_ref().map(|h| h.hash.as_str()),
+    );
 
     // Save snapshot to SurrealDB
     handle.save_snapshot(&commit_id, state).await?;
 
     // Create commit record
-    let commit = CommitRecord::new(commit_id.clone(), parent_id.clone(), message, author);
+    let commit = CommitRecord::new(commit_id.clone(), parent_ids.clone(), message, author);
     handle.save_commit(&commit).await?;
 
-    // Create graph edge if there's a parent
-    if let Some(pid) = &parent_id {
+    // Create graph edges for all parents
+    for pid in &parent_ids {
         handle.save_commit_graph_edge(&commit_id.hash, pid).await?;
     }
 
@@ -430,7 +437,7 @@ async fn cmd_branch_list(handle: &SurrealHandle) -> Result<()> {
             "{}{} -> {}",
             prefix,
             branch.name,
-            &branch.head_commit_id[..8]
+            &branch.head_commit_id[..8.min(branch.head_commit_id.len())]
         );
     }
 
@@ -450,7 +457,7 @@ async fn cmd_branch_create(handle: &SurrealHandle, name: &str, from: &str) -> Re
     let branch = BranchRecord::new(name, &head_commit, false);
     handle.save_branch(&branch).await?;
 
-    println!("Created branch '{}' at {}", name, &head_commit[..8]);
+    println!("Created branch '{}' at {}", name, &head_commit[..8.min(head_commit.len())]);
 
     Ok(())
 }
@@ -466,7 +473,7 @@ async fn cmd_branch_delete(handle: &SurrealHandle, name: &str) -> Result<()> {
         anyhow::bail!("Cannot delete the default branch");
     }
 
-    // TODO: Actually delete the branch from DB
+    handle.delete_branch(name).await?;
     println!("Deleted branch '{}'", name);
 
     Ok(())
@@ -569,11 +576,14 @@ async fn cmd_diff(handle: &SurrealHandle, a: &str, b: &str) -> Result<()> {
 
     let delta = semantic_rag_merge::diff_memory_vectors(handle, &commit_a, &commit_b).await?;
 
-    println!("Diff {} -> {}", &commit_a[..8], &commit_b[..8]);
+    let a_short = &commit_a[..8.min(commit_a.len())];
+    let b_short = &commit_b[..8.min(commit_b.len())];
+
+    println!("Diff {} -> {}", a_short, b_short);
     println!();
 
     if !delta.only_in_a.is_empty() {
-        println!("Only in {}:", &commit_a[..8]);
+        println!("Only in {}:", a_short);
         for mem in &delta.only_in_a {
             println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
         }
@@ -581,7 +591,7 @@ async fn cmd_diff(handle: &SurrealHandle, a: &str, b: &str) -> Result<()> {
     }
 
     if !delta.only_in_b.is_empty() {
-        println!("Only in {}:", &commit_b[..8]);
+        println!("Only in {}:", b_short);
         for mem in &delta.only_in_b {
             println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
         }

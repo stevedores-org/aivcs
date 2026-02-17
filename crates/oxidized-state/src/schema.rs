@@ -135,8 +135,8 @@ pub struct CommitRecord {
     pub id: Option<surrealdb::sql::Thing>,
     /// The commit ID (composite hash)
     pub commit_id: CommitId,
-    /// Parent commit ID (None for root commits)
-    pub parent_id: Option<String>,
+    /// Parent commit IDs (empty for root commits)
+    pub parent_ids: Vec<String>,
     /// Commit message
     pub message: String,
     /// Author/agent that created the commit
@@ -152,14 +152,14 @@ impl CommitRecord {
     /// Create a new commit record
     pub fn new(
         commit_id: CommitId,
-        parent_id: Option<String>,
+        parent_ids: Vec<String>,
         message: &str,
         author: &str,
     ) -> Self {
         CommitRecord {
             id: None,
             commit_id,
-            parent_id,
+            parent_ids,
             message: message.to_string(),
             author: author.to_string(),
             created_at: Utc::now(),

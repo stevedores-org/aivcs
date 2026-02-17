@@ -230,12 +230,14 @@ fn hash_directory_recursive(dir: &Path, hasher: &mut Sha256) -> Result<()> {
             continue;
         }
 
-        // Hash the relative path
+        // Hash the relative path with separator
         hasher.update(name.as_bytes());
+        hasher.update(b"\0");
 
         if path.is_file() {
             let content = std::fs::read(&path)?;
             hasher.update(&content);
+            hasher.update(b"\0");
         } else if path.is_dir() {
             hash_directory_recursive(&path, hasher)?;
         }

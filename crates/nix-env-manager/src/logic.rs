@@ -43,11 +43,13 @@ fn hash_rust_file(path: &Path, hasher: &mut Sha256) -> Result<()> {
     // Include the filename in the hash for uniqueness
     if let Some(name) = path.file_name() {
         hasher.update(name.to_string_lossy().as_bytes());
+        hasher.update(b"\0");
     }
 
     // Normalize line endings and hash content
     let normalized = normalize_source(&content);
     hasher.update(&normalized);
+    hasher.update(b"\0");
 
     Ok(())
 }
@@ -63,10 +65,12 @@ fn hash_rust_directory(dir: &Path, hasher: &mut Sha256) -> Result<()> {
         // Hash relative path for consistency across machines
         let relative = path.strip_prefix(dir).unwrap_or(&path);
         hasher.update(relative.to_string_lossy().as_bytes());
+        hasher.update(b"\0");
 
         let content = std::fs::read(&path)?;
         let normalized = normalize_source(&content);
         hasher.update(&normalized);
+        hasher.update(b"\0");
     }
 
     Ok(())

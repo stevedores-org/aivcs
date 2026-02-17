@@ -67,7 +67,7 @@ impl SurrealRunLedger {
         Ok(ledger)
     }
 
-    /// Create from environment (SURREALDB_ENDPOINT or in-memory fallback).
+    /// Create from environment (SURREALDB_ENDPOINT or local fallback).
     pub async fn from_env() -> std::result::Result<Self, StorageError> {
         if let Ok(endpoint) = std::env::var("SURREALDB_ENDPOINT") {
             let db = surrealdb::engine::any::connect(&endpoint)
@@ -117,7 +117,24 @@ impl SurrealRunLedger {
             ledger.init_schema().await?;
             Ok(ledger)
         } else {
-            Self::in_memory().await
+            // Default to local persistence
+            let path = ".aivcs/ledger";
+            std::fs::create_dir_all(path).map_err(|e| {
+                StorageError::Backend(format!("Failed to create ledger directory {}: {}", path, e))
+            })?;
+            let url = format!("surrealkv://{}", path);
+            let db = surrealdb::engine::any::connect(&url)
+                .await
+                .map_err(|e| StorageError::Backend(format!("connect to {url}: {e}")))?;
+
+            db.use_ns("aivcs")
+                .use_db("ledger")
+                .await
+                .map_err(|e| StorageError::Backend(e.to_string()))?;
+
+            let ledger = Self { db };
+            ledger.init_schema().await?;
+            Ok(ledger)
         }
     }
 
