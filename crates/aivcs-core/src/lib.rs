@@ -10,9 +10,9 @@ pub mod parallel;
 pub mod recording;
 
 pub use domain::{
-    AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
-    EventKind, Release, ReleaseEnvironment, ReleasePointer, Result, Run, RunStatus, ScorerConfig,
-    ScorerType, SnapshotMeta,
+    AgentSpec, AgentSpecFields, AivcsError, DeterministicEvalRunner, EvalCaseResult, EvalRunReport,
+    EvalSuite, EvalTestCase, EvalThresholds, Event, EventKind, Release, ReleaseEnvironment,
+    ReleasePointer, Result, Run, RunStatus, ScorerConfig, ScorerType, SnapshotMeta,
 };
 
 pub use git::{capture_head_sha, is_git_repo};
