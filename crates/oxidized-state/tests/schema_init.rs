@@ -3,7 +3,7 @@
 //! These tests verify that the migration functions properly initialize
 //! all tables with correct constraints and indexes.
 
-use oxidized_state::{ReleaseRecordSchema, RunEventRecord, RunRecord};
+use oxidized_state::{DbRunEventRecord as RunEventRecord, DbRunRecord as RunRecord, ReleaseRecordSchema};
 use serde_json::json;
 
 // Note: Full schema initialization test requires a running SurrealDB instance.
