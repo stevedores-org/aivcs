@@ -461,19 +461,11 @@ async fn cmd_branch_create(handle: &SurrealHandle, name: &str, from: &str) -> Re
 
 /// Delete a branch
 async fn cmd_branch_delete(handle: &SurrealHandle, name: &str) -> Result<()> {
-    let branch = handle
-        .get_branch(name)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Branch not found: {}", name))?;
-
-    if branch.is_default {
-        anyhow::bail!("Cannot delete the default branch");
-    }
-
     handle
         .delete_branch(name)
         .await
         .context(format!("Failed to delete branch '{}'", name))?;
+
     println!("Deleted branch '{}'", name);
 
     Ok(())
