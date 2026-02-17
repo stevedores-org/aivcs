@@ -154,8 +154,8 @@ fn hash_flake_lock(lock_path: &Path) -> Result<NixHash> {
     let content = std::fs::read(lock_path)?;
 
     // Parse to validate and normalize
-    let locks: FlakeLocks = serde_json::from_slice(&content)
-        .map_err(|e| NixError::InvalidFlakeLock(e.to_string()))?;
+    let locks: FlakeLocks =
+        serde_json::from_slice(&content).map_err(|e| NixError::InvalidFlakeLock(e.to_string()))?;
 
     // Re-serialize for consistent hashing (handles formatting differences)
     let normalized = serde_json::to_vec(&locks)?;
@@ -216,9 +216,7 @@ fn hash_directory_recursive(dir: &Path, hasher: &mut Sha256) -> Result<()> {
         return Ok(());
     }
 
-    let mut entries: Vec<_> = std::fs::read_dir(dir)?
-        .filter_map(|e| e.ok())
-        .collect();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
 
     // Sort for deterministic ordering
     entries.sort_by_key(|e| e.path());
@@ -308,7 +306,10 @@ mod tests {
 
     #[test]
     fn test_nix_hash_short() {
-        let hash = NixHash::new("abc123def456789012345678901234567890123456789012345678901234".to_string(), HashSource::FlakeLock);
+        let hash = NixHash::new(
+            "abc123def456789012345678901234567890123456789012345678901234".to_string(),
+            HashSource::FlakeLock,
+        );
         assert_eq!(hash.short(), "abc123def456");
     }
 
@@ -357,7 +358,10 @@ mod tests {
         std::fs::write(&lock_path, lock_v2).unwrap();
         let hash2 = hash_flake_lock(&lock_path).unwrap();
 
-        assert_ne!(hash1.hash, hash2.hash, "Different inputs should produce different hashes");
+        assert_ne!(
+            hash1.hash, hash2.hash,
+            "Different inputs should produce different hashes"
+        );
     }
 
     #[test]
@@ -404,9 +408,17 @@ mod tests {
 
         // Create both flake.nix and flake.lock
         std::fs::write(dir.path().join("flake.nix"), "{ }").unwrap();
-        std::fs::write(dir.path().join("flake.lock"), r#"{"version": 7, "root": "root", "nodes": {"root": {}}}"#).unwrap();
+        std::fs::write(
+            dir.path().join("flake.lock"),
+            r#"{"version": 7, "root": "root", "nodes": {"root": {}}}"#,
+        )
+        .unwrap();
 
         let hash = generate_environment_hash(dir.path()).unwrap();
-        assert_eq!(hash.source, HashSource::FlakeLock, "Should prefer flake.lock when available");
+        assert_eq!(
+            hash.source,
+            HashSource::FlakeLock,
+            "Should prefer flake.lock when available"
+        );
     }
 }

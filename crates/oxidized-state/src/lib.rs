@@ -15,13 +15,19 @@
 //! - `GraphEdge`: Schema mapping to the Graph Layer (Commit -> Parent)
 
 mod error;
+pub mod fakes;
 mod handle;
 mod schema;
+pub mod storage_traits;
 
-pub use error::StateError;
+pub use error::{StateError, StorageError};
 pub use handle::{CloudConfig, SurrealHandle};
 pub use schema::{
     AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord, SnapshotRecord,
+};
+pub use storage_traits::{
+    CasStore, ContentDigest, ReleaseMetadata, ReleaseRecord, ReleaseRegistry, RunEvent, RunId,
+    RunLedger, RunMetadata, RunRecord, RunStatus, RunSummary, StorageResult,
 };
 
 /// Result type for oxidized-state operations

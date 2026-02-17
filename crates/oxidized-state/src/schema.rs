@@ -122,7 +122,12 @@ pub struct CommitRecord {
 
 impl CommitRecord {
     /// Create a new commit record
-    pub fn new(commit_id: CommitId, parent_id: Option<String>, message: &str, author: &str) -> Self {
+    pub fn new(
+        commit_id: CommitId,
+        parent_id: Option<String>,
+        message: &str,
+        author: &str,
+    ) -> Self {
         CommitRecord {
             id: None,
             commit_id,
@@ -369,11 +374,7 @@ mod tests {
 
     #[test]
     fn test_composite_commit_id() {
-        let commit_id = CommitId::new(
-            Some("logic-hash"),
-            "state-hash",
-            Some("env-hash"),
-        );
+        let commit_id = CommitId::new(Some("logic-hash"), "state-hash", Some("env-hash"));
 
         assert!(!commit_id.hash.is_empty());
         assert_eq!(commit_id.logic_hash, Some("logic-hash".to_string()));

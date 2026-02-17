@@ -117,19 +117,20 @@ pub async fn resolve_conflict_state(
     // TODO: Implement LLM-based conflict resolution
     // For now, use a simple heuristic: prefer the longer content
 
-    let (value, favored, reasoning) = if conflict.memory_a.content.len() >= conflict.memory_b.content.len() {
-        (
-            serde_json::json!({"content": conflict.memory_a.content}),
-            Some("A".to_string()),
-            "Chose branch A: more detailed content".to_string(),
-        )
-    } else {
-        (
-            serde_json::json!({"content": conflict.memory_b.content}),
-            Some("B".to_string()),
-            "Chose branch B: more detailed content".to_string(),
-        )
-    };
+    let (value, favored, reasoning) =
+        if conflict.memory_a.content.len() >= conflict.memory_b.content.len() {
+            (
+                serde_json::json!({"content": conflict.memory_a.content}),
+                Some("A".to_string()),
+                "Chose branch A: more detailed content".to_string(),
+            )
+        } else {
+            (
+                serde_json::json!({"content": conflict.memory_b.content}),
+                Some("B".to_string()),
+                "Chose branch B: more detailed content".to_string(),
+            )
+        };
 
     Ok(AutoResolvedValue {
         value,
@@ -172,7 +173,9 @@ pub async fn synthesize_memory(
         let merged_mem = MemoryRecord::new(
             new_commit_id,
             &conflict.key,
-            resolved.value.get("content")
+            resolved
+                .value
+                .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or(&conflict.memory_a.content),
         )
@@ -200,7 +203,8 @@ pub async fn semantic_merge(
     let merge_commit_id = CommitId::from_state(state_data.as_bytes());
 
     // Synthesize memories
-    let merged_memories = synthesize_memory(handle, commit_a, commit_b, &merge_commit_id.hash).await?;
+    let merged_memories =
+        synthesize_memory(handle, commit_a, commit_b, &merge_commit_id.hash).await?;
 
     // Save merged memories
     for mem in &merged_memories {
@@ -217,8 +221,12 @@ pub async fn semantic_merge(
     handle.save_commit(&commit).await?;
 
     // Save graph edges for both parents
-    handle.save_commit_graph_edge(&merge_commit_id.hash, commit_a).await?;
-    handle.save_commit_graph_edge(&merge_commit_id.hash, commit_b).await?;
+    handle
+        .save_commit_graph_edge(&merge_commit_id.hash, commit_a)
+        .await?;
+    handle
+        .save_commit_graph_edge(&merge_commit_id.hash, commit_b)
+        .await?;
 
     // Get delta for summary
     let delta = diff_memory_vectors(handle, commit_a, commit_b).await?;
@@ -256,7 +264,9 @@ mod tests {
         handle.save_memory(&mem_b1).await.unwrap();
         handle.save_memory(&mem_b2).await.unwrap();
 
-        let delta = diff_memory_vectors(&handle, "commit-a", "commit-b").await.unwrap();
+        let delta = diff_memory_vectors(&handle, "commit-a", "commit-b")
+            .await
+            .unwrap();
 
         assert_eq!(delta.only_in_a.len(), 1);
         assert_eq!(delta.only_in_a[0].key, "only-a-key");
@@ -276,7 +286,9 @@ mod tests {
         handle.save_memory(&mem_a).await.unwrap();
         handle.save_memory(&mem_b).await.unwrap();
 
-        let delta = diff_memory_vectors(&handle, "commit-a", "commit-b").await.unwrap();
+        let delta = diff_memory_vectors(&handle, "commit-a", "commit-b")
+            .await
+            .unwrap();
 
         assert_eq!(delta.conflicts.len(), 1);
         assert_eq!(delta.conflicts[0].key, "conflict-key");
@@ -323,10 +335,16 @@ mod tests {
         handle.save_commit(&commit_b).await.unwrap();
 
         // Add unique memories to each branch
-        let mem_a_only = MemoryRecord::new(&commit_id_a.hash, "learned-from-a", "Strategy A knowledge");
-        let mem_b_only = MemoryRecord::new(&commit_id_b.hash, "learned-from-b", "Strategy B knowledge");
+        let mem_a_only =
+            MemoryRecord::new(&commit_id_a.hash, "learned-from-a", "Strategy A knowledge");
+        let mem_b_only =
+            MemoryRecord::new(&commit_id_b.hash, "learned-from-b", "Strategy B knowledge");
         let mem_conflict_a = MemoryRecord::new(&commit_id_a.hash, "shared-key", "short");
-        let mem_conflict_b = MemoryRecord::new(&commit_id_b.hash, "shared-key", "longer and more detailed content");
+        let mem_conflict_b = MemoryRecord::new(
+            &commit_id_b.hash,
+            "shared-key",
+            "longer and more detailed content",
+        );
 
         handle.save_memory(&mem_a_only).await.unwrap();
         handle.save_memory(&mem_b_only).await.unwrap();
@@ -340,30 +358,48 @@ mod tests {
             &commit_id_b.hash,
             "Merge A and B",
             "agent-git",
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // Verify merge commit was created
         assert!(!result.merge_commit_id.hash.is_empty());
 
         // Verify all memories were synthesized
-        let merged_memories = handle.get_memories(&result.merge_commit_id.hash).await.unwrap();
+        let merged_memories = handle
+            .get_memories(&result.merge_commit_id.hash)
+            .await
+            .unwrap();
 
         // Should have 3 memories: 2 unique + 1 resolved conflict
         assert_eq!(merged_memories.len(), 3, "Expected 3 merged memories");
 
         // Verify unique memories were preserved
         let keys: Vec<_> = merged_memories.iter().map(|m| m.key.as_str()).collect();
-        assert!(keys.contains(&"learned-from-a"), "Missing memory from branch A");
-        assert!(keys.contains(&"learned-from-b"), "Missing memory from branch B");
+        assert!(
+            keys.contains(&"learned-from-a"),
+            "Missing memory from branch A"
+        );
+        assert!(
+            keys.contains(&"learned-from-b"),
+            "Missing memory from branch B"
+        );
         assert!(keys.contains(&"shared-key"), "Missing resolved conflict");
 
         // Verify conflict was resolved (longer content should win with heuristic)
-        let resolved = merged_memories.iter().find(|m| m.key == "shared-key").unwrap();
-        assert!(resolved.content.contains("longer") || resolved.content.contains("detailed"),
-            "Conflict resolution should favor more detailed content");
+        let resolved = merged_memories
+            .iter()
+            .find(|m| m.key == "shared-key")
+            .unwrap();
+        assert!(
+            resolved.content.contains("longer") || resolved.content.contains("detailed"),
+            "Conflict resolution should favor more detailed content"
+        );
 
         // Verify summary is informative
-        assert!(result.summary.contains("2") || result.summary.contains("memories"),
-            "Summary should mention merged memories");
+        assert!(
+            result.summary.contains("2") || result.summary.contains("memories"),
+            "Summary should mention merged memories"
+        );
     }
 }

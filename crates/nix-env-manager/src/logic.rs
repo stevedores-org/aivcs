@@ -90,11 +90,7 @@ fn collect_rust_files_recursive(dir: &Path, files: &mut Vec<std::path::PathBuf>)
         let name = path.file_name().unwrap_or_default().to_string_lossy();
 
         // Skip hidden files, target dir, and other non-source directories
-        if name.starts_with('.')
-            || name == "target"
-            || name == "node_modules"
-            || name == ".git"
-        {
+        if name.starts_with('.') || name == "target" || name == "node_modules" || name == ".git" {
             continue;
         }
 
@@ -223,7 +219,10 @@ mod tests {
         std::fs::write(&file_path, "fn version_2() {}").unwrap();
         let hash2 = generate_logic_hash(&file_path).unwrap();
 
-        assert_ne!(hash1, hash2, "Different source should produce different hash");
+        assert_ne!(
+            hash1, hash2,
+            "Different source should produce different hash"
+        );
     }
 
     #[test]

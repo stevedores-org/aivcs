@@ -42,6 +42,50 @@ pub enum StateError {
     SchemaSetup(String),
 }
 
+/// Errors for the storage trait abstractions (CasStore, RunLedger, ReleaseRegistry)
+#[derive(Error, Debug)]
+pub enum StorageError {
+    /// Content not found in CAS
+    #[error("content not found: {digest}")]
+    NotFound { digest: String },
+
+    /// Run not found in ledger
+    #[error("run not found: {run_id}")]
+    RunNotFound { run_id: String },
+
+    /// Run is not in a valid state for the requested operation
+    #[error("run {run_id} is {status}, expected {expected}")]
+    InvalidRunState {
+        run_id: String,
+        status: String,
+        expected: String,
+    },
+
+    /// Release not found in registry
+    #[error("release not found: {name}")]
+    ReleaseNotFound { name: String },
+
+    /// No previous release to roll back to
+    #[error("no previous release for '{name}' to roll back to")]
+    NoPreviousRelease { name: String },
+
+    /// Invalid digest string (not valid 64-char hex)
+    #[error("invalid digest: {digest}")]
+    InvalidDigest { digest: String },
+
+    /// Data integrity violation
+    #[error("integrity error: expected {expected}, got {actual}")]
+    IntegrityError { expected: String, actual: String },
+
+    /// Backend I/O error
+    #[error("storage backend error: {0}")]
+    Backend(String),
+
+    /// Serialization/deserialization error
+    #[error("serialization error: {0}")]
+    Serialization(String),
+}
+
 impl From<surrealdb::Error> for StateError {
     fn from(err: surrealdb::Error) -> Self {
         StateError::Query(err.to_string())
