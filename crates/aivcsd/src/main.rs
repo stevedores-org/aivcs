@@ -17,6 +17,7 @@ fn main() -> Result<()> {
 mod tests {
     #[test]
     fn aivcsd_smoke_compiles() {
-        assert!(true);
+        // Compile-time check: main exists and returns Result
+        let _: fn() -> anyhow::Result<()> = super::main;
     }
 }
