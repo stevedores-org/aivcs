@@ -38,6 +38,9 @@ pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
 
+pub use diff::node_paths::{
+    diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
+};
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use recording::GraphRunRecorder;
 
