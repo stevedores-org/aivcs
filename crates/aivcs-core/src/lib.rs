@@ -7,6 +7,7 @@ pub mod domain;
 pub mod git;
 pub mod parallel;
 pub mod recording;
+pub mod replay;
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
@@ -38,6 +39,7 @@ pub use parallel::{
 };
 
 pub use recording::GraphRunRecorder;
+pub use replay::{replay_run, ReplaySummary};
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

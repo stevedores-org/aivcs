@@ -16,7 +16,9 @@ use nix_env_manager::{
     generate_environment_hash, generate_logic_hash, is_attic_available, is_nix_available,
     AtticClient, NixHash,
 };
-use oxidized_state::{BranchRecord, CommitId, CommitRecord, SurrealHandle};
+use oxidized_state::{
+    BranchRecord, CommitId, CommitRecord, RunLedger, SurrealHandle, SurrealRunLedger,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
@@ -156,6 +158,13 @@ enum Commands {
         #[arg(short, long, default_value = "20")]
         depth: usize,
     },
+
+    /// Replay all events for a run in sequence order and print a digest
+    Replay {
+        /// Run ID to replay
+        #[arg(long)]
+        run: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -280,6 +289,12 @@ async fn main() -> Result<()> {
             prefix,
         } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
+        Commands::Replay { run } => {
+            let ledger = SurrealRunLedger::from_env()
+                .await
+                .context("Failed to connect to run ledger")?;
+            cmd_replay(&ledger, &run).await
+        }
     }
 }
 
@@ -832,6 +847,28 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
         history.len(),
         depth
     );
+
+    Ok(())
+}
+
+/// Replay all events for a run in sequence order and print a digest
+async fn cmd_replay(ledger: &dyn RunLedger, run_id_str: &str) -> Result<()> {
+    let (events, summary) = aivcs_core::replay_run(ledger, run_id_str)
+        .await
+        .with_context(|| format!("replay failed for run: {}", run_id_str))?;
+
+    println!("Run:    {}", summary.run_id);
+    println!("Agent:  {}", summary.agent_name);
+    println!("Status: {:?}", summary.status);
+    println!();
+
+    for event in &events {
+        println!("[{:>6}] {} | {}", event.seq, event.kind, event.payload);
+    }
+
+    println!();
+    println!("Events: {}", summary.event_count);
+    println!("Digest: {}", summary.replay_digest);
 
     Ok(())
 }
