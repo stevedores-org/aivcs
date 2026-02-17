@@ -5,6 +5,7 @@
 pub mod cas;
 pub mod diff;
 pub mod domain;
+pub mod gate;
 pub mod git;
 pub mod parallel;
 pub mod recording;
@@ -42,6 +43,9 @@ pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
 };
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
+pub use gate::{
+    evaluate_gate, CaseResult, EvalReport, GateRule, GateRuleSet, GateVerdict, Violation,
+};
 pub use recording::GraphRunRecorder;
 
 /// AIVCS version
