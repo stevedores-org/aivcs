@@ -450,23 +450,22 @@ async fn cmd_branch_create(handle: &SurrealHandle, name: &str, from: &str) -> Re
     let branch = BranchRecord::new(name, &head_commit, false);
     handle.save_branch(&branch).await?;
 
-    println!("Created branch '{}' at {}", name, &head_commit[..8]);
+    println!(
+        "Created branch '{}' at {}",
+        name,
+        &head_commit[..8.min(head_commit.len())]
+    );
 
     Ok(())
 }
 
 /// Delete a branch
 async fn cmd_branch_delete(handle: &SurrealHandle, name: &str) -> Result<()> {
-    let branch = handle
-        .get_branch(name)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Branch not found: {}", name))?;
+    handle
+        .delete_branch(name)
+        .await
+        .context(format!("Failed to delete branch '{}'", name))?;
 
-    if branch.is_default {
-        anyhow::bail!("Cannot delete the default branch");
-    }
-
-    // TODO: Actually delete the branch from DB
     println!("Deleted branch '{}'", name);
 
     Ok(())
