@@ -22,8 +22,7 @@ use std::sync::Arc;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-mod parallel;
-use parallel::fork_agent_parallel;
+use aivcs_core::fork_agent_parallel;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
