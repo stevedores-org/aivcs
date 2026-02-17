@@ -30,6 +30,34 @@ mod surreal_datetime {
         Ok(DateTime::from(sd))
     }
 }
+
+/// Module for serializing optional chrono DateTime to SurrealDB datetime format
+mod surreal_datetime_opt {
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
+    use surrealdb::sql::Datetime as SurrealDatetime;
+
+    pub fn serialize<S>(date: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match date {
+            Some(d) => {
+                let sd = SurrealDatetime::from(*d);
+                serde::Serialize::serialize(&Some(sd), serializer)
+            }
+            None => serde::Serialize::serialize(&None::<SurrealDatetime>, serializer),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let sd = Option::<SurrealDatetime>::deserialize(deserializer)?;
+        Ok(sd.map(DateTime::from))
+    }
+}
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -334,6 +362,169 @@ impl GraphEdge {
     }
 }
 
+// ---------------------------------------------------------------------------
+// RunLedger Records — Execution Run Persistence
+// ---------------------------------------------------------------------------
+
+/// Run record - execution run metadata and state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunRecord {
+    /// SurrealDB record ID
+    pub id: Option<surrealdb::sql::Thing>,
+    /// Unique run ID (UUID string)
+    pub run_id: String,
+    /// Agent spec digest (SHA256)
+    pub spec_digest: String,
+    /// Git SHA at time of run (optional)
+    pub git_sha: Option<String>,
+    /// Agent name
+    pub agent_name: String,
+    /// Arbitrary tags (JSON)
+    pub tags: serde_json::Value,
+    /// Run status: "running" | "completed" | "failed"
+    pub status: String,
+    /// Total events recorded
+    pub total_events: u64,
+    /// Final state digest (if completed)
+    pub final_state_digest: Option<String>,
+    /// Duration in milliseconds
+    pub duration_ms: u64,
+    /// Whether run succeeded
+    pub success: bool,
+    /// Created timestamp
+    #[serde(with = "surreal_datetime")]
+    pub created_at: DateTime<Utc>,
+    /// Completed timestamp (if terminal)
+    #[serde(with = "surreal_datetime_opt")]
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+impl RunRecord {
+    /// Create a new run record in "running" state
+    pub fn new(
+        run_id: String,
+        spec_digest: String,
+        git_sha: Option<String>,
+        agent_name: String,
+        tags: serde_json::Value,
+    ) -> Self {
+        RunRecord {
+            id: None,
+            run_id,
+            spec_digest,
+            git_sha,
+            agent_name,
+            tags,
+            status: "running".to_string(),
+            total_events: 0,
+            final_state_digest: None,
+            duration_ms: 0,
+            success: false,
+            created_at: Utc::now(),
+            completed_at: None,
+        }
+    }
+
+    /// Mark run as completed
+    pub fn complete(
+        mut self,
+        total_events: u64,
+        final_state_digest: Option<String>,
+        duration_ms: u64,
+    ) -> Self {
+        self.status = "completed".to_string();
+        self.total_events = total_events;
+        self.final_state_digest = final_state_digest;
+        self.duration_ms = duration_ms;
+        self.success = true;
+        self.completed_at = Some(Utc::now());
+        self
+    }
+
+    /// Mark run as failed
+    pub fn fail(mut self, total_events: u64, duration_ms: u64) -> Self {
+        self.status = "failed".to_string();
+        self.total_events = total_events;
+        self.duration_ms = duration_ms;
+        self.success = false;
+        self.completed_at = Some(Utc::now());
+        self
+    }
+}
+
+/// Run event record - single event in execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunEventRecord {
+    /// SurrealDB record ID
+    pub id: Option<surrealdb::sql::Thing>,
+    /// Run ID this event belongs to
+    pub run_id: String,
+    /// Monotonic sequence number within run (1-indexed)
+    pub seq: u64,
+    /// Event kind (e.g. "GraphStarted", "NodeEntered", "ToolCalled")
+    pub kind: String,
+    /// Event payload (JSON)
+    pub payload: serde_json::Value,
+    /// Event timestamp
+    #[serde(with = "surreal_datetime")]
+    pub timestamp: DateTime<Utc>,
+}
+
+impl RunEventRecord {
+    /// Create a new run event record
+    pub fn new(run_id: String, seq: u64, kind: String, payload: serde_json::Value) -> Self {
+        RunEventRecord {
+            id: None,
+            run_id,
+            seq,
+            kind,
+            payload,
+            timestamp: Utc::now(),
+        }
+    }
+}
+
+/// Release record - agent release and version management
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseRecordSchema {
+    /// SurrealDB record ID
+    pub id: Option<surrealdb::sql::Thing>,
+    /// Agent name
+    pub agent_name: String,
+    /// Spec digest being released
+    pub spec_digest: String,
+    /// Version label (e.g. "v1.2.3")
+    pub version_label: Option<String>,
+    /// Who or what promoted this release
+    pub promoted_by: String,
+    /// Release notes
+    pub notes: Option<String>,
+    /// Created timestamp
+    #[serde(with = "surreal_datetime")]
+    pub created_at: DateTime<Utc>,
+}
+
+impl ReleaseRecordSchema {
+    /// Create a new release record
+    pub fn new(
+        agent_name: String,
+        spec_digest: String,
+        version_label: Option<String>,
+        promoted_by: String,
+        notes: Option<String>,
+    ) -> Self {
+        ReleaseRecordSchema {
+            id: None,
+            agent_name,
+            spec_digest,
+            version_label,
+            promoted_by,
+            notes,
+            created_at: Utc::now(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,5 +578,83 @@ mod tests {
         let snapshot = SnapshotRecord::new("commit-123", state);
 
         assert!(snapshot.size_bytes > 0);
+    }
+
+    #[test]
+    fn test_run_record_new() {
+        let run = RunRecord::new(
+            "run-123".to_string(),
+            "spec-digest-abc".to_string(),
+            Some("abc123".to_string()),
+            "test-agent".to_string(),
+            serde_json::json!({"env": "test"}),
+        );
+
+        assert_eq!(run.run_id, "run-123");
+        assert_eq!(run.status, "running");
+        assert_eq!(run.total_events, 0);
+        assert!(!run.success);
+    }
+
+    #[test]
+    fn test_run_record_complete() {
+        let run = RunRecord::new(
+            "run-123".to_string(),
+            "spec-digest-abc".to_string(),
+            Some("abc123".to_string()),
+            "test-agent".to_string(),
+            serde_json::json!({}),
+        )
+        .complete(5, Some("state-digest-xyz".to_string()), 1000);
+
+        assert_eq!(run.status, "completed");
+        assert_eq!(run.total_events, 5);
+        assert!(run.success);
+        assert!(run.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_run_record_fail() {
+        let run = RunRecord::new(
+            "run-123".to_string(),
+            "spec-digest-abc".to_string(),
+            None,
+            "test-agent".to_string(),
+            serde_json::json!({}),
+        )
+        .fail(2, 500);
+
+        assert_eq!(run.status, "failed");
+        assert_eq!(run.total_events, 2);
+        assert!(!run.success);
+        assert!(run.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_run_event_record() {
+        let event = RunEventRecord::new(
+            "run-123".to_string(),
+            1,
+            "GraphStarted".to_string(),
+            serde_json::json!({"graph_id": "g1"}),
+        );
+
+        assert_eq!(event.run_id, "run-123");
+        assert_eq!(event.seq, 1);
+        assert_eq!(event.kind, "GraphStarted");
+    }
+
+    #[test]
+    fn test_release_record() {
+        let release = ReleaseRecordSchema::new(
+            "my-agent".to_string(),
+            "spec-digest-abc".to_string(),
+            Some("v1.0.0".to_string()),
+            "alice".to_string(),
+            Some("Initial release".to_string()),
+        );
+
+        assert_eq!(release.agent_name, "my-agent");
+        assert_eq!(release.version_label, Some("v1.0.0".to_string()));
     }
 }

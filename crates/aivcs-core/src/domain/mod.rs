@@ -12,6 +12,7 @@ pub mod error;
 pub mod eval;
 pub mod release;
 pub mod run;
+pub mod snapshot;
 
 // Re-export main types and errors
 pub use agent_spec::{AgentSpec, AgentSpecFields};
@@ -19,3 +20,4 @@ pub use error::{AivcsError, Result};
 pub use eval::{EvalSuite, EvalTestCase, EvalThresholds, ScorerConfig, ScorerType};
 pub use release::{Release, ReleaseEnvironment, ReleasePointer};
 pub use run::{Event, EventKind, Run, RunStatus};
+pub use snapshot::SnapshotMeta;

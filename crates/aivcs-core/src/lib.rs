@@ -4,13 +4,16 @@
 
 pub mod cas;
 pub mod domain;
+pub mod git;
 pub mod parallel;
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
     EventKind, Release, ReleaseEnvironment, ReleasePointer, Result, Run, RunStatus, ScorerConfig,
-    ScorerType,
+    ScorerType, SnapshotMeta,
 };
+
+pub use git::{capture_head_sha, is_git_repo};
 
 pub use oxidized_state::{
     BranchRecord, CommitId, CommitRecord, MemoryRecord, SnapshotRecord, SurrealHandle,
