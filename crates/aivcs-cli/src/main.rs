@@ -241,8 +241,16 @@ async fn main() -> Result<()> {
             git_sha,
             cas_dir,
         } => {
-            cmd_snapshot(&handle, &state, &message, &author, &branch, git_sha.as_deref(), cas_dir.as_deref())
-                .await
+            cmd_snapshot(
+                &handle,
+                &state,
+                &message,
+                &author,
+                &branch,
+                git_sha.as_deref(),
+                cas_dir.as_deref(),
+            )
+            .await
         }
         Commands::Restore { commit, output } => {
             cmd_restore(&handle, &commit, output.as_deref()).await
