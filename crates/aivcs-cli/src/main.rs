@@ -241,8 +241,16 @@ async fn main() -> Result<()> {
             git_sha,
             cas_dir,
         } => {
-            cmd_snapshot(&handle, &state, &message, &author, &branch, git_sha.as_deref(), cas_dir.as_deref())
-                .await
+            cmd_snapshot(
+                &handle,
+                &state,
+                &message,
+                &author,
+                &branch,
+                git_sha.as_deref(),
+                cas_dir.as_deref(),
+            )
+            .await
         }
         Commands::Restore { commit, output } => {
             cmd_restore(&handle, &commit, output.as_deref()).await
@@ -955,6 +963,16 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         std::process::Command::new("git")
             .args(["init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "test-user"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@example.com"])
             .current_dir(temp_dir.path())
             .output()
             .unwrap();
