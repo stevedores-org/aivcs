@@ -152,7 +152,12 @@ async fn failure_path_node_failed() {
     let kinds: Vec<&str> = stored.iter().map(|e| e.kind.as_str()).collect();
     assert_eq!(
         kinds,
-        vec!["graph_started", "node_entered", "node_failed", "graph_failed"]
+        vec![
+            "graph_started",
+            "node_entered",
+            "node_failed",
+            "graph_failed"
+        ]
     );
 
     // Verify run status
