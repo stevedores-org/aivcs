@@ -11,9 +11,11 @@ pub struct ToolCall {
 }
 
 /// A single parameter-level delta between two tool calls.
+///
+/// The `key` uses dot-separated JSON paths (e.g. `"config.retries"`) for
+/// nested object fields. Root-level non-object changes use `"."`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamDelta {
-    /// Field name, or `"."` for root-level (non-object) changes.
     pub key: String,
     pub before: Value,
     pub after: Value,
@@ -26,8 +28,8 @@ pub enum ToolCallChange {
     Removed(ToolCall),
     Reordered {
         call: ToolCall,
-        from_seq: u64,
-        to_seq: u64,
+        from_index: usize,
+        to_index: usize,
     },
     ParamChanged {
         tool_name: String,
@@ -57,15 +59,17 @@ fn extract_tool_calls(events: &[RunEvent]) -> Vec<ToolCall> {
     events
         .iter()
         .filter(|e| e.kind == "tool_called")
-        .map(|e| ToolCall {
-            seq: e.seq,
-            tool_name: e
+        .filter_map(|e| {
+            let tool_name = e
                 .payload
                 .get("tool_name")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            params: e.payload.clone(),
+                .map(|s| s.to_string())?;
+            Some(ToolCall {
+                seq: e.seq,
+                tool_name,
+                params: e.payload.clone(),
+            })
         })
         .collect()
 }
@@ -79,55 +83,48 @@ fn group_by_name(calls: Vec<ToolCall>) -> HashMap<String, Vec<ToolCall>> {
 }
 
 // ---------------------------------------------------------------------------
-// Param diffing
+// Param diffing (recursive)
 // ---------------------------------------------------------------------------
 
-fn param_delta(a: &Value, b: &Value) -> Vec<ParamDelta> {
+fn param_delta_recursive(prefix: &str, a: &Value, b: &Value, out: &mut Vec<ParamDelta>) {
     if a == b {
-        return Vec::new();
+        return;
     }
     match (a.as_object(), b.as_object()) {
         (Some(obj_a), Some(obj_b)) => {
-            let mut deltas = Vec::new();
-            // Keys in A
-            for (key, val_a) in obj_a {
-                match obj_b.get(key) {
-                    Some(val_b) if val_a != val_b => {
-                        deltas.push(ParamDelta {
-                            key: key.clone(),
-                            before: val_a.clone(),
-                            after: val_b.clone(),
-                        });
-                    }
-                    None => {
-                        deltas.push(ParamDelta {
-                            key: key.clone(),
-                            before: val_a.clone(),
-                            after: Value::Null,
-                        });
-                    }
-                    _ => {}
-                }
+            let mut all_keys: Vec<&String> = obj_a.keys().chain(obj_b.keys()).collect();
+            all_keys.sort();
+            all_keys.dedup();
+            for key in all_keys {
+                let child_path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                let val_a = obj_a.get(key).unwrap_or(&Value::Null);
+                let val_b = obj_b.get(key).unwrap_or(&Value::Null);
+                param_delta_recursive(&child_path, val_a, val_b, out);
             }
-            // Keys only in B
-            for (key, val_b) in obj_b {
-                if !obj_a.contains_key(key) {
-                    deltas.push(ParamDelta {
-                        key: key.clone(),
-                        before: Value::Null,
-                        after: val_b.clone(),
-                    });
-                }
-            }
-            deltas.sort_by(|a, b| a.key.cmp(&b.key));
-            deltas
         }
-        _ => vec![ParamDelta {
-            key: ".".to_string(),
-            before: a.clone(),
-            after: b.clone(),
-        }],
+        _ => {
+            let key = if prefix.is_empty() {
+                ".".to_string()
+            } else {
+                prefix.to_string()
+            };
+            out.push(ParamDelta {
+                key,
+                before: a.clone(),
+                after: b.clone(),
+            });
+        }
     }
+}
+
+fn param_delta(a: &Value, b: &Value) -> Vec<ParamDelta> {
+    let mut deltas = Vec::new();
+    param_delta_recursive("", a, b, &mut deltas);
+    deltas
 }
 
 // ---------------------------------------------------------------------------
@@ -136,16 +133,35 @@ fn param_delta(a: &Value, b: &Value) -> Vec<ParamDelta> {
 
 /// Diff two ordered `RunEvent` sequences, producing a `ToolCallDiff` that
 /// captures added, removed, reordered, and param-changed tool calls.
+///
+/// Events with `kind == "tool_called"` that lack a valid `payload.tool_name`
+/// string are silently skipped. Reorder detection uses the relative position
+/// of each tool call within the extracted tool-call stream (not the global
+/// run-level `seq`), so inserting or removing non-tool events between runs
+/// does not cause false positives.
 pub fn diff_tool_calls(a: &[RunEvent], b: &[RunEvent]) -> ToolCallDiff {
     let calls_a = extract_tool_calls(a);
     let calls_b = extract_tool_calls(b);
+
+    // Build a map from tool_name to relative position within the full
+    // tool-call stream (across all names). This is the basis for reorder
+    // detection — it is independent of the global run-event seq.
+    let position_a: HashMap<u64, usize> = calls_a
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.seq, i))
+        .collect();
+    let position_b: HashMap<u64, usize> = calls_b
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.seq, i))
+        .collect();
 
     let group_a = group_by_name(calls_a);
     let group_b = group_by_name(calls_b);
 
     let mut changes = Vec::new();
 
-    // Collect all tool names from both sides.
     let mut all_names: Vec<&String> = group_a.keys().chain(group_b.keys()).collect();
     all_names.sort();
     all_names.dedup();
@@ -184,12 +200,14 @@ pub fn diff_tool_calls(a: &[RunEvent], b: &[RunEvent]) -> ToolCallDiff {
                         });
                     }
 
-                    // Check reorder: compare relative position (seq) shift
-                    if ca.seq != cb.seq {
+                    // Check reorder by relative position in the tool-call stream
+                    let idx_a = position_a.get(&ca.seq).copied().unwrap_or(0);
+                    let idx_b = position_b.get(&cb.seq).copied().unwrap_or(0);
+                    if idx_a != idx_b {
                         changes.push(ToolCallChange::Reordered {
                             call: cb.clone(),
-                            from_seq: ca.seq,
-                            to_seq: cb.seq,
+                            from_index: idx_a,
+                            to_index: idx_b,
                         });
                     }
                 }

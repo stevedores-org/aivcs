@@ -113,8 +113,21 @@ fn reordered_calls_detected() {
         .collect();
     assert!(
         !reordered.is_empty(),
-        "should detect reordering when seq positions change"
+        "should detect reordering when relative tool-call positions change"
     );
+    // Verify the reorder uses index-based fields
+    for change in &reordered {
+        match change {
+            ToolCallChange::Reordered {
+                from_index,
+                to_index,
+                ..
+            } => {
+                assert_ne!(from_index, to_index);
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[test]
@@ -185,4 +198,81 @@ fn mixed_changes_all_detected() {
     assert!(has_param_changed, "should detect param change on search");
     assert!(has_removed, "should detect removal of lookup");
     assert!(has_added, "should detect addition of create");
+}
+
+#[test]
+fn inserted_non_tool_events_do_not_cause_false_reorder() {
+    // Same two tool calls in same order, but B has extra non-tool events
+    // that shift the global seq numbers. Should NOT emit Reordered.
+    let a = vec![
+        tool_event(1, "search", json!({"tool_name": "search", "q": "a"})),
+        tool_event(2, "lookup", json!({"tool_name": "lookup", "id": "1"})),
+    ];
+    let b = vec![
+        non_tool_event(1),
+        non_tool_event(2),
+        tool_event(3, "search", json!({"tool_name": "search", "q": "a"})),
+        non_tool_event(4),
+        tool_event(5, "lookup", json!({"tool_name": "lookup", "id": "1"})),
+    ];
+    let diff = diff_tool_calls(&a, &b);
+    let reordered_count = diff
+        .changes
+        .iter()
+        .filter(|c| matches!(c, ToolCallChange::Reordered { .. }))
+        .count();
+    assert_eq!(
+        reordered_count, 0,
+        "non-tool event insertion should not cause false reorder"
+    );
+}
+
+#[test]
+fn nested_json_param_produces_deep_deltas() {
+    let a = vec![tool_event(
+        1,
+        "search",
+        json!({"tool_name": "search", "config": {"retries": 3, "timeout": 30}}),
+    )];
+    let b = vec![tool_event(
+        1,
+        "search",
+        json!({"tool_name": "search", "config": {"retries": 5, "timeout": 30}}),
+    )];
+    let diff = diff_tool_calls(&a, &b);
+    assert_eq!(diff.changes.len(), 1);
+    match &diff.changes[0] {
+        ToolCallChange::ParamChanged { deltas, .. } => {
+            assert_eq!(deltas.len(), 1);
+            assert_eq!(deltas[0].key, "config.retries");
+            assert_eq!(deltas[0].before, json!(3));
+            assert_eq!(deltas[0].after, json!(5));
+        }
+        other => panic!("expected ParamChanged, got {:?}", other),
+    }
+}
+
+#[test]
+fn malformed_tool_called_events_are_skipped() {
+    // tool_called event without tool_name in payload should be silently skipped
+    let malformed = RunEvent {
+        seq: 1,
+        kind: "tool_called".to_string(),
+        payload: json!({"some_key": "some_value"}),
+        timestamp: Utc::now(),
+    };
+    let valid = tool_event(2, "search", json!({"tool_name": "search", "q": "x"}));
+
+    // A has malformed + valid, B has only valid — malformed should not appear
+    let a = vec![malformed.clone(), valid.clone()];
+    let b = vec![valid];
+    let diff = diff_tool_calls(&a, &b);
+
+    // The malformed event should be ignored, so only the valid "search" call
+    // is compared. Since both have the same search call, diff should be empty.
+    assert!(
+        diff.is_empty(),
+        "malformed events without tool_name should be skipped, got: {:?}",
+        diff.changes
+    );
 }
