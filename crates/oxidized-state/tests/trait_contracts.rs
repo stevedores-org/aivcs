@@ -464,7 +464,9 @@ mod surreal_ledger_tests {
     use super::*;
 
     async fn ledger() -> impl RunLedger {
-        SurrealRunLedger::in_memory().await.expect("in_memory() failed")
+        SurrealRunLedger::in_memory()
+            .await
+            .expect("in_memory() failed")
     }
 
     #[tokio::test]
