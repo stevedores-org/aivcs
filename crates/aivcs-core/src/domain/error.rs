@@ -18,6 +18,9 @@ pub enum AivcsError {
     #[error("digest mismatch: expected {expected}, got {actual}")]
     DigestMismatch { expected: String, actual: String },
 
+    #[error("git error: {0}")]
+    GitError(String),
+
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 }
