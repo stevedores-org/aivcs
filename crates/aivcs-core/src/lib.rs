@@ -3,9 +3,11 @@
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
 pub mod cas;
+pub mod diff;
 pub mod domain;
 pub mod git;
 pub mod parallel;
+pub mod recording;
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
@@ -35,6 +37,9 @@ pub use cas::{CasError, CasStore, Digest};
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
+
+pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
+pub use recording::GraphRunRecorder;
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

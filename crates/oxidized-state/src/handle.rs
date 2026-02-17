@@ -12,7 +12,11 @@ use crate::error::StateError;
 use crate::schema::{
     AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord, SnapshotRecord,
 };
+use crate::storage_traits::{ContentDigest, ReleaseMetadata, ReleaseRecord, StorageResult};
 use crate::Result;
+use crate::StorageError;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use surrealdb::engine::any::Any;
 use surrealdb::opt::auth::{Database, Root};
 use surrealdb::sql::Datetime as SurrealDatetime;
@@ -125,6 +129,25 @@ impl CloudConfig {
 #[derive(Clone)]
 pub struct SurrealHandle {
     db: Surreal<Any>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DbReleaseRecord {
+    name: String,
+    spec_digest: ContentDigest,
+    metadata: ReleaseMetadata,
+    created_at: SurrealDatetime,
+}
+
+impl DbReleaseRecord {
+    fn into_release_record(self) -> ReleaseRecord {
+        ReleaseRecord {
+            name: self.name,
+            spec_digest: self.spec_digest,
+            metadata: self.metadata,
+            created_at: DateTime::<Utc>::from(self.created_at),
+        }
+    }
 }
 
 impl SurrealHandle {
@@ -321,6 +344,15 @@ impl SurrealHandle {
             DEFINE FIELD created_at ON graph_edges TYPE datetime;
             DEFINE INDEX idx_edge_child ON graph_edges FIELDS child_id;
             DEFINE INDEX idx_edge_parent ON graph_edges FIELDS parent_id;
+
+            -- Releases table (agent release registry)
+            DEFINE TABLE releases SCHEMAFULL;
+            DEFINE FIELD name ON releases TYPE string;
+            DEFINE FIELD spec_digest ON releases TYPE string;
+            DEFINE FIELD metadata ON releases FLEXIBLE TYPE object;
+            DEFINE FIELD created_at ON releases TYPE datetime;
+            DEFINE INDEX idx_release_name ON releases FIELDS name;
+            DEFINE INDEX idx_release_name_created_at ON releases FIELDS name, created_at;
         "#;
 
         self.db
@@ -545,24 +577,30 @@ impl SurrealHandle {
         Ok(branches)
     }
 
-    /// Delete a branch by name
+    /// Delete a branch
     #[instrument(skip(self))]
     pub async fn delete_branch(&self, name: &str) -> Result<()> {
         debug!("Deleting branch: {}", name);
+
+        let branch = self
+            .get_branch(name)
+            .await?
+            .ok_or_else(|| StateError::BranchNotFound(name.to_string()))?;
+
+        if branch.is_default {
+            return Err(StateError::Transaction(
+                "Cannot delete the default branch".to_string(),
+            ));
+        }
+
         let name_owned = name.to_string();
 
-        let mut result = self
+        let _result = self
             .db
-            .query("DELETE branches WHERE name = $name")
+            .query("DELETE FROM branches WHERE name = $name")
             .bind(("name", name_owned))
             .await?;
 
-        let deleted: Vec<serde_json::Value> = result.take(0)?;
-        if deleted.is_empty() {
-            debug!("No branch found to delete with name: {}", name);
-        } else {
-            info!("Branch deleted: {}", name);
-        }
         Ok(())
     }
 
@@ -625,6 +663,97 @@ impl SurrealHandle {
         Ok(memories)
     }
 
+    // ========== Release Registry Operations ==========
+
+    /// Promote a new release for an agent.
+    #[instrument(skip(self, spec_digest, metadata), fields(name = %name, digest = %spec_digest))]
+    pub async fn release_promote(
+        &self,
+        name: &str,
+        spec_digest: &ContentDigest,
+        metadata: ReleaseMetadata,
+    ) -> StorageResult<ReleaseRecord> {
+        let record = DbReleaseRecord {
+            name: name.to_string(),
+            spec_digest: spec_digest.clone(),
+            metadata,
+            created_at: SurrealDatetime::from(Utc::now()),
+        };
+
+        let created: Option<DbReleaseRecord> = self
+            .db
+            .create("releases")
+            .content(record.clone())
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
+
+        created
+            .map(DbReleaseRecord::into_release_record)
+            .ok_or_else(|| StorageError::Backend("failed to create release record".to_string()))
+    }
+
+    /// Roll back to the previous release for an agent by re-appending it.
+    #[instrument(skip(self), fields(name = %name))]
+    pub async fn release_rollback(&self, name: &str) -> StorageResult<ReleaseRecord> {
+        let history = self.release_history(name).await?;
+        if history.is_empty() {
+            return Err(StorageError::ReleaseNotFound {
+                name: name.to_string(),
+            });
+        }
+        if history.len() < 2 {
+            return Err(StorageError::NoPreviousRelease {
+                name: name.to_string(),
+            });
+        }
+
+        let previous = &history[1];
+        self.release_promote(name, &previous.spec_digest, previous.metadata.clone())
+            .await
+    }
+
+    /// Get the current release (most recent) for an agent.
+    #[instrument(skip(self), fields(name = %name))]
+    pub async fn release_current(&self, name: &str) -> StorageResult<Option<ReleaseRecord>> {
+        let name_owned = name.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT * FROM releases WHERE name = $name ORDER BY created_at DESC LIMIT 1")
+            .bind(("name", name_owned))
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
+
+        let releases: Vec<DbReleaseRecord> = result
+            .take(0)
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
+        Ok(releases
+            .into_iter()
+            .next()
+            .map(DbReleaseRecord::into_release_record))
+    }
+
+    /// Get full release history (newest first) for an agent.
+    #[instrument(skip(self), fields(name = %name))]
+    pub async fn release_history(&self, name: &str) -> StorageResult<Vec<ReleaseRecord>> {
+        let name_owned = name.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT * FROM releases WHERE name = $name ORDER BY created_at DESC")
+            .bind(("name", name_owned))
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
+
+        let releases: Vec<DbReleaseRecord> = result
+            .take(0)
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
+        Ok(releases
+            .into_iter()
+            .map(DbReleaseRecord::into_release_record)
+            .collect())
+    }
+
     // ========== History Operations ==========
 
     /// Get commit history (walk back from a commit)
@@ -682,6 +811,50 @@ mod tests {
     async fn test_surreal_connection_and_schema_creation() {
         let handle = SurrealHandle::setup_db().await;
         assert!(handle.is_ok(), "Failed to connect: {:?}", handle.err());
+    }
+
+    #[tokio::test]
+    async fn test_branch_deletion() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        // Create a branch
+        let branch = BranchRecord::new("feature/test", "commit-123", false);
+        handle.save_branch(&branch).await.unwrap();
+
+        // Verify it exists
+        let loaded = handle.get_branch("feature/test").await.unwrap();
+        assert!(loaded.is_some());
+
+        // Delete it
+        handle.delete_branch("feature/test").await.unwrap();
+
+        // Verify it's gone
+        let deleted = handle.get_branch("feature/test").await.unwrap();
+        assert!(deleted.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_nonexistent_branch() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+        let result = handle.delete_branch("nonexistent").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Branch not found"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_default_branch() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        // Create default branch
+        let branch = BranchRecord::new("main", "commit-123", true);
+        handle.save_branch(&branch).await.unwrap();
+
+        let result = handle.delete_branch("main").await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Cannot delete the default branch"));
     }
 
     #[tokio::test]

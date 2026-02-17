@@ -390,7 +390,7 @@ pub struct RunRecord {
     #[serde(with = "surreal_datetime")]
     pub created_at: DateTime<Utc>,
     /// Completed timestamp (if terminal)
-    #[serde(with = "surreal_datetime_opt")]
+    #[serde(default, with = "surreal_datetime_opt")]
     pub completed_at: Option<DateTime<Utc>>,
 }
 
