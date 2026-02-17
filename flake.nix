@@ -80,7 +80,7 @@
 
           aivcs = craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
-            cargoExtraArgs = "-p aivcs-core";
+            cargoExtraArgs = "-p aivcs-cli";
           });
         };
 
@@ -110,7 +110,7 @@
             echo ""
             echo "Commands:"
             echo "  cargo test --workspace        # Run all tests"
-            echo "  cargo run -p aivcs-core       # Run CLI"
+            echo "  cargo run -p aivcs-cli        # Run CLI"
             echo "  surreal start memory           # Start SurrealDB (in-memory)"
             echo ""
             echo "Nix Cache (Attic):"

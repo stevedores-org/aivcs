@@ -122,6 +122,7 @@ impl CloudConfig {
 }
 
 /// SurrealDB connection handle for AIVCS
+#[derive(Clone)]
 pub struct SurrealHandle {
     db: Surreal<Any>,
 }
@@ -213,19 +214,33 @@ impl SurrealHandle {
     /// Connect using environment variables
     ///
     /// If SURREALDB_ENDPOINT is set, connects to cloud.
+    /// If SURREALDB_URL is set, connects to that URL.
     /// Otherwise, falls back to in-memory.
     #[instrument(skip_all)]
     pub async fn setup_from_env() -> Result<Self> {
-        match CloudConfig::from_env() {
-            Ok(config) => {
-                info!("Cloud config found, connecting to SurrealDB Cloud");
-                Self::setup_cloud(config).await
-            }
-            Err(_) => {
-                info!("No cloud config found, using in-memory database");
-                Self::setup_db().await
-            }
+        if let Ok(config) = CloudConfig::from_env() {
+            info!("Cloud config found, connecting to SurrealDB Cloud");
+            return Self::setup_cloud(config).await;
         }
+
+        if let Ok(url) = std::env::var("SURREALDB_URL") {
+            info!("SURREALDB_URL found, connecting to {}", url);
+            let db = surrealdb::engine::any::connect(&url)
+                .await
+                .map_err(|e| StateError::Connection(e.to_string()))?;
+
+            db.use_ns("aivcs")
+                .use_db("main")
+                .await
+                .map_err(|e| StateError::Connection(e.to_string()))?;
+
+            let handle = SurrealHandle { db };
+            handle.init_schema().await?;
+            return Ok(handle);
+        }
+
+        info!("No cloud config found, using in-memory database");
+        Self::setup_db().await
     }
 
     /// Initialize the database schema
