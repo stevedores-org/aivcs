@@ -28,14 +28,17 @@ impl ScopedStateDiff {
 // Extraction
 // ---------------------------------------------------------------------------
 
-/// Extract the payload of the last `"checkpoint"` event from a run event stream.
+/// Event kind emitted by the oxidizedgraph event adapter when a checkpoint is saved.
+pub const CHECKPOINT_SAVED_KIND: &str = "CheckpointSaved";
+
+/// Extract the payload of the last `"CheckpointSaved"` event from a run event stream.
 ///
-/// Returns `None` if no checkpoint events exist.
+/// Returns `None` if no checkpoint-saved events exist.
 pub fn extract_last_checkpoint(events: &[RunEvent]) -> Option<Value> {
     events
         .iter()
         .rev()
-        .find(|e| e.kind == "checkpoint")
+        .find(|e| e.kind == CHECKPOINT_SAVED_KIND)
         .map(|e| e.payload.clone())
 }
 

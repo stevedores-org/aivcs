@@ -40,6 +40,7 @@ pub use parallel::{
 
 pub use diff::state_diff::{
     diff_run_states, diff_scoped_state, extract_last_checkpoint, ScopedStateDiff, StateDelta,
+    CHECKPOINT_SAVED_KIND,
 };
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use recording::GraphRunRecorder;

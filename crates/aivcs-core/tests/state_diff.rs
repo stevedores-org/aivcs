@@ -1,4 +1,6 @@
-use aivcs_core::{diff_run_states, diff_scoped_state, extract_last_checkpoint, StateDelta};
+use aivcs_core::{
+    diff_run_states, diff_scoped_state, extract_last_checkpoint, StateDelta, CHECKPOINT_SAVED_KIND,
+};
 use chrono::Utc;
 use oxidized_state::RunEvent;
 use serde_json::{json, Value};
@@ -6,7 +8,7 @@ use serde_json::{json, Value};
 fn checkpoint_event(seq: u64, payload: Value) -> RunEvent {
     RunEvent {
         seq,
-        kind: "checkpoint".to_string(),
+        kind: CHECKPOINT_SAVED_KIND.to_string(),
         payload,
         timestamp: Utc::now(),
     }
