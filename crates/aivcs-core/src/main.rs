@@ -220,7 +220,7 @@ async fn main() -> Result<()> {
         .context("Failed to set tracing subscriber")?;
 
     // Initialize database connection
-    let handle = SurrealHandle::setup_db()
+    let handle = SurrealHandle::setup_from_env()
         .await
         .context("Failed to connect to AIVCS database")?;
 
@@ -704,20 +704,9 @@ async fn cmd_fork(handle: &SurrealHandle, parent: &str, count: u8, prefix: &str)
         prefix
     );
 
-    let handle_arc = Arc::new(SurrealHandle::setup_db().await?);
+    let handle_arc = Arc::new(handle.clone());
 
-    // Copy parent snapshot to new handle
-    let parent_snapshot = handle.load_snapshot(&parent_commit).await?;
-    let parent_id = CommitId::from_state(parent_commit.as_bytes());
-    handle_arc
-        .save_snapshot(&parent_id, parent_snapshot.state.clone())
-        .await?;
-
-    // Create parent commit in new handle
-    let parent_record = CommitRecord::new(parent_id.clone(), None, "Fork parent", "fork");
-    handle_arc.save_commit(&parent_record).await?;
-
-    let result = fork_agent_parallel(handle_arc, &parent_id.hash, count, prefix).await?;
+    let result = fork_agent_parallel(handle_arc, &parent_commit, count, prefix).await?;
 
     println!("\nCreated {} parallel branches:", result.branches.len());
     for (i, branch) in result.branches.iter().enumerate() {
@@ -824,5 +813,39 @@ mod tests {
         // Verify we can get the branch head
         let head = handle.get_branch_head("main").await.unwrap();
         assert!(!head.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cmd_fork_creates_branches_in_same_db() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        // Initialize repo
+        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
+
+        // Create a snapshot to fork from
+        let temp_dir = tempfile::tempdir().unwrap();
+        let state_path = temp_dir.path().join("state.json");
+        std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
+        cmd_snapshot(&handle, &state_path, "Base", "agent", "main")
+            .await
+            .unwrap();
+
+        // Run fork command
+        let result = cmd_fork(&handle, "main", 2, "test-fork").await;
+
+        assert!(result.is_ok(), "Fork failed: {:?}", result.err());
+
+        // Verify branches exist in the original handle
+        let branches = handle.list_branches().await.unwrap();
+        let fork_branches: Vec<_> = branches
+            .iter()
+            .filter(|b| b.name.starts_with("test-fork"))
+            .collect();
+
+        assert_eq!(
+            fork_branches.len(),
+            2,
+            "Should have created 2 branches in the same DB"
+        );
     }
 }
