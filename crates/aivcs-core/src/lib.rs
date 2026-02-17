@@ -6,6 +6,7 @@ pub mod cas;
 pub mod domain;
 pub mod git;
 pub mod parallel;
+pub mod recording;
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
@@ -35,6 +36,8 @@ pub use cas::{CasError, CasStore, Digest};
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
+
+pub use recording::GraphRunRecorder;
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
