@@ -4,6 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::digest;
+use super::error::Result;
+
 /// Enumeration of available scorer types.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", content = "value")]
@@ -91,6 +94,28 @@ impl EvalTestCase {
     }
 }
 
+/// Fields that define an evaluation suite's semantic identity.
+///
+/// This struct contains only the fields that contribute to the suite's digest,
+/// excluding suite_id, suite_digest, and created_at.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvalSuiteFields {
+    /// Name of the evaluation.
+    pub name: String,
+
+    /// Version string for the suite.
+    pub version: String,
+
+    /// Test cases in this suite.
+    pub test_cases: Vec<EvalTestCase>,
+
+    /// Scorers to use for evaluation.
+    pub scorers: Vec<ScorerConfig>,
+
+    /// Pass/fail thresholds.
+    pub thresholds: EvalThresholds,
+}
+
 /// A complete evaluation suite for testing an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EvalSuite {
@@ -150,6 +175,25 @@ impl EvalSuite {
     pub fn with_thresholds(mut self, thresholds: EvalThresholds) -> Self {
         self.thresholds = thresholds;
         self
+    }
+
+    /// Compute stable SHA256 digest from canonical JSON (RFC 8785-compliant).
+    pub fn compute_digest(fields: &EvalSuiteFields) -> Result<String> {
+        let json = serde_json::to_value(fields)?;
+        digest::compute_digest(&json)
+    }
+
+    /// Finalize the suite: compute and set suite_digest from current fields.
+    pub fn finalize(mut self) -> Result<Self> {
+        let fields = EvalSuiteFields {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            test_cases: self.test_cases.clone(),
+            scorers: self.scorers.clone(),
+            thresholds: self.thresholds.clone(),
+        };
+        self.suite_digest = Self::compute_digest(&fields)?;
+        Ok(self)
     }
 }
 
@@ -278,5 +322,105 @@ mod tests {
         assert_eq!(suite.scorers.len(), 1);
         assert_eq!(suite.thresholds.min_pass_rate, 0.90);
         assert!(suite.thresholds.fail_fast);
+    }
+
+    #[test]
+    fn test_eval_suite_finalize_sets_digest() {
+        let suite = EvalSuite::new("test_suite".to_string(), "1.0.0".to_string())
+            .add_test_case(EvalTestCase::new(
+                serde_json::json!({"input": "test"}),
+                Some(serde_json::json!({"output": "expected"})),
+            ))
+            .add_scorer(ScorerConfig {
+                name: "scorer1".to_string(),
+                scorer_type: ScorerType::ExactMatch,
+                params: serde_json::json!({}),
+            });
+
+        // Before finalize, suite_digest should be empty
+        assert_eq!(suite.suite_digest, "");
+
+        let finalized = suite.finalize().expect("finalize suite");
+
+        // After finalize, suite_digest should be set and non-empty
+        assert!(!finalized.suite_digest.is_empty());
+        // Verify it's a valid 64-char hex string (SHA256)
+        assert_eq!(finalized.suite_digest.len(), 64);
+        assert!(finalized
+            .suite_digest
+            .chars()
+            .all(|c: char| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_eval_suite_digest_stable() {
+        // Test that finalize called twice on the same suite object produces same digest
+        let suite = EvalSuite::new("test_suite".to_string(), "1.0.0".to_string())
+            .add_test_case(EvalTestCase::new(
+                serde_json::json!({"input": "test"}),
+                Some(serde_json::json!({"output": "expected"})),
+            ))
+            .add_scorer(ScorerConfig {
+                name: "scorer1".to_string(),
+                scorer_type: ScorerType::ExactMatch,
+                params: serde_json::json!({}),
+            });
+
+        let finalized1 = suite.clone().finalize().expect("finalize suite 1");
+        let finalized2 = suite.finalize().expect("finalize suite 2");
+
+        assert_eq!(
+            finalized1.suite_digest, finalized2.suite_digest,
+            "finalizing same suite object twice should produce same digest"
+        );
+    }
+
+    #[test]
+    fn test_eval_suite_digest_changes_on_mutation() {
+        let suite1 = EvalSuite::new("test_suite".to_string(), "1.0.0".to_string())
+            .add_test_case(EvalTestCase::new(
+                serde_json::json!({"input": "test"}),
+                Some(serde_json::json!({"output": "expected"})),
+            ))
+            .add_scorer(ScorerConfig {
+                name: "scorer1".to_string(),
+                scorer_type: ScorerType::ExactMatch,
+                params: serde_json::json!({}),
+            });
+
+        let finalized1 = suite1.finalize().expect("finalize suite 1");
+
+        // Create suite with different test case
+        let suite2 = EvalSuite::new("test_suite".to_string(), "1.0.0".to_string())
+            .add_test_case(EvalTestCase::new(
+                serde_json::json!({"input": "different_test"}),
+                Some(serde_json::json!({"output": "expected"})),
+            ))
+            .add_scorer(ScorerConfig {
+                name: "scorer1".to_string(),
+                scorer_type: ScorerType::ExactMatch,
+                params: serde_json::json!({}),
+            });
+
+        let finalized2 = suite2.finalize().expect("finalize suite 2");
+
+        assert_ne!(
+            finalized1.suite_digest, finalized2.suite_digest,
+            "different test cases should produce different digest"
+        );
+    }
+
+    #[test]
+    fn test_eval_suite_digest_version_change() {
+        let suite1 = EvalSuite::new("test_suite".to_string(), "1.0.0".to_string());
+        let finalized1 = suite1.finalize().expect("finalize suite 1");
+
+        let suite2 = EvalSuite::new("test_suite".to_string(), "1.0.1".to_string());
+        let finalized2 = suite2.finalize().expect("finalize suite 2");
+
+        assert_ne!(
+            finalized1.suite_digest, finalized2.suite_digest,
+            "different version should produce different digest"
+        );
     }
 }
