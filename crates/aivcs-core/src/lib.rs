@@ -3,11 +3,14 @@
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
 pub mod cas;
+pub mod diff;
 pub mod domain;
 pub mod git;
 pub mod parallel;
 pub mod recording;
 pub mod replay;
+
+pub use diff::{diff_tool_calls, DiffSummary, ParamChange, ToolCallChange, ToolCallEntry};
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
