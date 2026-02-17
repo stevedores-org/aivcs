@@ -46,20 +46,29 @@ pub fn is_git_repo(dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::process::Command as StdCommand;
+
+    fn run_git(repo_dir: &Path, args: &[&str]) {
+        let output = StdCommand::new("git")
+            .args(args)
+            .current_dir(repo_dir)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     fn make_git_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
-        StdCommand::new("git")
-            .args(["init"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        StdCommand::new("git")
-            .args(["commit", "--allow-empty", "-m", "initial"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
+        run_git(dir.path(), &["init"]);
+        run_git(dir.path(), &["config", "user.name", "test-user"]);
+        run_git(dir.path(), &["config", "user.email", "test@example.com"]);
+        run_git(dir.path(), &["commit", "--allow-empty", "-m", "initial"]);
         dir
     }
 
