@@ -7,6 +7,8 @@ resolver = "2"
 
 members = [
     "crates/aivcs-core",
+    "crates/aivcs-cli",
+    "crates/aivcsd",
     "crates/oxidized-state",
     "crates/nix-env-manager",
     "crates/semantic-rag-merge",
