@@ -36,7 +36,12 @@ impl CasStore for FsCasStore {
             return Ok(digest);
         }
 
-        let shard_dir = path.parent().expect("blob path always has parent");
+        let shard_dir = path
+            .parent()
+            .ok_or_else(|| CasError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "blob path has no parent directory",
+            )))?;
         fs::create_dir_all(shard_dir)?;
 
         // Atomic write: write to temp file in the same directory, then rename.
@@ -121,7 +126,12 @@ mod tests {
         let fake = Digest::compute(b"no such blob");
         match store.get(&fake) {
             Err(CasError::NotFound(d)) => assert_eq!(d, fake),
-            other => panic!("expected NotFound, got {other:?}"),
+            other => {
+                assert!(
+                    false,
+                    "expected NotFound, got {other:?}"
+                );
+            }
         }
     }
 
