@@ -22,12 +22,15 @@ pub type StorageResult<T> = std::result::Result<T, StorageError>;
 // CasStore — Content-Addressed Storage
 // ---------------------------------------------------------------------------
 
-/// Content digest (SHA-256 hex string)
+/// Content digest (SHA-256 hex string).
+///
+/// The inner field is private to guarantee the string is always valid
+/// lowercase hex produced by `from_bytes` or validated via `TryFrom<String>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ContentDigest(pub String);
+pub struct ContentDigest(String);
 
 impl ContentDigest {
-    /// Compute the SHA-256 digest of the given bytes
+    /// Compute the SHA-256 digest of the given bytes.
     pub fn from_bytes(data: &[u8]) -> Self {
         use sha2::Digest;
         let mut hasher = Sha256::new();
@@ -35,9 +38,25 @@ impl ContentDigest {
         ContentDigest(hex::encode(hasher.finalize()))
     }
 
-    /// Short form (first 12 hex chars)
+    /// Return the full hex string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Short form (first 12 hex chars).
     pub fn short(&self) -> &str {
         &self.0[..12.min(self.0.len())]
+    }
+}
+
+impl TryFrom<String> for ContentDigest {
+    type Error = StorageError;
+
+    fn try_from(s: String) -> std::result::Result<Self, Self::Error> {
+        if s.len() != 64 || !s.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(StorageError::InvalidDigest { digest: s });
+        }
+        Ok(ContentDigest(s.to_ascii_lowercase()))
     }
 }
 
@@ -217,10 +236,12 @@ pub struct ReleaseRecord {
 
 /// Agent release registry.
 ///
-/// Guarantees:
-/// - `promote` creates a new release entry (append-only history).
-/// - `rollback` restores the previous release as the current pointer.
-/// - `history` returns releases in reverse chronological order.
+/// Semantics:
+/// - `promote` creates a new release entry as the new current release.
+/// - `rollback` reverts to the previous release by re-appending it as a new
+///   entry, preserving the full audit trail (history is append-only).
+/// - `history` returns the complete release chain in reverse chronological
+///   order (newest first).
 #[async_trait]
 pub trait ReleaseRegistry: Send + Sync {
     /// Promote a new release for the given agent name.

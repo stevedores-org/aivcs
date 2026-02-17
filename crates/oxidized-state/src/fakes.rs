@@ -33,28 +33,28 @@ impl CasStore for MemoryCasStore {
     async fn put(&self, data: &[u8]) -> StorageResult<ContentDigest> {
         let digest = ContentDigest::from_bytes(data);
         let mut store = self.store.lock().unwrap();
-        store.insert(digest.0.clone(), data.to_vec());
+        store.insert(digest.as_str().to_string(), data.to_vec());
         Ok(digest)
     }
 
     async fn get(&self, digest: &ContentDigest) -> StorageResult<Vec<u8>> {
         let store = self.store.lock().unwrap();
         store
-            .get(&digest.0)
+            .get(digest.as_str())
             .cloned()
             .ok_or_else(|| StorageError::NotFound {
-                digest: digest.0.clone(),
+                digest: digest.as_str().to_string(),
             })
     }
 
     async fn contains(&self, digest: &ContentDigest) -> StorageResult<bool> {
         let store = self.store.lock().unwrap();
-        Ok(store.contains_key(&digest.0))
+        Ok(store.contains_key(digest.as_str()))
     }
 
     async fn delete(&self, digest: &ContentDigest) -> StorageResult<()> {
         let mut store = self.store.lock().unwrap();
-        store.remove(&digest.0);
+        store.remove(digest.as_str());
         Ok(())
     }
 }
@@ -258,9 +258,11 @@ impl ReleaseRegistry for MemoryReleaseRegistry {
                 name: name.to_string(),
             });
         }
-        // Remove current, return the new current (previous)
-        history.pop();
-        Ok(history.last().unwrap().clone())
+        // Append-only: clone the previous release as a new entry
+        // instead of destroying the current one.
+        let previous = history[history.len() - 2].clone();
+        history.push(previous.clone());
+        Ok(previous)
     }
 
     async fn current(&self, name: &str) -> StorageResult<Option<ReleaseRecord>> {

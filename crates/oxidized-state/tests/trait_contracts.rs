@@ -34,7 +34,7 @@ async fn cas_get_round_trip() {
 #[tokio::test]
 async fn cas_get_not_found() {
     let store = MemoryCasStore::new();
-    let bogus = ContentDigest("deadbeef".to_string());
+    let bogus = ContentDigest::from_bytes(b"nonexistent data for bogus digest");
     let err = store.get(&bogus).await.unwrap_err();
 
     assert!(matches!(err, StorageError::NotFound { .. }));
@@ -70,7 +70,7 @@ async fn cas_contains_after_put() {
 #[tokio::test]
 async fn cas_contains_false_for_missing() {
     let store = MemoryCasStore::new();
-    let bogus = ContentDigest("0000".to_string());
+    let bogus = ContentDigest::from_bytes(b"bogus missing content");
 
     assert!(!store.contains(&bogus).await.unwrap());
 }
@@ -88,7 +88,7 @@ async fn cas_delete_removes_content() {
 #[tokio::test]
 async fn cas_delete_noop_for_missing() {
     let store = MemoryCasStore::new();
-    let bogus = ContentDigest("missing".to_string());
+    let bogus = ContentDigest::from_bytes(b"another bogus content for delete test");
     // Should not error
     store.delete(&bogus).await.unwrap();
 }
@@ -424,14 +424,17 @@ async fn registry_history_append_only() {
         .await
         .unwrap();
 
-    // Rollback removes the last entry
-    reg.rollback("agent").await.unwrap();
+    // Rollback re-appends the previous release (append-only audit trail)
+    let rolled_back = reg.rollback("agent").await.unwrap();
+    assert_eq!(rolled_back.spec_digest, d2);
 
-    // History should have 2 entries now
+    // History preserves full audit trail: 4 entries (v2 re-appended), newest first
     let history = reg.history("agent").await.unwrap();
-    assert_eq!(history.len(), 2);
-    assert_eq!(history[0].spec_digest, d2);
-    assert_eq!(history[1].spec_digest, d1);
+    assert_eq!(history.len(), 4);
+    assert_eq!(history[0].spec_digest, d2); // rollback entry (current)
+    assert_eq!(history[1].spec_digest, d3); // original v3 promotion
+    assert_eq!(history[2].spec_digest, d2); // original v2 promotion
+    assert_eq!(history[3].spec_digest, d1); // original v1 promotion
 }
 
 #[tokio::test]

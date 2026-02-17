@@ -69,6 +69,10 @@ pub enum StorageError {
     #[error("no previous release for '{name}' to roll back to")]
     NoPreviousRelease { name: String },
 
+    /// Invalid digest string (not valid 64-char hex)
+    #[error("invalid digest: {digest}")]
+    InvalidDigest { digest: String },
+
     /// Data integrity violation
     #[error("integrity error: expected {expected}, got {actual}")]
     IntegrityError { expected: String, actual: String },
