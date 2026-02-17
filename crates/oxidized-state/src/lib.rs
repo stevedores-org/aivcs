@@ -23,6 +23,7 @@ mod handle;
 pub mod migrations;
 mod schema;
 pub mod storage_traits;
+pub mod surreal_release_registry;
 
 pub use error::{StateError, StorageError};
 pub use handle::{CloudConfig, SurrealHandle};
@@ -35,6 +36,7 @@ pub use storage_traits::{
     CasStore, ContentDigest, ReleaseMetadata, ReleaseRecord, ReleaseRegistry, RunEvent, RunId,
     RunLedger, RunMetadata, RunStatus, RunSummary, StorageResult,
 };
+pub use surreal_release_registry::SurrealDbReleaseRegistry;
 
 /// Result type for oxidized-state operations
 pub type Result<T> = std::result::Result<T, StateError>;
