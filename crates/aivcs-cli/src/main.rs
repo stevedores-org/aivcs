@@ -47,7 +47,7 @@ enum Commands {
         path: PathBuf,
     },
 
-    /// Create a snapshot of agent state
+    /// Create a snapshot of agent state, linked to the current git HEAD
     ///
     /// # TDD: test_agent_git_snapshot_cli_returns_valid_id
     Snapshot {
@@ -66,6 +66,14 @@ enum Commands {
         /// Branch to commit to
         #[arg(short, long, default_value = "main")]
         branch: String,
+
+        /// Git SHA to associate (auto-detected from cwd if omitted)
+        #[arg(long)]
+        git_sha: Option<String>,
+
+        /// CAS storage directory (default: .aivcs/cas in current directory)
+        #[arg(long)]
+        cas_dir: Option<PathBuf>,
     },
 
     /// Restore agent to a previous state
@@ -230,7 +238,12 @@ async fn main() -> Result<()> {
             message,
             author,
             branch,
-        } => cmd_snapshot(&handle, &state, &message, &author, &branch).await,
+            git_sha,
+            cas_dir,
+        } => {
+            cmd_snapshot(&handle, &state, &message, &author, &branch, git_sha.as_deref(), cas_dir.as_deref())
+                .await
+        }
         Commands::Restore { commit, output } => {
             cmd_restore(&handle, &commit, output.as_deref()).await
         }
@@ -291,13 +304,15 @@ async fn cmd_init(handle: &SurrealHandle, path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Create a snapshot of agent state
+/// Create a snapshot of agent state, linked to the current git HEAD
 async fn cmd_snapshot(
     handle: &SurrealHandle,
     state_path: &PathBuf,
     message: &str,
     author: &str,
     branch: &str,
+    git_sha_override: Option<&str>,
+    cas_dir: Option<&std::path::Path>,
 ) -> Result<()> {
     // Read state file
     let state_content = std::fs::read_to_string(state_path)
@@ -306,13 +321,32 @@ async fn cmd_snapshot(
     let state: serde_json::Value =
         serde_json::from_str(&state_content).context("Failed to parse state as JSON")?;
 
+    // Resolve git SHA: use override, or auto-detect from cwd
+    let git_sha = match git_sha_override {
+        Some(sha) => sha.to_string(),
+        None => {
+            let cwd = std::env::current_dir().context("Failed to get current directory")?;
+            aivcs_core::capture_head_sha(&cwd)
+                .map_err(|e| anyhow::anyhow!("git SHA capture failed: {e}"))?
+        }
+    };
+
+    // Store state in CAS
+    let cas_root = cas_dir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(".aivcs/cas"));
+    let cas = aivcs_core::FsCasStore::new(&cas_root)
+        .map_err(|e| anyhow::anyhow!("failed to open CAS store: {e}"))?;
+    let cas_digest = aivcs_core::CasStore::put(&cas, state_content.as_bytes())
+        .map_err(|e| anyhow::anyhow!("CAS put failed: {e}"))?;
+
     // Get parent commit from branch
     let parent_id = handle.get_branch(branch).await?.map(|b| b.head_commit_id);
 
     // Create commit ID
     let commit_id = CommitId::from_state(state_content.as_bytes());
 
-    // Save snapshot
+    // Save snapshot to SurrealDB
     handle.save_snapshot(&commit_id, state).await?;
 
     // Create commit record
@@ -328,8 +362,16 @@ async fn cmd_snapshot(
     let branch_record = BranchRecord::new(branch, &commit_id.hash, branch == "main");
     handle.save_branch(&branch_record).await?;
 
+    info!(
+        cas_digest = %cas_digest,
+        git_sha = %git_sha,
+        "snapshot stored in CAS"
+    );
+
     println!("[{}] {} ({})", branch, message, commit_id.short());
-    println!("Commit: {}", commit_id);
+    println!("Commit:    {}", commit_id);
+    println!("Git SHA:   {}", git_sha);
+    println!("CAS digest: {}", cas_digest);
 
     Ok(())
 }
@@ -803,9 +845,17 @@ mod tests {
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
 
-        // Run snapshot command
-        let result =
-            cmd_snapshot(&handle, &state_path, "Test snapshot", "test-agent", "main").await;
+        // Run snapshot command (with explicit git SHA since test isn't in a git repo)
+        let result = cmd_snapshot(
+            &handle,
+            &state_path,
+            "Test snapshot",
+            "test-agent",
+            "main",
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            Some(temp_dir.path().join("cas").as_path()),
+        )
+        .await;
 
         assert!(result.is_ok(), "Snapshot failed: {:?}", result.err());
 
@@ -825,9 +875,17 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
-        cmd_snapshot(&handle, &state_path, "Base", "agent", "main")
-            .await
-            .unwrap();
+        cmd_snapshot(
+            &handle,
+            &state_path,
+            "Base",
+            "agent",
+            "main",
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            Some(temp_dir.path().join("cas").as_path()),
+        )
+        .await
+        .unwrap();
 
         // Run fork command
         let result = cmd_fork(&handle, "main", 2, "test-fork").await;
@@ -846,5 +904,70 @@ mod tests {
             2,
             "Should have created 2 branches in the same DB"
         );
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_linked_to_git_sha() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let state_path = temp_dir.path().join("state.json");
+        std::fs::write(&state_path, r#"{"model": "gpt-4", "step": 42}"#).unwrap();
+
+        let git_sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let cas_dir = temp_dir.path().join("cas");
+
+        // Create snapshot with explicit git SHA
+        cmd_snapshot(
+            &handle,
+            &state_path,
+            "Linked to git commit",
+            "agent-v1",
+            "main",
+            Some(git_sha),
+            Some(cas_dir.as_path()),
+        )
+        .await
+        .unwrap();
+
+        // Verify commit exists in DB
+        let head = handle.get_branch_head("main").await.unwrap();
+        assert!(!head.is_empty());
+
+        // Verify state was stored in CAS
+        let store = aivcs_core::FsCasStore::new(&cas_dir).unwrap();
+        let state_bytes = r#"{"model": "gpt-4", "step": 42}"#.as_bytes();
+        let digest = aivcs_core::Digest::compute(state_bytes);
+        assert!(
+            aivcs_core::CasStore::exists(&store, &digest).unwrap(),
+            "State should exist in CAS after snapshot"
+        );
+
+        // Verify CAS roundtrip
+        let retrieved = aivcs_core::CasStore::get(&store, &digest).unwrap();
+        assert_eq!(retrieved, state_bytes);
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_auto_detects_git_sha_in_repo() {
+        // Create a temporary git repo
+        let temp_dir = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "--allow-empty", "-m", "initial"])
+            .current_dir(temp_dir.path())
+            .output()
+            .unwrap();
+
+        // Capture the actual HEAD SHA
+        let expected_sha = aivcs_core::capture_head_sha(temp_dir.path()).unwrap();
+
+        assert_eq!(expected_sha.len(), 40);
+        assert!(expected_sha.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }
