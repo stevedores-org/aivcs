@@ -124,14 +124,13 @@ mod tests {
     fn get_nonexistent_returns_not_found() {
         let (_dir, store) = make_store();
         let fake = Digest::compute(b"no such blob");
-        match store.get(&fake) {
-            Err(CasError::NotFound(d)) => assert_eq!(d, fake),
-            other => {
-                assert!(
-                    false,
-                    "expected NotFound, got {other:?}"
-                );
-            }
+        let result = store.get(&fake);
+        assert!(
+            matches!(result, Err(CasError::NotFound(_))),
+            "expected NotFound, got {result:?}"
+        );
+        if let Err(CasError::NotFound(d)) = result {
+            assert_eq!(d, fake);
         }
     }
 
