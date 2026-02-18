@@ -233,11 +233,20 @@ impl DeterministicEvalRunner {
     /// Execute suite scoring deterministically using provided case outputs.
     ///
     /// `actual_outputs` maps test case IDs to the concrete run output for that case.
+    ///
+    /// Returns `Err` if `suite.suite_digest` is empty (call `finalize()` first).
     pub fn run_with_outputs(
         &self,
         suite: &EvalSuite,
         actual_outputs: &HashMap<Uuid, serde_json::Value>,
-    ) -> EvalRunReport {
+    ) -> Result<EvalRunReport> {
+        if suite.suite_digest.is_empty() {
+            return Err(super::error::AivcsError::DigestMismatch {
+                expected: "<non-empty>".to_string(),
+                actual: "<empty>".to_string(),
+            });
+        }
+
         let mut case_results = Vec::with_capacity(suite.test_cases.len());
 
         for case in &suite.test_cases {
@@ -259,6 +268,10 @@ impl DeterministicEvalRunner {
                 passed,
                 actual,
             });
+
+            if suite.thresholds.fail_fast && !passed {
+                break;
+            }
         }
 
         let passed_cases = case_results.iter().filter(|c| c.passed).count();
@@ -270,7 +283,7 @@ impl DeterministicEvalRunner {
         };
         let overall_pass = pass_rate >= suite.thresholds.min_pass_rate;
 
-        EvalRunReport {
+        Ok(EvalRunReport {
             suite_digest: suite.suite_digest.clone(),
             seed: self.seed,
             total_cases,
@@ -278,7 +291,7 @@ impl DeterministicEvalRunner {
             pass_rate,
             overall_pass,
             case_results,
-        }
+        })
     }
 
     fn score_case(
@@ -302,22 +315,40 @@ impl DeterministicEvalRunner {
 
         let mut scores = Vec::with_capacity(suite.scorers.len());
         for scorer in &suite.scorers {
-            let s = match scorer.scorer_type {
-                ScorerType::ExactMatch => match &case.expected {
-                    Some(expected) => {
-                        if expected == actual {
-                            1.0
-                        } else {
-                            0.0
+            match scorer.scorer_type {
+                ScorerType::ExactMatch => {
+                    let s = match &case.expected {
+                        Some(expected) => {
+                            if expected == actual {
+                                1.0
+                            } else {
+                                0.0
+                            }
                         }
+                        None => 1.0,
+                    };
+                    scores.push(s);
+                }
+                // Unimplemented scorers are skipped to avoid silently dragging
+                // down scores. Once real implementations land, add arms here.
+                ScorerType::SemanticSimilarity
+                | ScorerType::ToolCallSequence
+                | ScorerType::Custom(_) => {}
+            }
+        }
+
+        if scores.is_empty() {
+            // No usable scorers contributed — fall back to exact-match semantics.
+            return match &case.expected {
+                Some(expected) => {
+                    if expected == actual {
+                        1.0
+                    } else {
+                        0.0
                     }
-                    None => 1.0,
-                },
-                ScorerType::SemanticSimilarity => 0.0,
-                ScorerType::ToolCallSequence => 0.0,
-                ScorerType::Custom(_) => 0.0,
+                }
+                None => 1.0,
             };
-            scores.push(s);
         }
 
         scores.iter().sum::<f32>() / scores.len() as f32
@@ -586,8 +617,8 @@ mod tests {
         outputs.insert(case2.case_id, serde_json::json!({"answer":"8"}));
 
         let runner = DeterministicEvalRunner::new(42);
-        let report1 = runner.run_with_outputs(&suite, &outputs);
-        let report2 = runner.run_with_outputs(&suite, &outputs);
+        let report1 = runner.run_with_outputs(&suite, &outputs).unwrap();
+        let report2 = runner.run_with_outputs(&suite, &outputs).unwrap();
 
         assert_eq!(report1, report2);
         assert_eq!(report1.total_cases, 2);
@@ -617,12 +648,28 @@ mod tests {
         let mut outputs = HashMap::new();
         outputs.insert(case.case_id, serde_json::json!({"answer":"4"}));
 
-        let report = DeterministicEvalRunner::new(7).run_with_outputs(&suite, &outputs);
-        let actual = serde_json::to_string_pretty(&report).unwrap();
-        let expected = format!(
-            "{{\n  \"suite_digest\": \"{}\",\n  \"seed\": 7,\n  \"total_cases\": 1,\n  \"passed_cases\": 1,\n  \"pass_rate\": 1.0,\n  \"overall_pass\": true,\n  \"case_results\": [\n    {{\n      \"case_id\": \"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\n      \"score\": 1.0,\n      \"passed\": true,\n      \"actual\": {{\n        \"answer\": \"4\"\n      }}\n    }}\n  ]\n}}",
-            suite.suite_digest
-        );
+        let report = DeterministicEvalRunner::new(7)
+            .run_with_outputs(&suite, &outputs)
+            .unwrap();
+        let actual = serde_json::to_value(&report).unwrap();
+        let expected = serde_json::json!({
+            "suite_digest": suite.suite_digest,
+            "seed": 7,
+            "total_cases": 1,
+            "passed_cases": 1,
+            "pass_rate": 1.0,
+            "overall_pass": true,
+            "case_results": [
+                {
+                    "case_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    "score": 1.0,
+                    "passed": true,
+                    "actual": {
+                        "answer": "4"
+                    }
+                }
+            ]
+        });
         assert_eq!(actual, expected);
     }
 }
