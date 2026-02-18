@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::digest;
@@ -194,6 +195,163 @@ impl EvalSuite {
         };
         self.suite_digest = Self::compute_digest(&fields)?;
         Ok(self)
+    }
+}
+
+/// Per-test-case deterministic evaluation result.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalCaseResult {
+    pub case_id: Uuid,
+    pub score: f32,
+    pub passed: bool,
+    pub actual: serde_json::Value,
+}
+
+/// Deterministic evaluation run output for an EvalSuite.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvalRunReport {
+    pub suite_digest: String,
+    pub seed: u64,
+    pub total_cases: usize,
+    pub passed_cases: usize,
+    pub pass_rate: f32,
+    pub overall_pass: bool,
+    pub case_results: Vec<EvalCaseResult>,
+}
+
+/// Deterministic execution harness for EvalSuite runs.
+#[derive(Debug, Clone, Copy)]
+pub struct DeterministicEvalRunner {
+    pub seed: u64,
+}
+
+impl DeterministicEvalRunner {
+    pub fn new(seed: u64) -> Self {
+        Self { seed }
+    }
+
+    /// Execute suite scoring deterministically using provided case outputs.
+    ///
+    /// `actual_outputs` maps test case IDs to the concrete run output for that case.
+    ///
+    /// Returns `Err` if `suite.suite_digest` is empty (call `finalize()` first).
+    pub fn run_with_outputs(
+        &self,
+        suite: &EvalSuite,
+        actual_outputs: &HashMap<Uuid, serde_json::Value>,
+    ) -> Result<EvalRunReport> {
+        if suite.suite_digest.is_empty() {
+            return Err(super::error::AivcsError::DigestMismatch {
+                expected: "<non-empty>".to_string(),
+                actual: "<empty>".to_string(),
+            });
+        }
+
+        let mut case_results = Vec::with_capacity(suite.test_cases.len());
+
+        for case in &suite.test_cases {
+            let actual = actual_outputs
+                .get(&case.case_id)
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+
+            let score = self.score_case(suite, case, &actual);
+            let passed = if case.expected.is_some() {
+                score >= 1.0
+            } else {
+                score > 0.0
+            };
+
+            case_results.push(EvalCaseResult {
+                case_id: case.case_id,
+                score,
+                passed,
+                actual,
+            });
+
+            if suite.thresholds.fail_fast && !passed {
+                break;
+            }
+        }
+
+        let passed_cases = case_results.iter().filter(|c| c.passed).count();
+        let total_cases = case_results.len();
+        let pass_rate = if total_cases == 0 {
+            1.0
+        } else {
+            passed_cases as f32 / total_cases as f32
+        };
+        let overall_pass = pass_rate >= suite.thresholds.min_pass_rate;
+
+        Ok(EvalRunReport {
+            suite_digest: suite.suite_digest.clone(),
+            seed: self.seed,
+            total_cases,
+            passed_cases,
+            pass_rate,
+            overall_pass,
+            case_results,
+        })
+    }
+
+    fn score_case(
+        &self,
+        suite: &EvalSuite,
+        case: &EvalTestCase,
+        actual: &serde_json::Value,
+    ) -> f32 {
+        if suite.scorers.is_empty() {
+            return match &case.expected {
+                Some(expected) => {
+                    if expected == actual {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                }
+                None => 1.0,
+            };
+        }
+
+        let mut scores = Vec::with_capacity(suite.scorers.len());
+        for scorer in &suite.scorers {
+            match scorer.scorer_type {
+                ScorerType::ExactMatch => {
+                    let s = match &case.expected {
+                        Some(expected) => {
+                            if expected == actual {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        None => 1.0,
+                    };
+                    scores.push(s);
+                }
+                // Unimplemented scorers are skipped to avoid silently dragging
+                // down scores. Once real implementations land, add arms here.
+                ScorerType::SemanticSimilarity
+                | ScorerType::ToolCallSequence
+                | ScorerType::Custom(_) => {}
+            }
+        }
+
+        if scores.is_empty() {
+            // No usable scorers contributed — fall back to exact-match semantics.
+            return match &case.expected {
+                Some(expected) => {
+                    if expected == actual {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                }
+                None => 1.0,
+            };
+        }
+
+        scores.iter().sum::<f32>() / scores.len() as f32
     }
 }
 
@@ -422,5 +580,96 @@ mod tests {
             finalized1.suite_digest, finalized2.suite_digest,
             "different version should produce different digest"
         );
+    }
+
+    #[test]
+    fn test_deterministic_eval_runner_stable_score() {
+        let mut case1 = EvalTestCase::new(
+            serde_json::json!({"q":"2+2"}),
+            Some(serde_json::json!({"answer":"4"})),
+        );
+        case1.case_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+
+        let mut case2 = EvalTestCase::new(
+            serde_json::json!({"q":"3*3"}),
+            Some(serde_json::json!({"answer":"9"})),
+        );
+        case2.case_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+
+        let suite = EvalSuite::new("golden-suite".to_string(), "1.0.0".to_string())
+            .add_test_case(case1.clone())
+            .add_test_case(case2.clone())
+            .add_scorer(ScorerConfig {
+                name: "exact".to_string(),
+                scorer_type: ScorerType::ExactMatch,
+                params: serde_json::json!({}),
+            })
+            .with_thresholds(EvalThresholds {
+                min_pass_rate: 0.5,
+                max_regression: 0.0,
+                fail_fast: false,
+            })
+            .finalize()
+            .unwrap();
+
+        let mut outputs = HashMap::new();
+        outputs.insert(case1.case_id, serde_json::json!({"answer":"4"}));
+        outputs.insert(case2.case_id, serde_json::json!({"answer":"8"}));
+
+        let runner = DeterministicEvalRunner::new(42);
+        let report1 = runner.run_with_outputs(&suite, &outputs).unwrap();
+        let report2 = runner.run_with_outputs(&suite, &outputs).unwrap();
+
+        assert_eq!(report1, report2);
+        assert_eq!(report1.total_cases, 2);
+        assert_eq!(report1.passed_cases, 1);
+        assert_eq!(report1.pass_rate, 0.5);
+        assert!(report1.overall_pass);
+    }
+
+    #[test]
+    fn test_deterministic_eval_runner_golden_output() {
+        let mut case = EvalTestCase::new(
+            serde_json::json!({"q":"2+2"}),
+            Some(serde_json::json!({"answer":"4"})),
+        );
+        case.case_id = Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
+
+        let suite = EvalSuite::new("golden".to_string(), "1.0.0".to_string())
+            .add_test_case(case.clone())
+            .add_scorer(ScorerConfig {
+                name: "exact".to_string(),
+                scorer_type: ScorerType::ExactMatch,
+                params: serde_json::json!({}),
+            })
+            .finalize()
+            .unwrap();
+
+        let mut outputs = HashMap::new();
+        outputs.insert(case.case_id, serde_json::json!({"answer":"4"}));
+
+        let report = DeterministicEvalRunner::new(7)
+            .run_with_outputs(&suite, &outputs)
+            .unwrap();
+        let actual = serde_json::to_value(&report).unwrap();
+        let expected = serde_json::json!({
+            "suite_digest": suite.suite_digest,
+            "seed": 7,
+            "total_cases": 1,
+            "passed_cases": 1,
+            "pass_rate": 1.0,
+            "overall_pass": true,
+            "case_results": [
+                {
+                    "case_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    "score": 1.0,
+                    "passed": true,
+                    "actual": {
+                        "answer": "4"
+                    }
+                }
+            ]
+        });
+        assert_eq!(actual, expected);
     }
 }
