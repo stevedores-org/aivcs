@@ -48,30 +48,27 @@ impl GraphRunRecorder {
             payload: event.payload.clone(),
             timestamp: event.timestamp,
         };
+        self.ledger.append_event(&self.run_id, run_event).await?;
         crate::obs::emit_event_appended(&self.run_id.to_string(), &kind_str, event.seq);
-        self.ledger.append_event(&self.run_id, run_event).await
+        Ok(())
     }
 
     /// Finalize the run as completed.
     pub async fn finish_ok(self, summary: RunSummary) -> StorageResult<()> {
-        crate::obs::emit_run_finished(
-            &self.run_id.to_string(),
-            summary.duration_ms,
-            summary.total_events,
-            true,
-        );
-        self.ledger.complete_run(&self.run_id, summary).await
+        let duration_ms = summary.duration_ms;
+        let total_events = summary.total_events;
+        self.ledger.complete_run(&self.run_id, summary).await?;
+        crate::obs::emit_run_finished(&self.run_id.to_string(), duration_ms, total_events, true);
+        Ok(())
     }
 
     /// Finalize the run as failed.
     pub async fn finish_err(self, summary: RunSummary) -> StorageResult<()> {
-        crate::obs::emit_run_finished(
-            &self.run_id.to_string(),
-            summary.duration_ms,
-            summary.total_events,
-            false,
-        );
-        self.ledger.fail_run(&self.run_id, summary).await
+        let duration_ms = summary.duration_ms;
+        let total_events = summary.total_events;
+        self.ledger.fail_run(&self.run_id, summary).await?;
+        crate::obs::emit_run_finished(&self.run_id.to_string(), duration_ms, total_events, false);
+        Ok(())
     }
 
     /// Return a reference to the run ID.
