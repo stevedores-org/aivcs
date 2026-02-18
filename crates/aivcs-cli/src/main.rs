@@ -16,13 +16,16 @@ use nix_env_manager::{
     generate_environment_hash, generate_logic_hash, is_attic_available, is_nix_available,
     AtticClient, NixHash,
 };
-use oxidized_state::{BranchRecord, CommitId, CommitRecord, SurrealHandle};
+use oxidized_state::{
+    BranchRecord, CommitId, CommitRecord, RunLedger, SurrealHandle, SurrealRunLedger,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use aivcs_core::fork_agent_parallel;
+use aivcs_core::LcsToolCallChange as ToolCallChange;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -171,6 +174,17 @@ enum Commands {
         #[arg(short, long, default_value = "20")]
         depth: usize,
     },
+
+    /// Diff the tool-call sequences of two runs
+    DiffRuns {
+        /// First run ID
+        #[arg(long)]
+        run_a: String,
+
+        /// Second run ID
+        #[arg(long)]
+        run_b: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -300,6 +314,12 @@ async fn main() -> Result<()> {
             prefix,
         } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
+        Commands::DiffRuns { run_a, run_b } => {
+            let ledger = SurrealRunLedger::from_env()
+                .await
+                .context("Failed to connect to run ledger")?;
+            cmd_diff_runs(&ledger, &run_a, &run_b).await
+        }
     }
 }
 
@@ -319,7 +339,7 @@ async fn cmd_init(handle: &SurrealHandle, path: &PathBuf) -> Result<()> {
     handle.save_snapshot(&commit_id, initial_state).await?;
 
     // Create initial commit record
-    let commit = CommitRecord::new(commit_id.clone(), None, "Initial commit", "system");
+    let commit = CommitRecord::new(commit_id.clone(), vec![], "Initial commit", "system");
     handle.save_commit(&commit).await?;
 
     // Create main branch
@@ -349,15 +369,17 @@ async fn cmd_snapshot(
     let state: serde_json::Value =
         serde_json::from_str(&state_content).context("Failed to parse state as JSON")?;
 
-    // Resolve git SHA: use override, or auto-detect from cwd
+    // Resolve git SHA: use override, or auto-detect from cwd (optional)
+    let cwd = std::env::current_dir().context("Failed to get current directory")?;
     let git_sha = match git_sha_override {
         Some(sha) => sha.to_string(),
-        None => {
-            let cwd = std::env::current_dir().context("Failed to get current directory")?;
-            aivcs_core::capture_head_sha(&cwd)
-                .map_err(|e| anyhow::anyhow!("git SHA capture failed: {e}"))?
-        }
+        None => aivcs_core::capture_head_sha(&cwd)
+            .unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string()),
     };
+
+    // Generate logic and environment hashes for composite CommitId
+    let logic_hash = generate_logic_hash(&cwd.join("src")).ok();
+    let env_hash = generate_environment_hash(&cwd).ok();
 
     // Store state in CAS
     let cas_root = cas_dir
@@ -369,20 +391,28 @@ async fn cmd_snapshot(
         .map_err(|e| anyhow::anyhow!("CAS put failed: {e}"))?;
 
     // Get parent commit from branch
-    let parent_id = handle.get_branch(branch).await?.map(|b| b.head_commit_id);
+    let parent_ids = handle
+        .get_branch(branch)
+        .await?
+        .map(|b| vec![b.head_commit_id])
+        .unwrap_or_default();
 
-    // Create commit ID
-    let commit_id = CommitId::from_state(state_content.as_bytes());
+    // Create composite commit ID
+    let commit_id = CommitId::new(
+        logic_hash.as_deref(),
+        &cas_digest.to_hex(),
+        env_hash.as_ref().map(|h| h.hash.as_str()),
+    );
 
     // Save snapshot to SurrealDB
     handle.save_snapshot(&commit_id, state).await?;
 
     // Create commit record
-    let commit = CommitRecord::new(commit_id.clone(), parent_id.clone(), message, author);
+    let commit = CommitRecord::new(commit_id.clone(), parent_ids.clone(), message, author);
     handle.save_commit(&commit).await?;
 
-    // Create graph edge if there's a parent
-    if let Some(pid) = &parent_id {
+    // Create graph edges for all parents
+    for pid in &parent_ids {
         handle.save_commit_graph_edge(&commit_id.hash, pid).await?;
     }
 
@@ -508,7 +538,7 @@ async fn cmd_branch_list(handle: &SurrealHandle) -> Result<()> {
             "{}{} -> {}",
             prefix,
             branch.name,
-            &branch.head_commit_id[..8]
+            &branch.head_commit_id[..8.min(branch.head_commit_id.len())]
         );
     }
 
@@ -646,11 +676,14 @@ async fn cmd_diff(handle: &SurrealHandle, a: &str, b: &str) -> Result<()> {
 
     let delta = semantic_rag_merge::diff_memory_vectors(handle, &commit_a, &commit_b).await?;
 
-    println!("Diff {} -> {}", &commit_a[..8], &commit_b[..8]);
+    let a_short = &commit_a[..8.min(commit_a.len())];
+    let b_short = &commit_b[..8.min(commit_b.len())];
+
+    println!("Diff {} -> {}", a_short, b_short);
     println!();
 
     if !delta.only_in_a.is_empty() {
-        println!("Only in {}:", &commit_a[..8]);
+        println!("Only in {}:", a_short);
         for mem in &delta.only_in_a {
             println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
         }
@@ -658,7 +691,7 @@ async fn cmd_diff(handle: &SurrealHandle, a: &str, b: &str) -> Result<()> {
     }
 
     if !delta.only_in_b.is_empty() {
-        println!("Only in {}:", &commit_b[..8]);
+        println!("Only in {}:", b_short);
         for mem in &delta.only_in_b {
             println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
         }
@@ -911,6 +944,59 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
         depth
     );
 
+    Ok(())
+}
+
+/// Diff the tool-call sequences of two runs
+async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result<()> {
+    let (events_a, summary_a) = aivcs_core::replay_run(ledger, id_a)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_a))?;
+    let (events_b, summary_b) = aivcs_core::replay_run(ledger, id_b)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_b))?;
+
+    let diff = aivcs_core::diff_tool_calls_lcs(id_a, &events_a, id_b, &events_b);
+
+    println!("A: {} ({})", summary_a.run_id, summary_a.agent_name);
+    println!("B: {} ({})", summary_b.run_id, summary_b.agent_name);
+    println!();
+
+    if diff.identical {
+        println!("Tool-call sequences are identical.");
+        return Ok(());
+    }
+
+    for change in &diff.changes {
+        match change {
+            ToolCallChange::Added { entry } => {
+                println!("  + [{}] {}", entry.seq, entry.tool_name);
+            }
+            ToolCallChange::Removed { entry } => {
+                println!("  - [{}] {}", entry.seq, entry.tool_name);
+            }
+            ToolCallChange::Reordered {
+                tool_name,
+                seq_a,
+                seq_b,
+            } => {
+                println!("  ~ {} (A:[{}] -> B:[{}])", tool_name, seq_a, seq_b);
+            }
+            ToolCallChange::ParamDelta {
+                tool_name,
+                seq_a,
+                seq_b,
+                changes,
+            } => {
+                println!("  Δ {} (A:[{}] / B:[{}])", tool_name, seq_a, seq_b);
+                for c in changes {
+                    println!("      {} : {} -> {}", c.pointer, c.value_a, c.value_b);
+                }
+            }
+        }
+    }
+
+    println!("\nChanges: {}", diff.changes.len());
     Ok(())
 }
 
