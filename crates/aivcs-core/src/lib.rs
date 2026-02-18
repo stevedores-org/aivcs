@@ -8,12 +8,14 @@ pub mod domain;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod metrics;
 pub mod obs;
 pub mod parallel;
 pub mod recording;
 pub mod release_registry;
 pub mod replay;
 pub mod reporting;
+pub mod telemetry;
 
 pub use diff::lcs_diff::{
     diff_tool_calls as diff_tool_calls_lcs, DiffSummary, ParamChange,
@@ -70,10 +72,12 @@ pub use reporting::{
     EvalCaseResultArtifact, EvalResultsArtifact, EvalSummaryArtifact,
 };
 
+pub use metrics::METRICS;
 pub use obs::{
     emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
     emit_run_started, RunSpan,
 };
+pub use telemetry::init_tracing;
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

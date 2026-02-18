@@ -25,8 +25,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::info;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing::{info, Level};
 
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
 
@@ -39,6 +38,10 @@ struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Emit JSON-formatted log lines
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -307,30 +310,13 @@ enum ReleaseAction {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Setup logging with env filter and optional JSON output
-    let filter = EnvFilter::try_from_env("AIVCS_LOG").unwrap_or_else(|_| {
-        if cli.verbose {
-            EnvFilter::new("debug")
-        } else {
-            EnvFilter::new("info")
-        }
-    });
-
-    let use_json = std::env::var("AIVCS_LOG_FORMAT")
-        .map(|v| v == "json")
-        .unwrap_or(false);
-
-    if use_json {
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(fmt::layer().json())
-            .init();
+    // Setup logging
+    let level = if cli.verbose {
+        Level::DEBUG
     } else {
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(fmt::layer())
-            .init();
-    }
+        Level::INFO
+    };
+    aivcs_core::init_tracing(cli.json, level);
 
     // Initialize database connection
     let handle = SurrealHandle::setup_from_env()
