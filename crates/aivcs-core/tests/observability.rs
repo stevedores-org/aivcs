@@ -135,9 +135,7 @@ async fn test_replay_completed_emits_event() {
         .expect("complete run");
 
     // Replay and verify no errors
-    let (events, summary) = replay_run(&*ledger, &run_id.0)
-        .await
-        .expect("replay run");
+    let (events, summary) = replay_run(&*ledger, &run_id.0).await.expect("replay run");
 
     // Verify replay completed successfully
     assert_eq!(events.len(), 1);
