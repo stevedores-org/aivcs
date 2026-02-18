@@ -3,6 +3,7 @@
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
 pub mod cas;
+pub mod deploy;
 pub mod diff;
 pub mod domain;
 pub mod event_adapter;
@@ -51,6 +52,7 @@ pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
 
+pub use deploy::{deploy_by_digest, DeployResult};
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
 };
