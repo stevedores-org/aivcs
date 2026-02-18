@@ -26,7 +26,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::json;
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{instrument, warn};
+
+use crate::metrics::METRICS;
 
 use oxidizedgraph::events::{
     spawn_handler, CheckpointEvent, Event, EventBus, EventHandler, EventKind, GraphEvent,
@@ -181,6 +183,7 @@ fn map_event(event: &Event) -> (String, serde_json::Value) {
 
 #[async_trait]
 impl<L: RunLedger + 'static> EventHandler for LedgerHandler<L> {
+    #[instrument(skip(self), name = "ledger_handler_on_start")]
     async fn on_start(&self) {
         *self.start_time.write().await = Some(std::time::Instant::now());
 
@@ -198,6 +201,7 @@ impl<L: RunLedger + 'static> EventHandler for LedgerHandler<L> {
         }
     }
 
+    #[instrument(skip(self, event), name = "ledger_handler_handle", level = "debug")]
     async fn handle(&self, event: &Event) {
         let run_id = {
             let guard = self.run_id.read().await;
@@ -206,6 +210,8 @@ impl<L: RunLedger + 'static> EventHandler for LedgerHandler<L> {
                 None => return,
             }
         };
+
+        METRICS.inc_events_processed();
 
         let (kind, payload) = map_event(event);
 
@@ -229,6 +235,7 @@ impl<L: RunLedger + 'static> EventHandler for LedgerHandler<L> {
         }
     }
 
+    #[instrument(skip(self), name = "ledger_handler_on_stop")]
     async fn on_stop(&self) {
         let run_id = {
             let guard = self.run_id.read().await;

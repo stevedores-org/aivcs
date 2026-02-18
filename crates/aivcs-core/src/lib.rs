@@ -9,11 +9,13 @@ pub mod domain;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod metrics;
 pub mod parallel;
 pub mod recording;
 pub mod release_registry;
 pub mod replay;
 pub mod reporting;
+pub mod telemetry;
 
 pub use diff::lcs_diff::{
     diff_tool_calls as diff_tool_calls_lcs, DiffSummary, ParamChange,
@@ -72,6 +74,9 @@ pub use reporting::{
     render_diff_summary_md, write_diff_summary_md, write_eval_results_json, DiffSummaryArtifact,
     EvalCaseResultArtifact, EvalResultsArtifact, EvalSummaryArtifact,
 };
+
+pub use metrics::METRICS;
+pub use telemetry::init_tracing;
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
