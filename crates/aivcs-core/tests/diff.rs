@@ -41,9 +41,9 @@ fn test_identical_runs_no_diff() {
         make_tool_event(2, "fetch", None),
     ];
 
-    let diff = diff_tool_calls(&events_a, &events_b);
+    let diff = diff_tool_calls("run_a", &events_a, "run_b", &events_b);
 
-    assert!(diff.is_empty(), "Expected identical diff");
+    assert!(diff.identical, "Expected identical diff");
     assert!(
         diff.changes.is_empty(),
         "Expected no changes, got: {:?}",
@@ -63,14 +63,14 @@ fn test_tool_added() {
         make_tool_event(3, "fetch", None),
     ];
 
-    let diff = diff_tool_calls(&events_a, &events_b);
+    let diff = diff_tool_calls("run_a", &events_a, "run_b", &events_b);
 
-    assert!(!diff.is_empty(), "Expected non-identical diff");
+    assert!(!diff.identical, "Expected non-identical diff");
 
     let added: Vec<_> = diff
         .changes
         .iter()
-        .filter(|c| matches!(c, ToolCallChange::Added(_)))
+        .filter(|c| matches!(c, ToolCallChange::Added { .. }))
         .collect();
     assert!(
         !added.is_empty(),
@@ -79,8 +79,8 @@ fn test_tool_added() {
     );
 
     match &added[0] {
-        ToolCallChange::Added(call) => {
-            assert_eq!(call.tool_name, "translate");
+        ToolCallChange::Added { entry } => {
+            assert_eq!(entry.tool_name, "translate");
         }
         other => panic!("Expected Added, got {:?}", other),
     }
@@ -98,14 +98,14 @@ fn test_tool_removed() {
         make_tool_event(2, "fetch", None),
     ];
 
-    let diff = diff_tool_calls(&events_a, &events_b);
+    let diff = diff_tool_calls("run_a", &events_a, "run_b", &events_b);
 
-    assert!(!diff.is_empty(), "Expected non-identical diff");
+    assert!(!diff.identical, "Expected non-identical diff");
 
     let removed: Vec<_> = diff
         .changes
         .iter()
-        .filter(|c| matches!(c, ToolCallChange::Removed(_)))
+        .filter(|c| matches!(c, ToolCallChange::Removed { .. }))
         .collect();
     assert!(
         !removed.is_empty(),
@@ -114,8 +114,8 @@ fn test_tool_removed() {
     );
 
     match &removed[0] {
-        ToolCallChange::Removed(call) => {
-            assert_eq!(call.tool_name, "translate");
+        ToolCallChange::Removed { entry } => {
+            assert_eq!(entry.tool_name, "translate");
         }
         other => panic!("Expected Removed, got {:?}", other),
     }
@@ -134,14 +134,14 @@ fn test_param_delta() {
         Some(serde_json::json!({"query": "dogs"})),
     )];
 
-    let diff = diff_tool_calls(&events_a, &events_b);
+    let diff = diff_tool_calls("run_a", &events_a, "run_b", &events_b);
 
-    assert!(!diff.is_empty(), "Expected non-identical diff");
+    assert!(!diff.identical, "Expected non-identical diff");
 
     let param_changes: Vec<_> = diff
         .changes
         .iter()
-        .filter(|c| matches!(c, ToolCallChange::ParamChanged { .. }))
+        .filter(|c| matches!(c, ToolCallChange::ParamDelta { .. }))
         .collect();
     assert!(
         !param_changes.is_empty(),
@@ -150,14 +150,14 @@ fn test_param_delta() {
     );
 
     match &param_changes[0] {
-        ToolCallChange::ParamChanged {
-            tool_name, deltas, ..
+        ToolCallChange::ParamDelta {
+            tool_name, changes, ..
         } => {
             assert_eq!(tool_name, "search");
-            assert_eq!(deltas.len(), 1, "Expected 1 param change");
-            assert_eq!(deltas[0].key, "query");
+            assert_eq!(changes.len(), 1, "Expected 1 param change");
+            assert_eq!(changes[0].pointer, "/query");
         }
-        other => panic!("Expected ParamChanged, got {:?}", other),
+        other => panic!("Expected ParamDelta, got {:?}", other),
     }
 }
 
@@ -173,20 +173,20 @@ fn test_symmetry_property() {
         make_tool_event(3, "fetch", None),
     ];
 
-    let diff_ab = diff_tool_calls(&events_a, &events_b);
-    let diff_ba = diff_tool_calls(&events_b, &events_a);
+    let diff_ab = diff_tool_calls("run_a", &events_a, "run_b", &events_b);
+    let diff_ba = diff_tool_calls("run_b", &events_b, "run_a", &events_a);
 
     // diff(a,b) should have Added { translate }
     assert!(diff_ab
         .changes
         .iter()
-        .any(|c| matches!(c, ToolCallChange::Added(call) if call.tool_name == "translate")));
+        .any(|c| matches!(c, ToolCallChange::Added { entry } if entry.tool_name == "translate")));
 
     // diff(b,a) should have Removed { translate }
     assert!(diff_ba
         .changes
         .iter()
-        .any(|c| matches!(c, ToolCallChange::Removed(call) if call.tool_name == "translate")));
+        .any(|c| matches!(c, ToolCallChange::Removed { entry } if entry.tool_name == "translate")));
 }
 
 #[test]
@@ -197,9 +197,9 @@ fn test_empty_vs_nonempty() {
         make_tool_event(2, "fetch", None),
     ];
 
-    let diff = diff_tool_calls(&events_a, &events_b);
+    let diff = diff_tool_calls("run_a", &events_a, "run_b", &events_b);
 
-    assert!(!diff.is_empty(), "Expected non-identical diff");
+    assert!(!diff.identical, "Expected non-identical diff");
     assert_eq!(
         diff.changes.len(),
         2,
@@ -209,7 +209,7 @@ fn test_empty_vs_nonempty() {
 
     for change in &diff.changes {
         assert!(
-            matches!(change, ToolCallChange::Added(_)),
+            matches!(change, ToolCallChange::Added { .. }),
             "Expected all changes to be Added, got: {:?}",
             change
         );

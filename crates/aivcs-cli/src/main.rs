@@ -28,8 +28,6 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
-use aivcs_core::fork_agent_parallel;
-use aivcs_core::LcsToolCallChange as ToolCallChange;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
