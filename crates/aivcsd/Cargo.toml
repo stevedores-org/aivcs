@@ -5,12 +5,14 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+publish = false
 
 [[bin]]
 name = "aivcsd"
 path = "src/main.rs"
 
 [dependencies]
+aivcs-core.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

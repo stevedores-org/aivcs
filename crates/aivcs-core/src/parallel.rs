@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
+
+use crate::metrics::METRICS;
 
 /// Result of forking multiple branches
 #[derive(Debug, Clone)]
@@ -84,12 +86,14 @@ impl Default for ParallelConfig {
 ///
 /// # Returns
 /// * `ForkResult` containing the created branch names and commit IDs
+#[instrument(skip(handle), fields(parent = %&parent_commit[..8.min(parent_commit.len())]))]
 pub async fn fork_agent_parallel(
     handle: Arc<SurrealHandle>,
     parent_commit: &str,
     count: u8,
     prefix: &str,
 ) -> Result<ForkResult> {
+    METRICS.inc_forks();
     info!(
         "Forking {} parallel branches from {}",
         count,

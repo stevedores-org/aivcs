@@ -4,16 +4,20 @@
 
 pub mod cas;
 pub mod compat;
+pub mod deploy_runner;
 pub mod diff;
 pub mod domain;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod metrics;
 pub mod parallel;
+pub mod publish_gate;
 pub mod recording;
 pub mod release_registry;
 pub mod replay;
 pub mod reporting;
+pub mod telemetry;
 
 pub use diff::lcs_diff::{
     diff_tool_calls as diff_tool_calls_lcs, DiffSummary, ParamChange,
@@ -54,6 +58,7 @@ pub use parallel::{
 pub use compat::{
     evaluate_compat, CompatRule, CompatRuleSet, CompatVerdict, CompatViolation, PromoteContext,
 };
+pub use deploy_runner::{DeployByDigestRunner, DeployRunOutput};
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
 };
@@ -72,6 +77,9 @@ pub use reporting::{
     render_diff_summary_md, write_diff_summary_md, write_eval_results_json, DiffSummaryArtifact,
     EvalCaseResultArtifact, EvalResultsArtifact, EvalSummaryArtifact,
 };
+
+pub use metrics::METRICS;
+pub use telemetry::init_tracing;
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

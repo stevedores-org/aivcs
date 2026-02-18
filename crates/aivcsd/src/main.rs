@@ -1,13 +1,8 @@
 use anyhow::Result;
 use tracing::Level;
-use tracing_subscriber::FmtSubscriber;
 
 fn main() -> Result<()> {
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .with_target(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    aivcs_core::init_tracing(false, Level::INFO);
 
     tracing::info!("aivcsd stub started");
     Ok(())
