@@ -11,6 +11,7 @@ pub mod event_adapter;
 pub mod gate;
 pub mod git;
 pub mod parallel;
+pub mod publish_gate;
 pub mod recording;
 pub mod release_registry;
 pub mod replay;
