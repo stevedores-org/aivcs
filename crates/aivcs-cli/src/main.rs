@@ -17,16 +17,18 @@ use nix_env_manager::{
     AtticClient, NixHash,
 };
 use oxidized_state::{
-    BranchRecord, CommitId, CommitRecord, ContentDigest, ReleaseRegistry, RunLedger,
+    BranchRecord, CommitId, CommitRecord, ContentDigest, ReleaseRegistry, RunEvent, RunLedger,
     SurrealDbReleaseRegistry, SurrealHandle, SurrealRunLedger,
 };
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
-use aivcs_core::fork_agent_parallel;
-use aivcs_core::LcsToolCallChange as ToolCallChange;
+use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -90,8 +92,8 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// Replay a recorded run artifact by run ID
-    Replay {
+    /// Replay a recorded run artifact from disk by run ID
+    ReplayArtifact {
         /// Run ID to replay
         #[arg(long)]
         run: String,
@@ -136,13 +138,10 @@ enum Commands {
         message: Option<String>,
     },
 
-    /// Show differences between commits or branches
+    /// Show differences for specs or runs
     Diff {
-        /// First commit/branch
-        a: String,
-
-        /// Second commit/branch
-        b: String,
+        #[command(subcommand)]
+        action: DiffAction,
     },
 
     /// Environment management (Nix/Attic)
@@ -246,6 +245,30 @@ enum EnvAction {
 }
 
 #[derive(Subcommand)]
+enum DiffAction {
+    /// Diff two spec JSON files
+    Spec {
+        /// First spec JSON file
+        a: PathBuf,
+        /// Second spec JSON file
+        b: PathBuf,
+        /// Emit JSON output instead of terminal text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Diff two run event-log JSON files
+    Run {
+        /// First run events JSON file (array of RunEvent)
+        a: PathBuf,
+        /// Second run events JSON file (array of RunEvent)
+        b: PathBuf,
+        /// Emit JSON output instead of terminal text
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum ReleaseAction {
     /// Promote a spec digest as the latest release for an agent
     Promote {
@@ -326,11 +349,11 @@ async fn main() -> Result<()> {
         Commands::Restore { commit, output } => {
             cmd_restore(&handle, &commit, output.as_deref()).await
         }
-        Commands::Replay {
+        Commands::ReplayArtifact {
             run,
             artifacts_dir,
             output,
-        } => cmd_replay(&run, artifacts_dir.as_deref(), output.as_deref()),
+        } => cmd_replay_artifact(&run, artifacts_dir.as_deref(), output.as_deref()),
         Commands::Branch { action } => match action {
             BranchAction::List => cmd_branch_list(&handle).await,
             BranchAction::Create { name, from } => cmd_branch_create(&handle, &name, &from).await,
@@ -342,7 +365,7 @@ async fn main() -> Result<()> {
             target,
             message,
         } => cmd_merge(&handle, &source, &target, message.as_deref()).await,
-        Commands::Diff { a, b } => cmd_diff(&handle, &a, &b).await,
+        Commands::Diff { action } => cmd_diff(action).await,
         Commands::Env { action } => match action {
             EnvAction::Hash { path } => cmd_env_hash(&path).await,
             EnvAction::LogicHash { path } => cmd_logic_hash(&path).await,
@@ -534,7 +557,7 @@ async fn cmd_restore(
 /// Expected layout:
 /// - `<artifacts_dir>/<run_id>/output.json`
 /// - `<artifacts_dir>/<run_id>/output.digest`
-fn cmd_replay(
+fn cmd_replay_artifact(
     run_id: &str,
     artifacts_dir: Option<&std::path::Path>,
     output: Option<&std::path::Path>,
@@ -723,59 +746,195 @@ async fn cmd_merge(
     Ok(())
 }
 
-/// Show differences between commits/branches
-async fn cmd_diff(handle: &SurrealHandle, a: &str, b: &str) -> Result<()> {
-    // Resolve references
-    let commit_a = if let Ok(Some(branch)) = handle.get_branch(a).await {
-        branch.head_commit_id
+#[derive(Debug, Clone, Serialize, PartialEq)]
+struct SpecDiffOutput {
+    changed_paths: Vec<String>,
+    only_in_a: Vec<String>,
+    only_in_b: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+struct RunDiffOutput {
+    events_a: usize,
+    events_b: usize,
+    tool_call_changes: usize,
+    added: usize,
+    removed: usize,
+    reordered: usize,
+    param_changed: usize,
+}
+
+async fn cmd_diff(action: DiffAction) -> Result<()> {
+    match action {
+        DiffAction::Spec { a, b, json } => cmd_diff_spec(&a, &b, json),
+        DiffAction::Run { a, b, json } => cmd_diff_run(&a, &b, json),
+    }
+}
+
+fn cmd_diff_spec(a: &PathBuf, b: &PathBuf, json: bool) -> Result<()> {
+    let left: Value = read_json_file(a)?;
+    let right: Value = read_json_file(b)?;
+    let diff = build_spec_diff(&left, &right);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&diff)?);
     } else {
-        a.to_string()
-    };
-
-    let commit_b = if let Ok(Some(branch)) = handle.get_branch(b).await {
-        branch.head_commit_id
-    } else {
-        b.to_string()
-    };
-
-    let delta = semantic_rag_merge::diff_memory_vectors(handle, &commit_a, &commit_b).await?;
-
-    let a_short = &commit_a[..8.min(commit_a.len())];
-    let b_short = &commit_b[..8.min(commit_b.len())];
-
-    println!("Diff {} -> {}", a_short, b_short);
-    println!();
-
-    if !delta.only_in_a.is_empty() {
-        println!("Only in {}:", a_short);
-        for mem in &delta.only_in_a {
-            println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
-        }
-        println!();
+        println!("{}", render_spec_diff_text(&diff));
     }
-
-    if !delta.only_in_b.is_empty() {
-        println!("Only in {}:", b_short);
-        for mem in &delta.only_in_b {
-            println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
-        }
-        println!();
-    }
-
-    if !delta.conflicts.is_empty() {
-        println!("Conflicts:");
-        for conflict in &delta.conflicts {
-            println!("  ! {}", conflict.key);
-            println!("    A: {}", truncate(&conflict.memory_a.content, 40));
-            println!("    B: {}", truncate(&conflict.memory_b.content, 40));
-        }
-    }
-
-    if delta.only_in_a.is_empty() && delta.only_in_b.is_empty() && delta.conflicts.is_empty() {
-        println!("No differences found.");
-    }
-
     Ok(())
+}
+
+fn cmd_diff_run(a: &PathBuf, b: &PathBuf, json: bool) -> Result<()> {
+    let left: Vec<RunEvent> = read_json_file(a)?;
+    let right: Vec<RunEvent> = read_json_file(b)?;
+    let diff = build_run_diff(&left, &right);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&diff)?);
+    } else {
+        println!("{}", render_run_diff_text(&diff));
+    }
+    Ok(())
+}
+
+fn read_json_file<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read JSON file: {:?}", path))?;
+    serde_json::from_str(&content).with_context(|| format!("Invalid JSON in {:?}", path))
+}
+
+fn collect_leaf_paths(prefix: &str, value: &Value, out: &mut BTreeMap<String, Value>) {
+    if let Some(obj) = value.as_object() {
+        for (k, v) in obj {
+            let next = if prefix.is_empty() {
+                format!("/{}", k.replace('~', "~0").replace('/', "~1"))
+            } else {
+                format!("{}/{}", prefix, k.replace('~', "~0").replace('/', "~1"))
+            };
+            collect_leaf_paths(&next, v, out);
+        }
+        return;
+    }
+
+    if let Some(arr) = value.as_array() {
+        for (idx, v) in arr.iter().enumerate() {
+            let next = if prefix.is_empty() {
+                format!("/{}", idx)
+            } else {
+                format!("{}/{}", prefix, idx)
+            };
+            collect_leaf_paths(&next, v, out);
+        }
+        return;
+    }
+
+    let path = if prefix.is_empty() {
+        "/".to_string()
+    } else {
+        prefix.to_string()
+    };
+    out.insert(path, value.clone());
+}
+
+fn build_spec_diff(a: &Value, b: &Value) -> SpecDiffOutput {
+    let mut left = BTreeMap::new();
+    let mut right = BTreeMap::new();
+    collect_leaf_paths("", a, &mut left);
+    collect_leaf_paths("", b, &mut right);
+
+    let mut changed_paths = Vec::new();
+    let mut only_in_a = Vec::new();
+    let mut only_in_b = Vec::new();
+
+    for (path, val_a) in &left {
+        match right.get(path) {
+            Some(val_b) if val_a != val_b => changed_paths.push(path.clone()),
+            None => only_in_a.push(path.clone()),
+            _ => {}
+        }
+    }
+
+    for path in right.keys() {
+        if !left.contains_key(path) {
+            only_in_b.push(path.clone());
+        }
+    }
+
+    SpecDiffOutput {
+        changed_paths,
+        only_in_a,
+        only_in_b,
+    }
+}
+
+fn build_run_diff(a: &[RunEvent], b: &[RunEvent]) -> RunDiffOutput {
+    let tool_diff = diff_tool_calls(a, b);
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    let mut reordered = 0usize;
+    let mut param_changed = 0usize;
+
+    for change in &tool_diff.changes {
+        match change {
+            ToolCallChange::Added(_) => added += 1,
+            ToolCallChange::Removed(_) => removed += 1,
+            ToolCallChange::Reordered { .. } => reordered += 1,
+            ToolCallChange::ParamChanged { .. } => param_changed += 1,
+        }
+    }
+
+    RunDiffOutput {
+        events_a: a.len(),
+        events_b: b.len(),
+        tool_call_changes: tool_diff.changes.len(),
+        added,
+        removed,
+        reordered,
+        param_changed,
+    }
+}
+
+fn render_spec_diff_text(diff: &SpecDiffOutput) -> String {
+    let mut out = String::new();
+    out.push_str("Spec Diff\n");
+    out.push_str("=========\n");
+    out.push_str(&format!("changed_paths: {}\n", diff.changed_paths.len()));
+    out.push_str(&format!("only_in_a: {}\n", diff.only_in_a.len()));
+    out.push_str(&format!("only_in_b: {}\n", diff.only_in_b.len()));
+
+    if !diff.changed_paths.is_empty() {
+        out.push_str("\nChanged:\n");
+        for p in &diff.changed_paths {
+            out.push_str(&format!("  ~ {}\n", p));
+        }
+    }
+    if !diff.only_in_a.is_empty() {
+        out.push_str("\nOnly in A:\n");
+        for p in &diff.only_in_a {
+            out.push_str(&format!("  - {}\n", p));
+        }
+    }
+    if !diff.only_in_b.is_empty() {
+        out.push_str("\nOnly in B:\n");
+        for p in &diff.only_in_b {
+            out.push_str(&format!("  + {}\n", p));
+        }
+    }
+
+    out.trim_end().to_string()
+}
+
+fn render_run_diff_text(diff: &RunDiffOutput) -> String {
+    format!(
+        "Run Diff\n========\nevents_a: {}\nevents_b: {}\ntool_call_changes: {}\n  added: {}\n  removed: {}\n  reordered: {}\n  param_changed: {}",
+        diff.events_a,
+        diff.events_b,
+        diff.tool_call_changes,
+        diff.added,
+        diff.removed,
+        diff.reordered,
+        diff.param_changed
+    )
 }
 
 /// Truncate a string for display
@@ -1096,41 +1255,44 @@ async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result
         .await
         .with_context(|| format!("replay failed for run: {}", id_b))?;
 
-    let diff = aivcs_core::diff_tool_calls_lcs(id_a, &events_a, id_b, &events_b);
+    let diff = diff_tool_calls(&events_a, &events_b);
 
     println!("A: {} ({})", summary_a.run_id, summary_a.agent_name);
     println!("B: {} ({})", summary_b.run_id, summary_b.agent_name);
     println!();
 
-    if diff.identical {
+    if diff.is_empty() {
         println!("Tool-call sequences are identical.");
         return Ok(());
     }
 
     for change in &diff.changes {
         match change {
-            ToolCallChange::Added { entry } => {
-                println!("  + [{}] {}", entry.seq, entry.tool_name);
+            ToolCallChange::Added(call) => {
+                println!("  + [{}] {}", call.seq, call.tool_name);
             }
-            ToolCallChange::Removed { entry } => {
-                println!("  - [{}] {}", entry.seq, entry.tool_name);
+            ToolCallChange::Removed(call) => {
+                println!("  - [{}] {}", call.seq, call.tool_name);
             }
             ToolCallChange::Reordered {
-                tool_name,
-                seq_a,
-                seq_b,
+                call,
+                from_index,
+                to_index,
             } => {
-                println!("  ~ {} (A:[{}] -> B:[{}])", tool_name, seq_a, seq_b);
+                println!(
+                    "  ~ {} (pos {} -> {})",
+                    call.tool_name, from_index, to_index
+                );
             }
-            ToolCallChange::ParamDelta {
+            ToolCallChange::ParamChanged {
                 tool_name,
                 seq_a,
                 seq_b,
-                changes,
+                deltas,
             } => {
                 println!("  Δ {} (A:[{}] / B:[{}])", tool_name, seq_a, seq_b);
-                for c in changes {
-                    println!("      {} : {} -> {}", c.pointer, c.value_a, c.value_b);
+                for d in deltas {
+                    println!("      {} : {} -> {}", d.key, d.before, d.after);
                 }
             }
         }
@@ -1143,6 +1305,7 @@ async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_agent_git_snapshot_cli_returns_valid_id() {
@@ -1305,7 +1468,7 @@ mod tests {
         std::fs::write(run_dir.join("output.digest"), format!("{}\n", digest)).unwrap();
 
         let replayed = temp_dir.path().join("replayed.json");
-        let result = cmd_replay(run_id, Some(temp_dir.path()), Some(replayed.as_path()));
+        let result = cmd_replay_artifact(run_id, Some(temp_dir.path()), Some(replayed.as_path()));
         assert!(result.is_ok(), "replay failed: {:?}", result.err());
 
         let written = std::fs::read(replayed).unwrap();
@@ -1317,11 +1480,74 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let run_id = "run-missing-1";
 
-        let err = cmd_replay(run_id, Some(temp_dir.path()), None).unwrap_err();
+        let err = cmd_replay_artifact(run_id, Some(temp_dir.path()), None).unwrap_err();
         let msg = format!("{err:#}");
         assert!(
             msg.contains("Recorded artifact not found"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn test_spec_diff_json_output_stability() {
+        let a = json!({
+            "model": "gpt-4",
+            "routing": {"strategy": "math"},
+            "threshold": 0.9
+        });
+        let b = json!({
+            "model": "gpt-4o",
+            "routing": {"strategy": "search"},
+            "new_flag": true
+        });
+
+        let diff = build_spec_diff(&a, &b);
+        let actual = serde_json::to_string_pretty(&diff).unwrap();
+        let expected = r#"{
+  "changed_paths": [
+    "/model",
+    "/routing/strategy"
+  ],
+  "only_in_a": [
+    "/threshold"
+  ],
+  "only_in_b": [
+    "/new_flag"
+  ]
+}"#;
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_run_diff_json_output_stability() {
+        let a: Vec<RunEvent> = serde_json::from_value(json!([{
+            "seq": 1,
+            "kind": "tool_called",
+            "payload": {"tool_name":"search","query":"rust"},
+            "timestamp": "2026-01-01T00:00:00Z"
+        }]))
+        .unwrap();
+        let b: Vec<RunEvent> = serde_json::from_value(json!([{
+            "seq": 1,
+            "kind": "tool_called",
+            "payload": {"tool_name":"search","query":"python"},
+            "timestamp": "2026-01-01T00:00:00Z"
+        }]))
+        .unwrap();
+
+        let diff = build_run_diff(&a, &b);
+        let actual = serde_json::to_string_pretty(&diff).unwrap();
+        let expected = r#"{
+  "events_a": 1,
+  "events_b": 1,
+  "tool_call_changes": 1,
+  "added": 0,
+  "removed": 0,
+  "reordered": 0,
+  "param_changed": 1
+}"#;
+
+        assert_eq!(actual, expected);
     }
 }
