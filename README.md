@@ -69,6 +69,8 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 | `env` | Environment management (Nix/Attic integration) |
 | `fork` | Fork multiple parallel branches for exploration |
 | `trace` | Time-travel debugging - show reasoning trace |
+| `replay` | Replay a recorded run artifact by run ID |
+| `diff-runs` | Diff the tool-call sequences of two runs |
 
 ### Environment Commands (Phase 2)
 
@@ -104,6 +106,14 @@ aivcs trace main
 # Show trace with more depth
 aivcs trace experiment-0 --depth 50
 ```
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md) — prerequisites, install, first-run walkthrough
+- [Architecture](docs/architecture.md) — crate layers, data flow, key abstractions
+- [Local Development](docs/runbooks/local-development.md) — build, test, dev workflows
+- [Database Configuration](docs/runbooks/database-configuration.md) — in-memory, local, cloud setup
+- [CI Troubleshooting](docs/runbooks/ci-troubleshooting.md) — common failures, reproduce locally
 
 ## Crate Structure
 

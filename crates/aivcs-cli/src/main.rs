@@ -26,7 +26,6 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
 
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
 
@@ -39,6 +38,10 @@ struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Emit JSON-formatted log lines
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -326,12 +329,7 @@ async fn main() -> Result<()> {
     } else {
         Level::INFO
     };
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(level)
-        .with_target(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .context("Failed to set tracing subscriber")?;
+    aivcs_core::init_tracing(cli.json, level);
 
     // Initialize database connection
     let handle = SurrealHandle::setup_from_env()
