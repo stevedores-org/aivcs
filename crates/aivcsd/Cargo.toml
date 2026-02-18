@@ -12,6 +12,7 @@ name = "aivcsd"
 path = "src/main.rs"
 
 [dependencies]
+aivcs-core.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
