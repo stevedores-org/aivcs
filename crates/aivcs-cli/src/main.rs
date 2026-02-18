@@ -17,7 +17,8 @@ use nix_env_manager::{
     AtticClient, NixHash,
 };
 use oxidized_state::{
-    BranchRecord, CommitId, CommitRecord, RunLedger, SurrealHandle, SurrealRunLedger,
+    BranchRecord, CommitId, CommitRecord, ContentDigest, ReleaseRegistry, RunLedger,
+    SurrealDbReleaseRegistry, SurrealHandle, SurrealRunLedger,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -150,6 +151,12 @@ enum Commands {
         action: EnvAction,
     },
 
+    /// Release registry operations (promote/rollback/current/history)
+    Release {
+        #[command(subcommand)]
+        action: ReleaseAction,
+    },
+
     /// Fork multiple parallel branches for exploration (Phase 4)
     Fork {
         /// Parent branch or commit to fork from
@@ -238,6 +245,41 @@ enum EnvAction {
     Info,
 }
 
+#[derive(Subcommand)]
+enum ReleaseAction {
+    /// Promote a spec digest as the latest release for an agent
+    Promote {
+        /// Agent name
+        name: String,
+        /// 64-char hex content digest
+        digest: String,
+        /// Who promoted this release
+        #[arg(long, default_value = "aivcs-cli")]
+        promoted_by: String,
+        /// Optional version label (e.g. v1.2.3)
+        #[arg(long)]
+        version: Option<String>,
+        /// Optional release notes
+        #[arg(long)]
+        notes: Option<String>,
+    },
+    /// Roll back the agent to the previous release (append-only history)
+    Rollback {
+        /// Agent name
+        name: String,
+    },
+    /// Show the current release pointer for an agent
+    Current {
+        /// Agent name
+        name: String,
+    },
+    /// Show release history for an agent (newest first)
+    History {
+        /// Agent name
+        name: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -307,6 +349,28 @@ async fn main() -> Result<()> {
             EnvAction::CacheInfo => cmd_cache_info().await,
             EnvAction::IsCached { hash } => cmd_is_cached(&hash).await,
             EnvAction::Info => cmd_env_info().await,
+        },
+        Commands::Release { action } => match action {
+            ReleaseAction::Promote {
+                name,
+                digest,
+                promoted_by,
+                version,
+                notes,
+            } => {
+                cmd_release_promote(
+                    &handle,
+                    &name,
+                    &digest,
+                    &promoted_by,
+                    version.as_deref(),
+                    notes.as_deref(),
+                )
+                .await
+            }
+            ReleaseAction::Rollback { name } => cmd_release_rollback(&handle, &name).await,
+            ReleaseAction::Current { name } => cmd_release_current(&handle, &name).await,
+            ReleaseAction::History { name } => cmd_release_history(&handle, &name).await,
         },
         Commands::Fork {
             parent,
@@ -842,6 +906,82 @@ async fn cmd_env_info() -> Result<()> {
         println!("  ATTIC_TOKEN: (not set)");
     }
 
+    Ok(())
+}
+
+// ========== Release Registry Commands (Phase 4) ==========
+
+async fn cmd_release_promote(
+    handle: &SurrealHandle,
+    name: &str,
+    digest: &str,
+    promoted_by: &str,
+    version: Option<&str>,
+    notes: Option<&str>,
+) -> Result<()> {
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let parsed_digest = ContentDigest::try_from(digest.to_string())
+        .context("invalid digest (expected 64-char hex)")?;
+
+    let metadata = oxidized_state::ReleaseMetadata {
+        version_label: version.map(ToString::to_string),
+        promoted_by: promoted_by.to_string(),
+        notes: notes.map(ToString::to_string),
+    };
+
+    let release = registry.promote(name, &parsed_digest, metadata).await?;
+    println!(
+        "Promoted {} -> {}",
+        release.name,
+        release.spec_digest.as_str()
+    );
+    Ok(())
+}
+
+async fn cmd_release_rollback(handle: &SurrealHandle, name: &str) -> Result<()> {
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let release = registry.rollback(name).await?;
+    println!(
+        "Rolled back {} -> {}",
+        release.name,
+        release.spec_digest.as_str()
+    );
+    Ok(())
+}
+
+async fn cmd_release_current(handle: &SurrealHandle, name: &str) -> Result<()> {
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let current = registry.current(name).await?;
+    match current {
+        Some(release) => {
+            println!(
+                "Current {} -> {}",
+                release.name,
+                release.spec_digest.as_str()
+            );
+        }
+        None => println!("No release found for {}", name),
+    }
+    Ok(())
+}
+
+async fn cmd_release_history(handle: &SurrealHandle, name: &str) -> Result<()> {
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let history = registry.history(name).await?;
+
+    if history.is_empty() {
+        println!("No release history for {}", name);
+        return Ok(());
+    }
+
+    for release in history {
+        println!(
+            "{} {} {}",
+            release.created_at.to_rfc3339(),
+            release.name,
+            release.spec_digest.as_str()
+        );
+    }
     Ok(())
 }
 

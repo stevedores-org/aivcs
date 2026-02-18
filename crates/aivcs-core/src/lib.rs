@@ -9,6 +9,7 @@ pub mod event_adapter;
 pub mod git;
 pub mod parallel;
 pub mod recording;
+pub mod release_registry;
 pub mod replay;
 
 pub use diff::lcs_diff::{
@@ -56,6 +57,7 @@ pub use diff::state_diff::{
 };
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use recording::GraphRunRecorder;
+pub use release_registry::ReleaseRegistryApi;
 pub use replay::{replay_run, ReplaySummary};
 
 /// AIVCS version
