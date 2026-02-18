@@ -1,4 +1,4 @@
-use aivcs_core::{diff_tool_calls, ToolCallChange};
+use aivcs_core::diff::tool_calls::{diff_tool_calls, ToolCallChange};
 use chrono::Utc;
 use oxidized_state::RunEvent;
 use serde_json::json;

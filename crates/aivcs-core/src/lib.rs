@@ -12,6 +12,7 @@ pub mod parallel;
 pub mod recording;
 pub mod release_registry;
 pub mod replay;
+pub mod reporter;
 pub mod reporting;
 
 pub use diff::lcs_diff::{
@@ -64,6 +65,7 @@ pub use gate::{
 pub use recording::GraphRunRecorder;
 pub use release_registry::ReleaseRegistryApi;
 pub use replay::{replay_run, ReplaySummary};
+pub use reporter::{CaseOutcome, DiffReport, EvalResults};
 pub use reporting::{
     render_diff_summary_md, write_diff_summary_md, write_eval_results_json, DiffSummaryArtifact,
     EvalCaseResultArtifact, EvalResultsArtifact, EvalSummaryArtifact,
