@@ -16,7 +16,9 @@ use nix_env_manager::{
     generate_environment_hash, generate_logic_hash, is_attic_available, is_nix_available,
     AtticClient, NixHash,
 };
-use oxidized_state::{BranchRecord, CommitId, CommitRecord, RunEvent, SurrealHandle};
+use oxidized_state::{
+    BranchRecord, CommitId, CommitRecord, RunEvent, RunLedger, SurrealHandle, SurrealRunLedger,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -89,8 +91,8 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// Replay a recorded run artifact by run ID
-    Replay {
+    /// Replay a recorded run artifact from disk by run ID
+    ReplayArtifact {
         /// Run ID to replay
         #[arg(long)]
         run: String,
@@ -170,6 +172,24 @@ enum Commands {
         /// Maximum depth of trace
         #[arg(short, long, default_value = "20")]
         depth: usize,
+    },
+
+    /// Replay all events for a run in sequence order and print a digest
+    Replay {
+        /// Run ID to replay
+        #[arg(long)]
+        run: String,
+    },
+
+    /// Diff the tool-call sequences of two runs
+    DiffRuns {
+        /// First run ID
+        #[arg(long)]
+        run_a: String,
+
+        /// Second run ID
+        #[arg(long)]
+        run_b: String,
     },
 }
 
@@ -294,11 +314,11 @@ async fn main() -> Result<()> {
         Commands::Restore { commit, output } => {
             cmd_restore(&handle, &commit, output.as_deref()).await
         }
-        Commands::Replay {
+        Commands::ReplayArtifact {
             run,
             artifacts_dir,
             output,
-        } => cmd_replay(&run, artifacts_dir.as_deref(), output.as_deref()),
+        } => cmd_replay_artifact(&run, artifacts_dir.as_deref(), output.as_deref()),
         Commands::Branch { action } => match action {
             BranchAction::List => cmd_branch_list(&handle).await,
             BranchAction::Create { name, from } => cmd_branch_create(&handle, &name, &from).await,
@@ -324,6 +344,18 @@ async fn main() -> Result<()> {
             prefix,
         } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
+        Commands::Replay { run } => {
+            let ledger = SurrealRunLedger::from_env()
+                .await
+                .context("Failed to connect to run ledger")?;
+            cmd_replay(&ledger, &run).await
+        }
+        Commands::DiffRuns { run_a, run_b } => {
+            let ledger = SurrealRunLedger::from_env()
+                .await
+                .context("Failed to connect to run ledger")?;
+            cmd_diff_runs(&ledger, &run_a, &run_b).await
+        }
     }
 }
 
@@ -343,7 +375,7 @@ async fn cmd_init(handle: &SurrealHandle, path: &PathBuf) -> Result<()> {
     handle.save_snapshot(&commit_id, initial_state).await?;
 
     // Create initial commit record
-    let commit = CommitRecord::new(commit_id.clone(), None, "Initial commit", "system");
+    let commit = CommitRecord::new(commit_id.clone(), vec![], "Initial commit", "system");
     handle.save_commit(&commit).await?;
 
     // Create main branch
@@ -373,15 +405,17 @@ async fn cmd_snapshot(
     let state: serde_json::Value =
         serde_json::from_str(&state_content).context("Failed to parse state as JSON")?;
 
-    // Resolve git SHA: use override, or auto-detect from cwd
+    // Resolve git SHA: use override, or auto-detect from cwd (optional)
+    let cwd = std::env::current_dir().context("Failed to get current directory")?;
     let git_sha = match git_sha_override {
         Some(sha) => sha.to_string(),
-        None => {
-            let cwd = std::env::current_dir().context("Failed to get current directory")?;
-            aivcs_core::capture_head_sha(&cwd)
-                .map_err(|e| anyhow::anyhow!("git SHA capture failed: {e}"))?
-        }
+        None => aivcs_core::capture_head_sha(&cwd)
+            .unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string()),
     };
+
+    // Generate logic and environment hashes for composite CommitId
+    let logic_hash = generate_logic_hash(&cwd.join("src")).ok();
+    let env_hash = generate_environment_hash(&cwd).ok();
 
     // Store state in CAS
     let cas_root = cas_dir
@@ -393,20 +427,28 @@ async fn cmd_snapshot(
         .map_err(|e| anyhow::anyhow!("CAS put failed: {e}"))?;
 
     // Get parent commit from branch
-    let parent_id = handle.get_branch(branch).await?.map(|b| b.head_commit_id);
+    let parent_ids = handle
+        .get_branch(branch)
+        .await?
+        .map(|b| vec![b.head_commit_id])
+        .unwrap_or_default();
 
-    // Create commit ID
-    let commit_id = CommitId::from_state(state_content.as_bytes());
+    // Create composite commit ID
+    let commit_id = CommitId::new(
+        logic_hash.as_deref(),
+        &cas_digest.to_hex(),
+        env_hash.as_ref().map(|h| h.hash.as_str()),
+    );
 
     // Save snapshot to SurrealDB
     handle.save_snapshot(&commit_id, state).await?;
 
     // Create commit record
-    let commit = CommitRecord::new(commit_id.clone(), parent_id.clone(), message, author);
+    let commit = CommitRecord::new(commit_id.clone(), parent_ids.clone(), message, author);
     handle.save_commit(&commit).await?;
 
-    // Create graph edge if there's a parent
-    if let Some(pid) = &parent_id {
+    // Create graph edges for all parents
+    for pid in &parent_ids {
         handle.save_commit_graph_edge(&commit_id.hash, pid).await?;
     }
 
@@ -464,7 +506,7 @@ async fn cmd_restore(
 /// Expected layout:
 /// - `<artifacts_dir>/<run_id>/output.json`
 /// - `<artifacts_dir>/<run_id>/output.digest`
-fn cmd_replay(
+fn cmd_replay_artifact(
     run_id: &str,
     artifacts_dir: Option<&std::path::Path>,
     output: Option<&std::path::Path>,
@@ -532,7 +574,7 @@ async fn cmd_branch_list(handle: &SurrealHandle) -> Result<()> {
             "{}{} -> {}",
             prefix,
             branch.name,
-            &branch.head_commit_id[..8]
+            &branch.head_commit_id[..8.min(branch.head_commit_id.len())]
         );
     }
 
@@ -1077,6 +1119,84 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
     Ok(())
 }
 
+/// Replay all events for a run in sequence order and print a digest
+async fn cmd_replay(ledger: &dyn RunLedger, run_id_str: &str) -> Result<()> {
+    let (events, summary) = aivcs_core::replay_run(ledger, run_id_str)
+        .await
+        .with_context(|| format!("replay failed for run: {}", run_id_str))?;
+
+    println!("Run:    {}", summary.run_id);
+    println!("Agent:  {}", summary.agent_name);
+    println!("Status: {:?}", summary.status);
+    println!();
+
+    for event in &events {
+        println!("[{:>6}] {} | {}", event.seq, event.kind, event.payload);
+    }
+
+    println!();
+    println!("Events: {}", summary.event_count);
+    println!("Digest: {}", summary.replay_digest);
+
+    Ok(())
+}
+
+/// Diff the tool-call sequences of two runs
+async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result<()> {
+    let (events_a, summary_a) = aivcs_core::replay_run(ledger, id_a)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_a))?;
+    let (events_b, summary_b) = aivcs_core::replay_run(ledger, id_b)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_b))?;
+
+    let diff = diff_tool_calls(&events_a, &events_b);
+
+    println!("A: {} ({})", summary_a.run_id, summary_a.agent_name);
+    println!("B: {} ({})", summary_b.run_id, summary_b.agent_name);
+    println!();
+
+    if diff.is_empty() {
+        println!("Tool-call sequences are identical.");
+        return Ok(());
+    }
+
+    for change in &diff.changes {
+        match change {
+            ToolCallChange::Added(call) => {
+                println!("  + [{}] {}", call.seq, call.tool_name);
+            }
+            ToolCallChange::Removed(call) => {
+                println!("  - [{}] {}", call.seq, call.tool_name);
+            }
+            ToolCallChange::Reordered {
+                call,
+                from_index,
+                to_index,
+            } => {
+                println!(
+                    "  ~ {} (pos {} -> {})",
+                    call.tool_name, from_index, to_index
+                );
+            }
+            ToolCallChange::ParamChanged {
+                tool_name,
+                seq_a,
+                seq_b,
+                deltas,
+            } => {
+                println!("  Δ {} (A:[{}] / B:[{}])", tool_name, seq_a, seq_b);
+                for d in deltas {
+                    println!("      {} : {} -> {}", d.key, d.before, d.after);
+                }
+            }
+        }
+    }
+
+    println!("\nChanges: {}", diff.changes.len());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1243,7 +1363,7 @@ mod tests {
         std::fs::write(run_dir.join("output.digest"), format!("{}\n", digest)).unwrap();
 
         let replayed = temp_dir.path().join("replayed.json");
-        let result = cmd_replay(run_id, Some(temp_dir.path()), Some(replayed.as_path()));
+        let result = cmd_replay_artifact(run_id, Some(temp_dir.path()), Some(replayed.as_path()));
         assert!(result.is_ok(), "replay failed: {:?}", result.err());
 
         let written = std::fs::read(replayed).unwrap();
@@ -1255,7 +1375,7 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let run_id = "run-missing-1";
 
-        let err = cmd_replay(run_id, Some(temp_dir.path()), None).unwrap_err();
+        let err = cmd_replay_artifact(run_id, Some(temp_dir.path()), None).unwrap_err();
         let msg = format!("{err:#}");
         assert!(
             msg.contains("Recorded artifact not found"),

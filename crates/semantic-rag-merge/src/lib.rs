@@ -214,7 +214,7 @@ pub async fn semantic_merge(
     // Create merge commit record
     let commit = oxidized_state::CommitRecord::new(
         merge_commit_id.clone(),
-        Some(commit_a.to_string()), // Primary parent
+        vec![commit_a.to_string(), commit_b.to_string()],
         message,
         author,
     );
@@ -320,7 +320,7 @@ mod tests {
         // Create commits with divergent memories
         let commit_a = oxidized_state::CommitRecord::new(
             commit_id_a.clone(),
-            None,
+            vec![],
             "Branch A commit",
             "agent-a",
         );
@@ -328,7 +328,7 @@ mod tests {
 
         let commit_b = oxidized_state::CommitRecord::new(
             commit_id_b.clone(),
-            None,
+            vec![],
             "Branch B commit",
             "agent-b",
         );

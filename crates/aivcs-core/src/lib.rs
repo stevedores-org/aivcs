@@ -5,15 +5,19 @@
 pub mod cas;
 pub mod diff;
 pub mod domain;
+pub mod event_adapter;
 pub mod git;
 pub mod parallel;
 pub mod recording;
+pub mod replay;
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
     EventKind, Release, ReleaseEnvironment, ReleasePointer, Result, Run, RunStatus, ScorerConfig,
     ScorerType, SnapshotMeta,
 };
+
+pub use event_adapter::{subscribe_ledger_to_bus, LedgerHandler};
 
 pub use git::{capture_head_sha, is_git_repo};
 
@@ -38,8 +42,12 @@ pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
 
+pub use diff::node_paths::{
+    diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
+};
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use recording::GraphRunRecorder;
+pub use replay::{replay_run, ReplaySummary};
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

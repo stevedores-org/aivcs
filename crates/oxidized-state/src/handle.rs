@@ -246,24 +246,38 @@ impl SurrealHandle {
             return Self::setup_cloud(config).await;
         }
 
-        if let Ok(url) = std::env::var("SURREALDB_URL") {
+        let url = if let Ok(url) = std::env::var("SURREALDB_URL") {
             info!("SURREALDB_URL found, connecting to {}", url);
-            let db = surrealdb::engine::any::connect(&url)
-                .await
-                .map_err(|e| StateError::Connection(e.to_string()))?;
+            url
+        } else {
+            // Default to local persistence in .aivcs/db
+            let path = ".aivcs/db";
+            std::fs::create_dir_all(path).map_err(|e| {
+                StateError::Connection(format!(
+                    "Failed to create database directory {}: {}",
+                    path, e
+                ))
+            })?;
+            let url = format!("surrealkv://{}", path);
+            info!(
+                "No cloud config or SURREALDB_URL found, using local persistence: {}",
+                url
+            );
+            url
+        };
 
-            db.use_ns("aivcs")
-                .use_db("main")
-                .await
-                .map_err(|e| StateError::Connection(e.to_string()))?;
+        let db = surrealdb::engine::any::connect(&url)
+            .await
+            .map_err(|e| StateError::Connection(format!("Failed to connect to {}: {}", url, e)))?;
 
-            let handle = SurrealHandle { db };
-            handle.init_schema().await?;
-            return Ok(handle);
-        }
+        db.use_ns("aivcs")
+            .use_db("main")
+            .await
+            .map_err(|e| StateError::Connection(e.to_string()))?;
 
-        info!("No cloud config found, using in-memory database");
-        Self::setup_db().await
+        let handle = SurrealHandle { db };
+        handle.init_schema().await?;
+        Ok(handle)
     }
 
     /// Initialize the database schema
@@ -279,7 +293,7 @@ impl SurrealHandle {
             DEFINE FIELD commit_id.logic_hash ON commits TYPE option<string>;
             DEFINE FIELD commit_id.state_hash ON commits TYPE string;
             DEFINE FIELD commit_id.env_hash ON commits TYPE option<string>;
-            DEFINE FIELD parent_id ON commits TYPE option<string>;
+            DEFINE FIELD parent_ids ON commits TYPE array<string>;
             DEFINE FIELD message ON commits TYPE string;
             DEFINE FIELD author ON commits TYPE string;
             DEFINE FIELD created_at ON commits TYPE datetime;
@@ -758,7 +772,8 @@ impl SurrealHandle {
             }
 
             if let Some(commit) = self.get_commit(&commit_hash).await? {
-                current = commit.parent_id.clone();
+                // For linear history, we follow the first parent
+                current = commit.parent_ids.first().cloned();
                 history.push(commit);
             } else {
                 break;
@@ -918,7 +933,7 @@ mod tests {
         let handle = SurrealHandle::setup_db().await.unwrap();
 
         let commit_id = CommitId::from_state(b"test state");
-        let commit = CommitRecord::new(commit_id.clone(), None, "Initial commit", "test-agent");
+        let commit = CommitRecord::new(commit_id.clone(), vec![], "Initial commit", "test-agent");
 
         // Save commit
         let saved = handle.save_commit(&commit).await.unwrap();
@@ -952,10 +967,10 @@ mod tests {
         handle.save_snapshot(&id_3, state_3.clone()).await.unwrap();
 
         // Save commits with parent chain
-        let commit_0 = CommitRecord::new(id_0.clone(), None, "Step 0", "agent");
-        let commit_1 = CommitRecord::new(id_1.clone(), Some(id_0.hash.clone()), "Step 1", "agent");
-        let commit_2 = CommitRecord::new(id_2.clone(), Some(id_1.hash.clone()), "Step 2", "agent");
-        let commit_3 = CommitRecord::new(id_3.clone(), Some(id_2.hash.clone()), "Step 3", "agent");
+        let commit_0 = CommitRecord::new(id_0.clone(), vec![], "Step 0", "agent");
+        let commit_1 = CommitRecord::new(id_1.clone(), vec![id_0.hash.clone()], "Step 1", "agent");
+        let commit_2 = CommitRecord::new(id_2.clone(), vec![id_1.hash.clone()], "Step 2", "agent");
+        let commit_3 = CommitRecord::new(id_3.clone(), vec![id_2.hash.clone()], "Step 3", "agent");
 
         handle.save_commit(&commit_0).await.unwrap();
         handle.save_commit(&commit_1).await.unwrap();
