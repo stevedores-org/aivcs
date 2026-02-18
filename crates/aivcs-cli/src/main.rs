@@ -28,6 +28,8 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
+use aivcs_core::fork_agent_parallel;
+use aivcs_core::LcsToolCallChange as ToolCallChange;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -172,13 +174,6 @@ enum Commands {
         /// Maximum depth of trace
         #[arg(short, long, default_value = "20")]
         depth: usize,
-    },
-
-    /// Replay all events for a run in sequence order and print a digest
-    Replay {
-        /// Run ID to replay
-        #[arg(long)]
-        run: String,
     },
 
     /// Diff the tool-call sequences of two runs
@@ -344,12 +339,6 @@ async fn main() -> Result<()> {
             prefix,
         } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
-        Commands::Replay { run } => {
-            let ledger = SurrealRunLedger::from_env()
-                .await
-                .context("Failed to connect to run ledger")?;
-            cmd_replay(&ledger, &run).await
-        }
         Commands::DiffRuns { run_a, run_b } => {
             let ledger = SurrealRunLedger::from_env()
                 .await
@@ -1115,28 +1104,6 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
         history.len(),
         depth
     );
-
-    Ok(())
-}
-
-/// Replay all events for a run in sequence order and print a digest
-async fn cmd_replay(ledger: &dyn RunLedger, run_id_str: &str) -> Result<()> {
-    let (events, summary) = aivcs_core::replay_run(ledger, run_id_str)
-        .await
-        .with_context(|| format!("replay failed for run: {}", run_id_str))?;
-
-    println!("Run:    {}", summary.run_id);
-    println!("Agent:  {}", summary.agent_name);
-    println!("Status: {:?}", summary.status);
-    println!();
-
-    for event in &events {
-        println!("[{:>6}] {} | {}", event.seq, event.kind, event.payload);
-    }
-
-    println!();
-    println!("Events: {}", summary.event_count);
-    println!("Digest: {}", summary.replay_digest);
 
     Ok(())
 }
