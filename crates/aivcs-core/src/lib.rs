@@ -10,6 +10,7 @@ pub mod git;
 pub mod parallel;
 pub mod recording;
 pub mod replay;
+pub mod reporting;
 
 pub use diff::{diff_tool_calls, DiffSummary, ParamChange, ToolCallChange, ToolCallEntry};
 
@@ -50,6 +51,10 @@ pub use diff::node_paths::{
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use recording::GraphRunRecorder;
 pub use replay::{replay_run, ReplaySummary};
+pub use reporting::{
+    render_diff_summary_md, write_diff_summary_md, write_eval_results_json, DiffSummaryArtifact,
+    EvalCaseResultArtifact, EvalResultsArtifact, EvalSummaryArtifact,
+};
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
