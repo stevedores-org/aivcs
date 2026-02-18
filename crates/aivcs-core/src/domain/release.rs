@@ -25,6 +25,12 @@ pub struct Release {
     /// Digest of the AgentSpec being released.
     pub spec_digest: String,
 
+    /// Digest of the tools configuration.
+    pub tools_digest: String,
+
+    /// Digest of the graph definition.
+    pub graph_digest: String,
+
     /// Semantic version of the release.
     pub version: String,
 
@@ -46,6 +52,8 @@ impl Release {
     pub fn new(
         agent_name: String,
         spec_digest: String,
+        tools_digest: String,
+        graph_digest: String,
         version: String,
         environment: ReleaseEnvironment,
         promoted_by: String,
@@ -54,6 +62,8 @@ impl Release {
             release_id: Uuid::new_v4(),
             agent_name,
             spec_digest,
+            tools_digest,
+            graph_digest,
             version,
             environment,
             promoted_at: Utc::now(),
@@ -107,6 +117,8 @@ mod tests {
         let release = Release::new(
             "my_agent".to_string(),
             "spec_digest_123".to_string(),
+            "tools_digest_abc".to_string(),
+            "graph_digest_xyz".to_string(),
             "1.2.3".to_string(),
             ReleaseEnvironment::Production,
             "github-ci".to_string(),

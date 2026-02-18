@@ -3,6 +3,7 @@
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
 pub mod cas;
+pub mod compat;
 pub mod diff;
 pub mod domain;
 pub mod event_adapter;
@@ -50,6 +51,9 @@ pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
 
+pub use compat::{
+    evaluate_compat, CompatRule, CompatRuleSet, CompatVerdict, CompatViolation, PromoteContext,
+};
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
 };
