@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use oxidized_state::{
     ContentDigest, RunEvent, RunId, RunLedger, RunMetadata, RunSummary, StorageError,
 };
+use std::time::Instant;
 
 use crate::domain::{AivcsError, Result};
 
@@ -38,6 +39,7 @@ impl DeployByDigestRunner {
         agent_name: &str,
         timestamp: DateTime<Utc>,
     ) -> Result<DeployRunOutput> {
+        let started = Instant::now();
         let metadata = RunMetadata {
             git_sha: None,
             agent_name: agent_name.to_string(),
@@ -88,8 +90,10 @@ impl DeployByDigestRunner {
 
         let summary = RunSummary {
             total_events: 3,
-            final_state_digest: Some(spec_digest.clone()),
-            duration_ms: 0,
+            // This reference runner emits lifecycle events only; it does not materialize
+            // a final state blob, so no final-state digest is available.
+            final_state_digest: None,
+            duration_ms: started.elapsed().as_millis() as u64,
             success: true,
         };
         ledger
@@ -127,6 +131,8 @@ mod tests {
         let run = ledger.get_run(&output.run_id).await.expect("get run");
         assert_eq!(run.spec_digest, digest);
         assert_eq!(run.status, RunStatus::Completed);
-        assert_eq!(run.summary.expect("summary").total_events, 3);
+        let summary = run.summary.expect("summary");
+        assert_eq!(summary.total_events, 3);
+        assert!(summary.final_state_digest.is_none());
     }
 }
