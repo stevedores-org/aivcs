@@ -1,7 +1,7 @@
 use aivcs_core::{replay_run, DeployByDigestRunner};
 use chrono::{DateTime, Utc};
 use oxidized_state::fakes::MemoryRunLedger;
-use oxidized_state::{ContentDigest, RunEvent};
+use oxidized_state::{ContentDigest, RunEvent, RunLedger};
 
 #[tokio::test]
 async fn deploy_by_digest_matches_replay_golden() {
@@ -57,4 +57,8 @@ async fn deploy_by_digest_matches_replay_golden() {
     }
     assert_eq!(summary.event_count, 3);
     assert_eq!(summary.replay_digest, expected_digest.as_str());
+
+    let run = ledger.get_run(&output.run_id).await.expect("get run");
+    let run_summary = run.summary.expect("run summary");
+    assert!(run_summary.final_state_digest.is_none());
 }
