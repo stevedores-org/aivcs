@@ -119,7 +119,7 @@ pub async fn fork_agent_parallel(
             // Create commit record
             let commit = CommitRecord::new(
                 commit_id.clone(),
-                Some(parent_id.clone()),
+                vec![parent_id.clone()],
                 &format!("Fork branch {}", branch_name),
                 "parallel-fork",
             );
@@ -283,7 +283,7 @@ mod tests {
             .await
             .unwrap();
 
-        let parent_commit = CommitRecord::new(parent_id.clone(), None, "Parent commit", "test");
+        let parent_commit = CommitRecord::new(parent_id.clone(), vec![], "Parent commit", "test");
         handle.save_commit(&parent_commit).await.unwrap();
 
         // Fork 5 branches concurrently

@@ -23,6 +23,9 @@ pub enum AivcsError {
 
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    #[error("storage error: {0}")]
+    StorageError(String),
 }
 
 /// Result type for AIVCS domain operations.
@@ -51,5 +54,12 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("abc123"));
         assert!(msg.contains("def456"));
+    }
+
+    #[test]
+    fn test_storage_error() {
+        let err = AivcsError::StorageError("database connection failed".to_string());
+        assert!(err.to_string().contains("storage error"));
+        assert!(err.to_string().contains("database connection failed"));
     }
 }

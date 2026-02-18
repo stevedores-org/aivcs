@@ -9,6 +9,9 @@ license.workspace = true
 [dependencies]
 # Internal crates
 oxidized-state.workspace = true
+
+# Stevedores ecosystem
+oxidizedgraph.workspace = true
 nix-env-manager.workspace = true
 semantic-rag-merge.workspace = true
 
