@@ -12,6 +12,7 @@ pub mod event_adapter;
 pub mod gate;
 pub mod git;
 pub mod metrics;
+pub mod obs;
 pub mod parallel;
 pub mod publish_gate;
 pub mod recording;
@@ -81,6 +82,10 @@ pub use reporting::{
 };
 
 pub use metrics::METRICS;
+pub use obs::{
+    emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
+    emit_run_started, RunSpan,
+};
 pub use telemetry::init_tracing;
 
 /// AIVCS version

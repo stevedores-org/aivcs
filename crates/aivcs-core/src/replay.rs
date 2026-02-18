@@ -61,7 +61,9 @@ pub async fn replay_run(
     ledger: &dyn RunLedger,
     run_id_str: &str,
 ) -> Result<(Vec<RunEvent>, ReplaySummary)> {
+    let _span = crate::obs::RunSpan::enter(run_id_str);
     METRICS.inc_replays();
+
     let run_id = RunId(run_id_str.to_string());
 
     // Fetch run record — returns StorageError::RunNotFound if absent

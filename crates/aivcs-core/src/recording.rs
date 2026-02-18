@@ -34,28 +34,43 @@ impl GraphRunRecorder {
         spec_digest: &ContentDigest,
         metadata: RunMetadata,
     ) -> StorageResult<Self> {
-        let run_id = ledger.create_run(spec_digest, metadata).await?;
+        let run_id = ledger.create_run(spec_digest, metadata.clone()).await?;
+        crate::obs::emit_run_started(run_id.to_string().as_str(), &metadata.agent_name);
         Ok(Self { ledger, run_id })
     }
 
     /// Record a single domain event into the ledger.
     pub async fn record(&self, event: &Event) -> StorageResult<()> {
+        let kind_str = event_kind_str(&event.kind);
         let run_event = RunEvent {
             seq: event.seq,
-            kind: event_kind_str(&event.kind),
+            kind: kind_str.clone(),
             payload: event.payload.clone(),
             timestamp: event.timestamp,
         };
+        crate::obs::emit_event_appended(&self.run_id.to_string(), &kind_str, event.seq);
         self.ledger.append_event(&self.run_id, run_event).await
     }
 
     /// Finalize the run as completed.
     pub async fn finish_ok(self, summary: RunSummary) -> StorageResult<()> {
+        crate::obs::emit_run_finished(
+            &self.run_id.to_string(),
+            summary.duration_ms,
+            summary.total_events,
+            true,
+        );
         self.ledger.complete_run(&self.run_id, summary).await
     }
 
     /// Finalize the run as failed.
     pub async fn finish_err(self, summary: RunSummary) -> StorageResult<()> {
+        crate::obs::emit_run_finished(
+            &self.run_id.to_string(),
+            summary.duration_ms,
+            summary.total_events,
+            false,
+        );
         self.ledger.fail_run(&self.run_id, summary).await
     }
 
