@@ -8,6 +8,7 @@ pub mod domain;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod obs;
 pub mod parallel;
 pub mod recording;
 pub mod release_registry;
@@ -67,6 +68,11 @@ pub use replay::{replay_run, ReplaySummary};
 pub use reporting::{
     render_diff_summary_md, write_diff_summary_md, write_eval_results_json, DiffSummaryArtifact,
     EvalCaseResultArtifact, EvalResultsArtifact, EvalSummaryArtifact,
+};
+
+pub use obs::{
+    emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
+    emit_run_started, RunSpan,
 };
 
 /// AIVCS version

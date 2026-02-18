@@ -7,6 +7,7 @@
 use oxidized_state::storage_traits::{
     ContentDigest, RunEvent, RunId, RunLedger, RunStatus as StorageRunStatus,
 };
+use tracing::info;
 
 use crate::domain::{AivcsError, Result};
 
@@ -57,6 +58,8 @@ pub async fn replay_run(
     ledger: &dyn RunLedger,
     run_id_str: &str,
 ) -> Result<(Vec<RunEvent>, ReplaySummary)> {
+    let _span = crate::obs::RunSpan::enter(run_id_str);
+
     let run_id = RunId(run_id_str.to_string());
 
     // Fetch run record — returns StorageError::RunNotFound if absent
@@ -80,8 +83,15 @@ pub async fn replay_run(
         agent_name: record.metadata.agent_name.clone(),
         status: record.status,
         event_count: events.len(),
-        replay_digest,
+        replay_digest: replay_digest.clone(),
     };
+
+    info!(
+        event = "replay.completed",
+        run_id = %run_id_str,
+        event_count = summary.event_count,
+        digest = %replay_digest
+    );
 
     Ok((events, summary))
 }

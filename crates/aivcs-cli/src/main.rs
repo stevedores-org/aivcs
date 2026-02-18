@@ -25,8 +25,8 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::info;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
 
@@ -307,18 +307,30 @@ enum ReleaseAction {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Setup logging
-    let level = if cli.verbose {
-        Level::DEBUG
+    // Setup logging with env filter and optional JSON output
+    let filter = EnvFilter::try_from_env("AIVCS_LOG").unwrap_or_else(|_| {
+        if cli.verbose {
+            EnvFilter::new("debug")
+        } else {
+            EnvFilter::new("info")
+        }
+    });
+
+    let use_json = std::env::var("AIVCS_LOG_FORMAT")
+        .map(|v| v == "json")
+        .unwrap_or(false);
+
+    if use_json {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().json())
+            .init();
     } else {
-        Level::INFO
-    };
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(level)
-        .with_target(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .context("Failed to set tracing subscriber")?;
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer())
+            .init();
+    }
 
     // Initialize database connection
     let handle = SurrealHandle::setup_from_env()
