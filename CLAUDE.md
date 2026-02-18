@@ -18,7 +18,7 @@ cargo clippy --all -- -D warnings        # Lint (CI enforces zero warnings)
 cargo fmt --all -- --check               # Check formatting
 ```
 
-CI runs `local-ci --json` (a Go tool from `stevedores-org/local-ci`) which executes Rust tests + clippy. Nix checks (`nix flake check`) run separately as report-only (non-blocking).
+CI runs `local-ci --json` (a Go tool from `stevedores-org/local-ci`) which executes `fmt` + Rust tests + clippy. Nix checks (`nix flake check`) run separately as report-only (non-blocking).
 
 ## Architecture
 
