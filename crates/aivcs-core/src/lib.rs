@@ -17,9 +17,9 @@ pub use diff::lcs_diff::{
 };
 
 pub use domain::{
-    AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
-    EventKind, Release, ReleaseEnvironment, ReleasePointer, Result, Run, RunStatus, ScorerConfig,
-    ScorerType, SnapshotMeta,
+    AgentSpec, AgentSpecFields, AivcsError, DeterministicEvalRunner, EvalCaseResult, EvalRunReport,
+    EvalSuite, EvalTestCase, EvalThresholds, Event, EventKind, Release, ReleaseEnvironment,
+    ReleasePointer, Result, Run, RunStatus, ScorerConfig, ScorerType, SnapshotMeta,
 };
 
 pub use event_adapter::{subscribe_ledger_to_bus, LedgerHandler};
