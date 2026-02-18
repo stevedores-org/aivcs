@@ -1,0 +1,132 @@
+# Reusable AIVCS eval workflow.
+#
+# Runs the eval suite, applies the merge gate, and uploads artifacts.
+# Designed to be called from other workflows via workflow_call.
+#
+# Usage in a caller workflow:
+#
+#   jobs:
+#     eval:
+#       uses: stevedores-org/aivcs/.github/workflows/aivcs-eval.yml@develop
+#       with:
+#         eval-suite: crates/aivcs-core/tests/eval_suite.json
+#         fail-on-gate: true
+#
+name: aivcs-eval
+
+on:
+  workflow_call:
+    inputs:
+      eval-suite:
+        description: "Path to the eval suite JSON file (relative to repo root)"
+        required: false
+        type: string
+        default: ""
+      fail-on-gate:
+        description: "Fail the workflow if the merge gate does not pass"
+        required: false
+        type: boolean
+        default: true
+      rust-toolchain:
+        description: "Rust toolchain to use"
+        required: false
+        type: string
+        default: "stable"
+    outputs:
+      gate-passed:
+        description: "Whether the merge gate passed ('true' or 'false')"
+        value: ${{ jobs.eval.outputs.gate-passed }}
+      artifact-name:
+        description: "Name of the uploaded eval artifact"
+        value: ${{ jobs.eval.outputs.artifact-name }}
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      gate-passed: ${{ steps.gate.outputs.passed }}
+      artifact-name: aivcs-eval-results
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ inputs.rust-toolchain }}
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: eval-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            eval-${{ runner.os }}-
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Run eval suite
+        id: eval
+        shell: bash
+        run: |
+          set +e
+          mkdir -p eval-output
+
+          # Run the eval test binary and capture results
+          cargo test -p aivcs-core --test merge_gate -- --test-threads=1 2>&1 | tee eval-output/test-output.txt
+          test_status=${PIPESTATUS[0]}
+
+          # Generate eval metadata
+          cat > eval-output/eval_results.json << ENDJSON
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_sha": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}",
+            "pr_number": "${{ github.event.pull_request.number || '' }}",
+            "eval_suite": "${{ inputs.eval-suite }}",
+            "test_exit_code": ${test_status},
+            "gate_passed": $([ ${test_status} -eq 0 ] && echo true || echo false)
+          }
+          ENDJSON
+
+          echo "test-status=${test_status}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Apply merge gate
+        id: gate
+        shell: bash
+        run: |
+          test_status=${{ steps.eval.outputs.test-status }}
+          if [ "${test_status}" = "0" ]; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "### AIVCS Eval Gate: PASS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "### AIVCS Eval Gate: FAIL" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Eval tests exited with code ${test_status}." >> "$GITHUB_STEP_SUMMARY"
+            echo "See artifact \`aivcs-eval-results\` for details." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload eval artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aivcs-eval-results
+          path: eval-output/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce gate
+        if: inputs.fail-on-gate && steps.gate.outputs.passed != 'true'
+        run: |
+          echo "::error::Merge gate failed — eval tests did not pass."
+          exit 1

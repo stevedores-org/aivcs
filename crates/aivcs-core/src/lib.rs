@@ -6,10 +6,13 @@ pub mod cas;
 pub mod diff;
 pub mod domain;
 pub mod event_adapter;
+pub mod gate;
 pub mod git;
 pub mod parallel;
 pub mod recording;
+pub mod release_registry;
 pub mod replay;
+pub mod reporting;
 
 pub use diff::lcs_diff::{
     diff_tool_calls as diff_tool_calls_lcs, DiffSummary, ParamChange,
@@ -17,9 +20,9 @@ pub use diff::lcs_diff::{
 };
 
 pub use domain::{
-    AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
-    EventKind, Release, ReleaseEnvironment, ReleasePointer, Result, Run, RunStatus, ScorerConfig,
-    ScorerType, SnapshotMeta,
+    AgentSpec, AgentSpecFields, AivcsError, DeterministicEvalRunner, EvalCaseResult, EvalRunReport,
+    EvalSuite, EvalTestCase, EvalThresholds, Event, EventKind, Release, ReleaseEnvironment,
+    ReleasePointer, Result, Run, RunStatus, ScorerConfig, ScorerType, SnapshotMeta,
 };
 
 pub use event_adapter::{subscribe_ledger_to_bus, LedgerHandler};
@@ -55,8 +58,16 @@ pub use diff::state_diff::{
     CHECKPOINT_SAVED_KIND,
 };
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
+pub use gate::{
+    evaluate_gate, CaseResult, EvalReport, GateRule, GateRuleSet, GateVerdict, Violation,
+};
 pub use recording::GraphRunRecorder;
+pub use release_registry::ReleaseRegistryApi;
 pub use replay::{replay_run, ReplaySummary};
+pub use reporting::{
+    render_diff_summary_md, write_diff_summary_md, write_eval_results_json, DiffSummaryArtifact,
+    EvalCaseResultArtifact, EvalResultsArtifact, EvalSummaryArtifact,
+};
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
