@@ -25,7 +25,7 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use aivcs_core::fork_agent_parallel;
-use aivcs_core::ToolCallChange;
+use aivcs_core::LcsToolCallChange as ToolCallChange;
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -175,13 +175,6 @@ enum Commands {
         depth: usize,
     },
 
-    /// Replay all events for a run in sequence order and print a digest
-    Replay {
-        /// Run ID to replay
-        #[arg(long)]
-        run: String,
-    },
-
     /// Diff the tool-call sequences of two runs
     DiffRuns {
         /// First run ID
@@ -321,12 +314,6 @@ async fn main() -> Result<()> {
             prefix,
         } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
-        Commands::Replay { run } => {
-            let ledger = SurrealRunLedger::from_env()
-                .await
-                .context("Failed to connect to run ledger")?;
-            cmd_replay(&ledger, &run).await
-        }
         Commands::DiffRuns { run_a, run_b } => {
             let ledger = SurrealRunLedger::from_env()
                 .await
@@ -960,28 +947,6 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
     Ok(())
 }
 
-/// Replay all events for a run in sequence order and print a digest
-async fn cmd_replay(ledger: &dyn RunLedger, run_id_str: &str) -> Result<()> {
-    let (events, summary) = aivcs_core::replay_run(ledger, run_id_str)
-        .await
-        .with_context(|| format!("replay failed for run: {}", run_id_str))?;
-
-    println!("Run:    {}", summary.run_id);
-    println!("Agent:  {}", summary.agent_name);
-    println!("Status: {:?}", summary.status);
-    println!();
-
-    for event in &events {
-        println!("[{:>6}] {} | {}", event.seq, event.kind, event.payload);
-    }
-
-    println!();
-    println!("Events: {}", summary.event_count);
-    println!("Digest: {}", summary.replay_digest);
-
-    Ok(())
-}
-
 /// Diff the tool-call sequences of two runs
 async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result<()> {
     let (events_a, summary_a) = aivcs_core::replay_run(ledger, id_a)
@@ -991,7 +956,7 @@ async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result
         .await
         .with_context(|| format!("replay failed for run: {}", id_b))?;
 
-    let diff = aivcs_core::diff_tool_calls(id_a, &events_a, id_b, &events_b);
+    let diff = aivcs_core::diff_tool_calls_lcs(id_a, &events_a, id_b, &events_b);
 
     println!("A: {} ({})", summary_a.run_id, summary_a.agent_name);
     println!("B: {} ({})", summary_b.run_id, summary_b.agent_name);

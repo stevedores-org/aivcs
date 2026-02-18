@@ -1,7 +1,7 @@
 //! Integration tests for tool-call sequence diffing.
 
-use aivcs_core::diff_tool_calls;
-use aivcs_core::ToolCallChange;
+use aivcs_core::diff_tool_calls_lcs as diff_tool_calls;
+use aivcs_core::LcsToolCallChange as ToolCallChange;
 use chrono::Utc;
 use oxidized_state::storage_traits::RunEvent;
 

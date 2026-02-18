@@ -11,7 +11,10 @@ pub mod parallel;
 pub mod recording;
 pub mod replay;
 
-pub use diff::{diff_tool_calls, DiffSummary, ParamChange, ToolCallChange, ToolCallEntry};
+pub use diff::lcs_diff::{
+    diff_tool_calls as diff_tool_calls_lcs, DiffSummary, ParamChange,
+    ToolCallChange as LcsToolCallChange, ToolCallEntry,
+};
 
 pub use domain::{
     AgentSpec, AgentSpecFields, AivcsError, EvalSuite, EvalTestCase, EvalThresholds, Event,
@@ -46,6 +49,10 @@ pub use parallel::{
 
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
+};
+pub use diff::state_diff::{
+    diff_run_states, diff_scoped_state, extract_last_checkpoint, ScopedStateDiff, StateDelta,
+    CHECKPOINT_SAVED_KIND,
 };
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use recording::GraphRunRecorder;
