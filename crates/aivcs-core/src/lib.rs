@@ -4,6 +4,7 @@
 
 pub mod cas;
 pub mod compat;
+pub mod deploy_runner;
 pub mod diff;
 pub mod domain;
 pub mod event_adapter;
@@ -54,6 +55,7 @@ pub use parallel::{
 pub use compat::{
     evaluate_compat, CompatRule, CompatRuleSet, CompatVerdict, CompatViolation, PromoteContext,
 };
+pub use deploy_runner::{DeployByDigestRunner, DeployRunOutput};
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
 };
