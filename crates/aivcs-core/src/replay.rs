@@ -4,12 +4,14 @@
 //! all events for a given run from the `RunLedger`, computing a deterministic
 //! digest over the event sequence for golden equality testing.
 
+use tracing::instrument;
+
 use oxidized_state::storage_traits::{
     ContentDigest, RunEvent, RunId, RunLedger, RunStatus as StorageRunStatus,
 };
-use tracing::info;
 
 use crate::domain::{AivcsError, Result};
+use crate::metrics::METRICS;
 
 /// Summary produced after replaying a run's events.
 #[derive(Debug, Clone)]
@@ -54,11 +56,13 @@ pub struct ReplaySummary {
 /// let _result = replay_run(&*ledger, "run-12345").await;
 /// # }
 /// ```
+#[instrument(skip(ledger), fields(run_id = %run_id_str))]
 pub async fn replay_run(
     ledger: &dyn RunLedger,
     run_id_str: &str,
 ) -> Result<(Vec<RunEvent>, ReplaySummary)> {
     let _span = crate::obs::RunSpan::enter(run_id_str);
+    METRICS.inc_replays();
 
     let run_id = RunId(run_id_str.to_string());
 
@@ -83,15 +87,8 @@ pub async fn replay_run(
         agent_name: record.metadata.agent_name.clone(),
         status: record.status,
         event_count: events.len(),
-        replay_digest: replay_digest.clone(),
+        replay_digest,
     };
-
-    info!(
-        event = "replay.completed",
-        run_id = %run_id_str,
-        event_count = summary.event_count,
-        digest = %replay_digest
-    );
 
     Ok((events, summary))
 }

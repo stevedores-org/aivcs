@@ -17,7 +17,7 @@ use nix_env_manager::{
     AtticClient, NixHash,
 };
 use oxidized_state::{
-    BranchRecord, CommitId, CommitRecord, ContentDigest, ReleaseRegistry, RunEvent, RunLedger,
+    BranchRecord, CommitId, CommitRecord, ReleaseRegistry, RunEvent, RunLedger,
     SurrealDbReleaseRegistry, SurrealHandle, SurrealRunLedger,
 };
 use serde::Serialize;
@@ -273,12 +273,25 @@ enum DiffAction {
 
 #[derive(Subcommand)]
 enum ReleaseAction {
-    /// Promote a spec digest as the latest release for an agent
+    /// Promote a validated agent spec as the latest release
     Promote {
         /// Agent name
         name: String,
-        /// 64-char hex content digest
-        digest: String,
+        /// Git commit SHA linked to this spec
+        #[arg(long)]
+        git_sha: String,
+        /// SHA256 hex of graph definition
+        #[arg(long)]
+        graph_digest: String,
+        /// SHA256 hex of prompts definition
+        #[arg(long)]
+        prompts_digest: String,
+        /// SHA256 hex of tools definition
+        #[arg(long)]
+        tools_digest: String,
+        /// SHA256 hex of configuration
+        #[arg(long)]
+        config_digest: String,
         /// Who promoted this release
         #[arg(long, default_value = "aivcs-cli")]
         promoted_by: String,
@@ -374,7 +387,11 @@ async fn main() -> Result<()> {
         Commands::Release { action } => match action {
             ReleaseAction::Promote {
                 name,
-                digest,
+                git_sha,
+                graph_digest,
+                prompts_digest,
+                tools_digest,
+                config_digest,
                 promoted_by,
                 version,
                 notes,
@@ -382,7 +399,11 @@ async fn main() -> Result<()> {
                 cmd_release_promote(
                     &handle,
                     &name,
-                    &digest,
+                    &git_sha,
+                    &graph_digest,
+                    &prompts_digest,
+                    &tools_digest,
+                    &config_digest,
                     &promoted_by,
                     version.as_deref(),
                     notes.as_deref(),
@@ -1068,25 +1089,42 @@ async fn cmd_env_info() -> Result<()> {
 
 // ========== Release Registry Commands (Phase 4) ==========
 
+#[allow(clippy::too_many_arguments)]
 async fn cmd_release_promote(
     handle: &SurrealHandle,
     name: &str,
-    digest: &str,
+    git_sha: &str,
+    graph_digest: &str,
+    prompts_digest: &str,
+    tools_digest: &str,
+    config_digest: &str,
     promoted_by: &str,
     version: Option<&str>,
     notes: Option<&str>,
 ) -> Result<()> {
+    let spec = aivcs_core::AgentSpec::new(
+        git_sha.to_string(),
+        graph_digest.to_string(),
+        prompts_digest.to_string(),
+        tools_digest.to_string(),
+        config_digest.to_string(),
+    )
+    .context("failed to build AgentSpec")?;
+
     let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
-    let parsed_digest = ContentDigest::try_from(digest.to_string())
-        .context("invalid digest (expected 64-char hex)")?;
+    let api = aivcs_core::ReleaseRegistryApi::new(registry);
 
-    let metadata = oxidized_state::ReleaseMetadata {
-        version_label: version.map(ToString::to_string),
-        promoted_by: promoted_by.to_string(),
-        notes: notes.map(ToString::to_string),
-    };
+    let release = api
+        .promote(
+            name,
+            &spec,
+            promoted_by,
+            version.map(ToString::to_string),
+            notes.map(ToString::to_string),
+        )
+        .await
+        .context("promote failed")?;
 
-    let release = registry.promote(name, &parsed_digest, metadata).await?;
     println!(
         "Promoted {} -> {}",
         release.name,
