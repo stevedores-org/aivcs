@@ -14,10 +14,15 @@
 //! - `SnapshotRecord`: Schema mapping to the Document Layer (State + Memory)
 //! - `GraphEdge`: Schema mapping to the Graph Layer (Commit -> Parent)
 
+mod ci;
 mod error;
 mod handle;
 mod schema;
 
+pub use ci::{
+    CiArtifact, CiCommand, CiPipelineSpec, CiRunRecord, CiRunStatus, CiSnapshot, CiStepResult,
+    CiStepSpec,
+};
 pub use error::StateError;
 pub use handle::{CloudConfig, SurrealHandle};
 pub use schema::{

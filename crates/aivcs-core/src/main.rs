@@ -13,11 +13,15 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use nix_env_manager::{
-    generate_environment_hash, generate_logic_hash,
+    generate_environment_hash, generate_logic_hash, is_attic_available, is_nix_available,
     AtticClient, NixHash,
-    is_nix_available, is_attic_available,
 };
-use oxidized_state::{CommitId, CommitRecord, BranchRecord, SurrealHandle};
+use oxidized_state::{
+    BranchRecord, CiCommand, CiPipelineSpec, CiRunRecord, CiRunStatus, CiSnapshot, CiStepResult,
+    CiStepSpec, CommitId, CommitRecord, SurrealHandle,
+};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
@@ -208,7 +212,11 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Setup logging
-    let level = if cli.verbose { Level::DEBUG } else { Level::INFO };
+    let level = if cli.verbose {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
     let subscriber = FmtSubscriber::builder()
         .with_max_level(level)
         .with_target(false)
@@ -217,24 +225,32 @@ async fn main() -> Result<()> {
         .context("Failed to set tracing subscriber")?;
 
     // Initialize database connection
-    let handle = SurrealHandle::setup_db().await
+    let handle = SurrealHandle::setup_db()
+        .await
         .context("Failed to connect to AIVCS database")?;
 
     match cli.command {
         Commands::Init { path } => cmd_init(&handle, &path).await,
-        Commands::Snapshot { state, message, author, branch } => {
-            cmd_snapshot(&handle, &state, &message, &author, &branch).await
+        Commands::Snapshot {
+            state,
+            message,
+            author,
+            branch,
+        } => cmd_snapshot(&handle, &state, &message, &author, &branch).await,
+        Commands::Restore { commit, output } => {
+            cmd_restore(&handle, &commit, output.as_deref()).await
         }
-        Commands::Restore { commit, output } => cmd_restore(&handle, &commit, output.as_deref()).await,
         Commands::Branch { action } => match action {
             BranchAction::List => cmd_branch_list(&handle).await,
             BranchAction::Create { name, from } => cmd_branch_create(&handle, &name, &from).await,
             BranchAction::Delete { name } => cmd_branch_delete(&handle, &name).await,
         },
         Commands::Log { reference, limit } => cmd_log(&handle, &reference, limit).await,
-        Commands::Merge { source, target, message } => {
-            cmd_merge(&handle, &source, &target, message.as_deref()).await
-        }
+        Commands::Merge {
+            source,
+            target,
+            message,
+        } => cmd_merge(&handle, &source, &target, message.as_deref()).await,
         Commands::Diff { a, b } => cmd_diff(&handle, &a, &b).await,
         Commands::Env { action } => match action {
             EnvAction::Hash { path } => cmd_env_hash(&path).await,
@@ -243,9 +259,11 @@ async fn main() -> Result<()> {
             EnvAction::IsCached { hash } => cmd_is_cached(&hash).await,
             EnvAction::Info => cmd_env_info().await,
         },
-        Commands::Fork { parent, count, prefix } => {
-            cmd_fork(&handle, &parent, count, &prefix).await
-        }
+        Commands::Fork {
+            parent,
+            count,
+            prefix,
+        } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
     }
 }
@@ -291,12 +309,11 @@ async fn cmd_snapshot(
     let state_content = std::fs::read_to_string(state_path)
         .context(format!("Failed to read state file: {:?}", state_path))?;
 
-    let state: serde_json::Value = serde_json::from_str(&state_content)
-        .context("Failed to parse state as JSON")?;
+    let state: serde_json::Value =
+        serde_json::from_str(&state_content).context("Failed to parse state as JSON")?;
 
     // Get parent commit from branch
-    let parent_id = handle.get_branch(branch).await?
-        .map(|b| b.head_commit_id);
+    let parent_id = handle.get_branch(branch).await?.map(|b| b.head_commit_id);
 
     // Create commit ID
     let commit_id = CommitId::from_state(state_content.as_bytes());
@@ -317,10 +334,111 @@ async fn cmd_snapshot(
     let branch_record = BranchRecord::new(branch, &commit_id.hash, branch == "main");
     handle.save_branch(&branch_record).await?;
 
+    // Persist CI artifacts for this snapshot command execution.
+    record_snapshot_ci_run(handle, &commit_id, branch, author).await?;
+
     println!("[{}] {} ({})", branch, message, commit_id.short());
     println!("Commit: {}", commit_id);
 
     Ok(())
+}
+
+async fn record_snapshot_ci_run(
+    handle: &SurrealHandle,
+    commit_id: &CommitId,
+    branch: &str,
+    author: &str,
+) -> Result<()> {
+    let snapshot = collect_ci_snapshot(commit_id)?;
+    let snapshot_digest = handle.save_ci_snapshot(&snapshot).await?;
+
+    let pipeline = CiPipelineSpec {
+        name: "aivcs-snapshot".to_string(),
+        steps: vec![CiStepSpec {
+            name: "persist-snapshot".to_string(),
+            command: CiCommand {
+                program: "aivcs".to_string(),
+                args: vec!["snapshot".to_string()],
+                env: BTreeMap::new(),
+                cwd: None,
+            },
+            timeout_secs: None,
+            allow_failure: false,
+        }],
+    };
+    let pipeline_digest = handle.save_ci_pipeline(&pipeline).await?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut run = CiRunRecord::queued(&snapshot_digest, &pipeline_digest);
+    run.status = CiRunStatus::Succeeded;
+    run.started_at = Some(now.clone());
+    run.finished_at = Some(now);
+    run.step_results.push(CiStepResult {
+        step_name: "persist-snapshot".to_string(),
+        status: CiRunStatus::Succeeded,
+        exit_code: Some(0),
+        started_at: run.started_at.clone(),
+        finished_at: run.finished_at.clone(),
+        stdout_digest: None,
+        stderr_digest: None,
+    });
+    run.metadata.insert("command".to_string(), "snapshot".to_string());
+    run.metadata.insert("branch".to_string(), branch.to_string());
+    run.metadata.insert("author".to_string(), author.to_string());
+    run.metadata
+        .insert("commit_id".to_string(), commit_id.hash.clone());
+
+    let _saved = handle.save_ci_run(&run).await?;
+    Ok(())
+}
+
+fn collect_ci_snapshot(commit_id: &CommitId) -> Result<CiSnapshot> {
+    let repo_sha = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| commit_id.hash.clone());
+
+    let workspace_hash = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| sha256_hex(&o.stdout))
+        .unwrap_or_else(|| commit_id.state_hash.clone());
+
+    let local_ci_config_hash = std::fs::read(".local-ci.toml")
+        .map(|b| sha256_hex(&b))
+        .unwrap_or_else(|_| sha256_hex(b"missing:.local-ci.toml"));
+
+    let env_fingerprint = format!(
+        "{}|{}|{}",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        option_env!("RUSTC_VERSION").unwrap_or("unknown-rustc")
+    );
+    let env_hash = sha256_hex(env_fingerprint.as_bytes());
+
+    Ok(CiSnapshot {
+        repo_sha,
+        workspace_hash,
+        local_ci_config_hash,
+        env_hash,
+    })
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
 }
 
 /// Restore agent to a previous state
@@ -337,14 +455,15 @@ async fn cmd_restore(
     };
 
     // Load snapshot
-    let snapshot = handle.load_snapshot(&commit_hash).await
+    let snapshot = handle
+        .load_snapshot(&commit_hash)
+        .await
         .context(format!("Commit not found: {}", reference))?;
 
     let state_json = serde_json::to_string_pretty(&snapshot.state)?;
 
     if let Some(path) = output {
-        std::fs::write(path, &state_json)
-            .context(format!("Failed to write to {:?}", path))?;
+        std::fs::write(path, &state_json).context(format!("Failed to write to {:?}", path))?;
         println!("Restored state to {:?}", path);
     } else {
         println!("{}", state_json);
@@ -364,7 +483,12 @@ async fn cmd_branch_list(handle: &SurrealHandle) -> Result<()> {
 
     for branch in branches {
         let prefix = if branch.is_default { "* " } else { "  " };
-        println!("{}{} -> {}", prefix, branch.name, &branch.head_commit_id[..8]);
+        println!(
+            "{}{} -> {}",
+            prefix,
+            branch.name,
+            &branch.head_commit_id[..8]
+        );
     }
 
     Ok(())
@@ -390,7 +514,9 @@ async fn cmd_branch_create(handle: &SurrealHandle, name: &str, from: &str) -> Re
 
 /// Delete a branch
 async fn cmd_branch_delete(handle: &SurrealHandle, name: &str) -> Result<()> {
-    let branch = handle.get_branch(name).await?
+    let branch = handle
+        .get_branch(name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("Branch not found: {}", name))?;
 
     if branch.is_default {
@@ -422,7 +548,10 @@ async fn cmd_log(handle: &SurrealHandle, reference: &str, limit: usize) -> Resul
     for commit in history {
         println!("commit {}", commit.commit_id);
         println!("Author: {}", commit.author);
-        println!("Date:   {}", commit.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
+        println!(
+            "Date:   {}",
+            commit.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+        );
         println!();
         println!("    {}", commit.message);
         println!();
@@ -439,10 +568,14 @@ async fn cmd_merge(
     message: Option<&str>,
 ) -> Result<()> {
     // Resolve branch heads
-    let source_commit = handle.get_branch_head(source).await
+    let source_commit = handle
+        .get_branch_head(source)
+        .await
         .context(format!("Source branch not found: {}", source))?;
 
-    let target_commit = handle.get_branch_head(target).await
+    let target_commit = handle
+        .get_branch_head(target)
+        .await
         .context(format!("Target branch not found: {}", target))?;
 
     let merge_message = message
@@ -456,7 +589,8 @@ async fn cmd_merge(
         &target_commit,
         &merge_message,
         "agent-git",
-    ).await?;
+    )
+    .await?;
 
     // Update target branch head
     let branch = BranchRecord::new(target, &result.merge_commit_id.hash, target == "main");
@@ -540,8 +674,10 @@ fn truncate(s: &str, max_len: usize) -> String {
 
 /// Generate and display environment hash
 async fn cmd_env_hash(path: &PathBuf) -> Result<()> {
-    let hash = generate_environment_hash(path)
-        .context(format!("Failed to generate environment hash for {:?}", path))?;
+    let hash = generate_environment_hash(path).context(format!(
+        "Failed to generate environment hash for {:?}",
+        path
+    ))?;
 
     println!("Environment Hash: {}", hash.hash);
     println!("Source: {:?}", hash.source);
@@ -564,7 +700,9 @@ async fn cmd_logic_hash(path: &PathBuf) -> Result<()> {
 /// Show Attic cache information
 async fn cmd_cache_info() -> Result<()> {
     let client = AtticClient::from_env();
-    let info = client.get_cache_info().await
+    let info = client
+        .get_cache_info()
+        .await
         .context("Failed to get cache info")?;
 
     println!("Cache Name: {}", info.name);
@@ -620,7 +758,10 @@ async fn cmd_env_info() -> Result<()> {
     println!("Attic installed: {}", if attic { "yes" } else { "no" });
 
     if attic {
-        if let Ok(output) = std::process::Command::new("attic").arg("--version").output() {
+        if let Ok(output) = std::process::Command::new("attic")
+            .arg("--version")
+            .output()
+        {
             if output.status.success() {
                 let version = String::from_utf8_lossy(&output.stdout);
                 println!("Attic version: {}", version.trim());
@@ -654,12 +795,7 @@ async fn cmd_env_info() -> Result<()> {
 // ========== Parallel Simulation Commands (Phase 4) ==========
 
 /// Fork multiple parallel branches for exploration
-async fn cmd_fork(
-    handle: &SurrealHandle,
-    parent: &str,
-    count: u8,
-    prefix: &str,
-) -> Result<()> {
+async fn cmd_fork(handle: &SurrealHandle, parent: &str, count: u8, prefix: &str) -> Result<()> {
     // Resolve parent reference (branch name or commit ID)
     let parent_commit = if let Ok(Some(branch)) = handle.get_branch(parent).await {
         branch.head_commit_id
@@ -667,25 +803,27 @@ async fn cmd_fork(
         parent.to_string()
     };
 
-    println!("Forking {} branches from {} with prefix '{}'", count, &parent_commit[..8.min(parent_commit.len())], prefix);
+    println!(
+        "Forking {} branches from {} with prefix '{}'",
+        count,
+        &parent_commit[..8.min(parent_commit.len())],
+        prefix
+    );
 
     let handle_arc = Arc::new(SurrealHandle::setup_db().await?);
 
     // Copy parent snapshot to new handle
     let parent_snapshot = handle.load_snapshot(&parent_commit).await?;
     let parent_id = CommitId::from_state(parent_commit.as_bytes());
-    handle_arc.save_snapshot(&parent_id, parent_snapshot.state.clone()).await?;
+    handle_arc
+        .save_snapshot(&parent_id, parent_snapshot.state.clone())
+        .await?;
 
     // Create parent commit in new handle
     let parent_record = CommitRecord::new(parent_id.clone(), None, "Fork parent", "fork");
     handle_arc.save_commit(&parent_record).await?;
 
-    let result = fork_agent_parallel(
-        handle_arc,
-        &parent_id.hash,
-        count,
-        prefix,
-    ).await?;
+    let result = fork_agent_parallel(handle_arc, &parent_id.hash, count, prefix).await?;
 
     println!("\nCreated {} parallel branches:", result.branches.len());
     for (i, branch) in result.branches.iter().enumerate() {
@@ -707,7 +845,10 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
         reference.to_string()
     };
 
-    println!("Reasoning Trace for {}", &commit_hash[..12.min(commit_hash.len())]);
+    println!(
+        "Reasoning Trace for {}",
+        &commit_hash[..12.min(commit_hash.len())]
+    );
     println!("=========================================\n");
 
     // Get commit history (limited by depth)
@@ -722,8 +863,17 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
     for (i, commit) in history.iter().enumerate() {
         let step_marker = if i == 0 { "HEAD" } else { &format!("~{}", i) };
 
-        println!("[{}] {} - {}", step_marker, commit.commit_id.short(), commit.message);
-        println!("    Author: {} | {}", commit.author, commit.created_at.format("%Y-%m-%d %H:%M:%S"));
+        println!(
+            "[{}] {} - {}",
+            step_marker,
+            commit.commit_id.short(),
+            commit.message
+        );
+        println!(
+            "    Author: {} | {}",
+            commit.author,
+            commit.created_at.format("%Y-%m-%d %H:%M:%S")
+        );
 
         // Try to load and display state summary
         if let Ok(snapshot) = handle.load_snapshot(&commit.commit_id.hash).await {
@@ -746,7 +896,11 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
         println!();
     }
 
-    println!("Showing {} of {} commits (use --depth to see more)", history.len(), depth);
+    println!(
+        "Showing {} of {} commits (use --depth to see more)",
+        history.len(),
+        depth
+    );
 
     Ok(())
 }
@@ -768,18 +922,32 @@ mod tests {
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
 
         // Run snapshot command
-        let result = cmd_snapshot(
-            &handle,
-            &state_path,
-            "Test snapshot",
-            "test-agent",
-            "main",
-        ).await;
+        let result =
+            cmd_snapshot(&handle, &state_path, "Test snapshot", "test-agent", "main").await;
 
         assert!(result.is_ok(), "Snapshot failed: {:?}", result.err());
 
         // Verify we can get the branch head
         let head = handle.get_branch_head("main").await.unwrap();
         assert!(!head.is_empty());
+
+        // Verify CI run persisted for snapshot command.
+        let commit_id = CommitId {
+            hash: head.clone(),
+            logic_hash: None,
+            state_hash: head,
+            env_hash: None,
+        };
+        let ci_snapshot = collect_ci_snapshot(&commit_id).unwrap();
+        let ci_snapshot_digest = ci_snapshot.digest();
+        let ci_runs = handle
+            .list_ci_runs_by_snapshot(&ci_snapshot_digest)
+            .await
+            .unwrap();
+        assert!(
+            !ci_runs.is_empty(),
+            "Expected at least one CI run for the snapshot context"
+        );
+        assert_eq!(ci_runs[0].metadata.get("command"), Some(&"snapshot".to_string()));
     }
 }

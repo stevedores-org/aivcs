@@ -4,10 +4,11 @@
 //! - save_snapshot / load_snapshot
 //! - save_commit_graph_edge
 //! - get_branch_head
-//! - CRUD for commits, branches, agents, memories
+//! - CRUD for commits, branches, agents, memories, and CI records
 //!
 //! Supports both local (in-memory) and cloud (WebSocket) connections.
 
+use crate::ci::{CiPipelineSpec, CiRunRecord, CiSnapshot};
 use crate::error::StateError;
 use crate::schema::{
     AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord, SnapshotRecord,
@@ -38,7 +39,11 @@ pub struct CloudConfig {
 
 impl CloudConfig {
     /// Create a new cloud configuration for a database user
-    pub fn new(endpoint: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
+    pub fn new(
+        endpoint: impl Into<String>,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             username: username.into(),
@@ -50,7 +55,11 @@ impl CloudConfig {
     }
 
     /// Create a new cloud configuration for a root user
-    pub fn new_root(endpoint: impl Into<String>, username: impl Into<String>, password: impl Into<String>) -> Self {
+    pub fn new_root(
+        endpoint: impl Into<String>,
+        username: impl Into<String>,
+        password: impl Into<String>,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
             username: username.into(),
@@ -89,16 +98,15 @@ impl CloudConfig {
     /// - SURREALDB_DATABASE (optional, default: "main")
     /// - SURREALDB_ROOT (optional, default: "false") - set to "true" for root users
     pub fn from_env() -> std::result::Result<Self, String> {
-        let endpoint = std::env::var("SURREALDB_ENDPOINT")
-            .map_err(|_| "SURREALDB_ENDPOINT not set")?;
-        let username = std::env::var("SURREALDB_USERNAME")
-            .map_err(|_| "SURREALDB_USERNAME not set")?;
-        let password = std::env::var("SURREALDB_PASSWORD")
-            .map_err(|_| "SURREALDB_PASSWORD not set")?;
-        let namespace = std::env::var("SURREALDB_NAMESPACE")
-            .unwrap_or_else(|_| "aivcs".to_string());
-        let database = std::env::var("SURREALDB_DATABASE")
-            .unwrap_or_else(|_| "main".to_string());
+        let endpoint =
+            std::env::var("SURREALDB_ENDPOINT").map_err(|_| "SURREALDB_ENDPOINT not set")?;
+        let username =
+            std::env::var("SURREALDB_USERNAME").map_err(|_| "SURREALDB_USERNAME not set")?;
+        let password =
+            std::env::var("SURREALDB_PASSWORD").map_err(|_| "SURREALDB_PASSWORD not set")?;
+        let namespace =
+            std::env::var("SURREALDB_NAMESPACE").unwrap_or_else(|_| "aivcs".to_string());
+        let database = std::env::var("SURREALDB_DATABASE").unwrap_or_else(|_| "main".to_string());
         let is_root = std::env::var("SURREALDB_ROOT")
             .map(|v| v.to_lowercase() == "true")
             .unwrap_or(false);
@@ -161,7 +169,9 @@ impl SurrealHandle {
 
         let db = surrealdb::engine::any::connect(&config.endpoint)
             .await
-            .map_err(|e| StateError::Connection(format!("Failed to connect to {}: {}", config.endpoint, e)))?;
+            .map_err(|e| {
+                StateError::Connection(format!("Failed to connect to {}: {}", config.endpoint, e))
+            })?;
 
         // Authenticate based on user type
         if config.is_root {
@@ -181,14 +191,18 @@ impl SurrealHandle {
                 password: &config.password,
             })
             .await
-            .map_err(|e| StateError::Connection(format!("Database authentication failed: {}", e)))?;
+            .map_err(|e| {
+                StateError::Connection(format!("Database authentication failed: {}", e))
+            })?;
         }
 
         // Select namespace and database
         db.use_ns(&config.namespace)
             .use_db(&config.database)
             .await
-            .map_err(|e| StateError::Connection(format!("Failed to select namespace/database: {}", e)))?;
+            .map_err(|e| {
+                StateError::Connection(format!("Failed to select namespace/database: {}", e))
+            })?;
 
         let handle = SurrealHandle { db };
         handle.init_schema().await?;
@@ -279,6 +293,30 @@ impl SurrealHandle {
             DEFINE FIELD created_at ON graph_edges TYPE datetime;
             DEFINE INDEX idx_edge_child ON graph_edges FIELDS child_id;
             DEFINE INDEX idx_edge_parent ON graph_edges FIELDS parent_id;
+
+            -- CI snapshot table (content-addressed by digest)
+            DEFINE TABLE ci_snapshots SCHEMAFULL;
+            DEFINE FIELD digest ON ci_snapshots TYPE string;
+            DEFINE FIELD snapshot_json ON ci_snapshots TYPE string;
+            DEFINE INDEX idx_ci_snapshot_digest ON ci_snapshots FIELDS digest UNIQUE;
+
+            -- CI pipeline table (content-addressed by digest)
+            DEFINE TABLE ci_pipelines SCHEMAFULL;
+            DEFINE FIELD digest ON ci_pipelines TYPE string;
+            DEFINE FIELD pipeline_json ON ci_pipelines TYPE string;
+            DEFINE INDEX idx_ci_pipeline_digest ON ci_pipelines FIELDS digest UNIQUE;
+
+            -- CI run table (linked by run_id and digests)
+            DEFINE TABLE ci_runs SCHEMAFULL;
+            DEFINE FIELD run_id ON ci_runs TYPE string;
+            DEFINE FIELD snapshot_digest ON ci_runs TYPE string;
+            DEFINE FIELD pipeline_digest ON ci_runs TYPE string;
+            DEFINE FIELD status ON ci_runs TYPE string;
+            DEFINE FIELD run_json ON ci_runs TYPE string;
+            DEFINE FIELD started_at ON ci_runs TYPE option<string>;
+            DEFINE FIELD finished_at ON ci_runs TYPE option<string>;
+            DEFINE INDEX idx_ci_run_id ON ci_runs FIELDS run_id UNIQUE;
+            DEFINE INDEX idx_ci_run_snapshot ON ci_runs FIELDS snapshot_digest;
         "#;
 
         self.db
@@ -300,11 +338,7 @@ impl SurrealHandle {
         // Clone to owned value to satisfy SurrealDB lifetime requirements
         let record_owned = record.clone();
 
-        let created: Option<CommitRecord> = self
-            .db
-            .create("commits")
-            .content(record_owned)
-            .await?;
+        let created: Option<CommitRecord> = self.db.create("commits").content(record_owned).await?;
 
         created.ok_or_else(|| StateError::Transaction("Failed to create commit".to_string()))
     }
@@ -332,18 +366,23 @@ impl SurrealHandle {
     ///
     /// # TDD: test_snapshot_is_atomic_and_retrievable
     #[instrument(skip(self, commit_id, state))]
-    pub async fn save_snapshot(&self, commit_id: &CommitId, state: serde_json::Value) -> Result<()> {
+    pub async fn save_snapshot(
+        &self,
+        commit_id: &CommitId,
+        state: serde_json::Value,
+    ) -> Result<()> {
         debug!("Saving snapshot for commit {}", commit_id.short());
 
         let record = SnapshotRecord::new(&commit_id.hash, state);
 
-        let _created: Option<SnapshotRecord> = self
-            .db
-            .create("snapshots")
-            .content(record.clone())
-            .await?;
+        let _created: Option<SnapshotRecord> =
+            self.db.create("snapshots").content(record.clone()).await?;
 
-        info!("Snapshot saved: {} ({} bytes)", commit_id.short(), record.size_bytes);
+        info!(
+            "Snapshot saved: {} ({} bytes)",
+            commit_id.short(),
+            record.size_bytes
+        );
         Ok(())
     }
 
@@ -378,11 +417,7 @@ impl SurrealHandle {
 
         let edge = GraphEdge::new(child_id, parent_id);
 
-        let _created: Option<GraphEdge> = self
-            .db
-            .create("graph_edges")
-            .content(edge)
-            .await?;
+        let _created: Option<GraphEdge> = self.db.create("graph_edges").content(edge).await?;
 
         info!("Graph edge saved: {} -> {}", parent_id, child_id);
         Ok(())
@@ -461,11 +496,8 @@ impl SurrealHandle {
             // Create new branch - clone to owned
             let record_owned = record.clone();
 
-            let created: Option<BranchRecord> = self
-                .db
-                .create("branches")
-                .content(record_owned)
-                .await?;
+            let created: Option<BranchRecord> =
+                self.db.create("branches").content(record_owned).await?;
 
             created.ok_or_else(|| StateError::Transaction("Failed to create branch".to_string()))
         }
@@ -518,11 +550,7 @@ impl SurrealHandle {
 
         let record_owned = record.clone();
 
-        let created: Option<AgentRecord> = self
-            .db
-            .create("agents")
-            .content(record_owned)
-            .await?;
+        let created: Option<AgentRecord> = self.db.create("agents").content(record_owned).await?;
 
         created.ok_or_else(|| StateError::Transaction("Failed to register agent".to_string()))
     }
@@ -551,11 +579,8 @@ impl SurrealHandle {
 
         let record_owned = record.clone();
 
-        let created: Option<MemoryRecord> = self
-            .db
-            .create("memories")
-            .content(record_owned)
-            .await?;
+        let created: Option<MemoryRecord> =
+            self.db.create("memories").content(record_owned).await?;
 
         created.ok_or_else(|| StateError::Transaction("Failed to save memory".to_string()))
     }
@@ -575,11 +600,178 @@ impl SurrealHandle {
         Ok(memories)
     }
 
+    // ========== CI Operations ==========
+
+    /// Save a CI snapshot as a content-addressed object.
+    #[instrument(skip(self, snapshot))]
+    pub async fn save_ci_snapshot(&self, snapshot: &CiSnapshot) -> Result<String> {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct CiSnapshotStore {
+            digest: String,
+            snapshot_json: String,
+        }
+
+        let digest = snapshot.digest();
+        let snapshot_json = serde_json::to_string(snapshot)?;
+        let payload = CiSnapshotStore {
+            digest: digest.clone(),
+            snapshot_json,
+        };
+
+        let _created: Option<CiSnapshotStore> = self.db.create("ci_snapshots").content(payload).await?;
+        Ok(digest)
+    }
+
+    /// Load a CI snapshot by digest.
+    #[instrument(skip(self))]
+    pub async fn load_ci_snapshot(&self, digest: &str) -> Result<Option<CiSnapshot>> {
+        #[derive(serde::Deserialize)]
+        struct CiSnapshotStore {
+            snapshot_json: String,
+        }
+
+        let digest_owned = digest.to_string();
+        let mut result = self
+            .db
+            .query("SELECT snapshot_json FROM ci_snapshots WHERE digest = $digest")
+            .bind(("digest", digest_owned))
+            .await?;
+
+        let rows: Vec<CiSnapshotStore> = result.take(0)?;
+        rows.into_iter()
+            .next()
+            .map(|r| serde_json::from_str(&r.snapshot_json))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Save a CI pipeline as a content-addressed object.
+    #[instrument(skip(self, pipeline))]
+    pub async fn save_ci_pipeline(&self, pipeline: &CiPipelineSpec) -> Result<String> {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct CiPipelineStore {
+            digest: String,
+            pipeline_json: String,
+        }
+
+        let digest = pipeline.digest();
+        let pipeline_json = serde_json::to_string(pipeline)?;
+        let payload = CiPipelineStore {
+            digest: digest.clone(),
+            pipeline_json,
+        };
+
+        let _created: Option<CiPipelineStore> = self.db.create("ci_pipelines").content(payload).await?;
+        Ok(digest)
+    }
+
+    /// Load a CI pipeline by digest.
+    #[instrument(skip(self))]
+    pub async fn load_ci_pipeline(&self, digest: &str) -> Result<Option<CiPipelineSpec>> {
+        #[derive(serde::Deserialize)]
+        struct CiPipelineStore {
+            pipeline_json: String,
+        }
+
+        let digest_owned = digest.to_string();
+        let mut result = self
+            .db
+            .query("SELECT pipeline_json FROM ci_pipelines WHERE digest = $digest")
+            .bind(("digest", digest_owned))
+            .await?;
+
+        let rows: Vec<CiPipelineStore> = result.take(0)?;
+        rows.into_iter()
+            .next()
+            .map(|r| serde_json::from_str(&r.pipeline_json))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// Save a CI run record.
+    #[instrument(skip(self, run), fields(run_id = %run.run_id))]
+    pub async fn save_ci_run(&self, run: &CiRunRecord) -> Result<CiRunRecord> {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct CiRunStore {
+            run_id: String,
+            snapshot_digest: String,
+            pipeline_digest: String,
+            status: String,
+            run_json: String,
+            started_at: Option<String>,
+            finished_at: Option<String>,
+        }
+
+        let payload = CiRunStore {
+            run_id: run.run_id.clone(),
+            snapshot_digest: run.snapshot_digest.clone(),
+            pipeline_digest: run.pipeline_digest.clone(),
+            status: serde_json::to_string(&run.status)?.trim_matches('"').to_string(),
+            run_json: serde_json::to_string(run)?,
+            started_at: run.started_at.clone(),
+            finished_at: run.finished_at.clone(),
+        };
+
+        let created: Option<CiRunStore> = self.db.create("ci_runs").content(payload).await?;
+        if created.is_some() {
+            Ok(run.clone())
+        } else {
+            Err(StateError::Transaction("Failed to create CI run".to_string()))
+        }
+    }
+
+    /// Get a CI run by run ID.
+    #[instrument(skip(self))]
+    pub async fn get_ci_run(&self, run_id: &str) -> Result<Option<CiRunRecord>> {
+        #[derive(serde::Deserialize)]
+        struct CiRunStore {
+            run_json: String,
+        }
+
+        let run_id_owned = run_id.to_string();
+        let mut result = self
+            .db
+            .query("SELECT run_json FROM ci_runs WHERE run_id = $run_id")
+            .bind(("run_id", run_id_owned))
+            .await?;
+        let runs: Vec<CiRunStore> = result.take(0)?;
+        runs.into_iter()
+            .next()
+            .map(|r| serde_json::from_str(&r.run_json))
+            .transpose()
+            .map_err(Into::into)
+    }
+
+    /// List CI runs for a given snapshot digest.
+    #[instrument(skip(self))]
+    pub async fn list_ci_runs_by_snapshot(&self, snapshot_digest: &str) -> Result<Vec<CiRunRecord>> {
+        #[derive(serde::Deserialize)]
+        struct CiRunStore {
+            run_json: String,
+        }
+
+        let snapshot_digest_owned = snapshot_digest.to_string();
+        let mut result = self
+            .db
+            .query("SELECT run_json FROM ci_runs WHERE snapshot_digest = $snapshot_digest")
+            .bind(("snapshot_digest", snapshot_digest_owned))
+            .await?;
+        let runs: Vec<CiRunStore> = result.take(0)?;
+        runs.into_iter()
+            .map(|r| serde_json::from_str::<CiRunRecord>(&r.run_json))
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     // ========== History Operations ==========
 
     /// Get commit history (walk back from a commit)
     #[instrument(skip(self))]
-    pub async fn get_commit_history(&self, start_commit: &str, limit: usize) -> Result<Vec<CommitRecord>> {
+    pub async fn get_commit_history(
+        &self,
+        start_commit: &str,
+        limit: usize,
+    ) -> Result<Vec<CommitRecord>> {
         let mut history = Vec::new();
         let mut current = Some(start_commit.to_string());
 
@@ -622,6 +814,7 @@ impl SurrealHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[tokio::test]
     async fn test_surreal_connection_and_schema_creation() {
@@ -642,7 +835,10 @@ mod tests {
         let commit_id = CommitId::from_state(serde_json::to_vec(&state).unwrap().as_slice());
 
         // Save snapshot
-        handle.save_snapshot(&commit_id, state.clone()).await.unwrap();
+        handle
+            .save_snapshot(&commit_id, state.clone())
+            .await
+            .unwrap();
 
         // Retrieve snapshot
         let loaded = handle.load_snapshot(&commit_id.hash).await.unwrap();
@@ -659,7 +855,10 @@ mod tests {
         let child_id = "child-commit-hash";
 
         // Save edge
-        handle.save_commit_graph_edge(child_id, parent_id).await.unwrap();
+        handle
+            .save_commit_graph_edge(child_id, parent_id)
+            .await
+            .unwrap();
 
         // Verify parent can be retrieved
         let parent = handle.get_parent(child_id).await.unwrap();
@@ -760,5 +959,50 @@ mod tests {
         assert_eq!(trace[1].state["thought"], "Strategy A failed, pivoting");
         assert_eq!(trace[2].state["thought"], "Trying strategy A");
         assert_eq!(trace[3].state["thought"], "Starting exploration");
+    }
+
+    #[tokio::test]
+    async fn test_ci_records_roundtrip() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        let snapshot = CiSnapshot {
+            repo_sha: "abc123".to_string(),
+            workspace_hash: "work-1".to_string(),
+            local_ci_config_hash: "cfg-1".to_string(),
+            env_hash: "env-1".to_string(),
+        };
+        let snapshot_digest = handle.save_ci_snapshot(&snapshot).await.unwrap();
+        let loaded_snapshot = handle.load_ci_snapshot(&snapshot_digest).await.unwrap();
+        assert_eq!(loaded_snapshot, Some(snapshot.clone()));
+
+        let pipeline = CiPipelineSpec {
+            name: "default".to_string(),
+            steps: vec![crate::ci::CiStepSpec {
+                name: "test".to_string(),
+                command: crate::ci::CiCommand {
+                    program: "cargo".to_string(),
+                    args: vec!["test".to_string()],
+                    env: BTreeMap::new(),
+                    cwd: None,
+                },
+                timeout_secs: Some(300),
+                allow_failure: false,
+            }],
+        };
+        let pipeline_digest = handle.save_ci_pipeline(&pipeline).await.unwrap();
+        let loaded_pipeline = handle.load_ci_pipeline(&pipeline_digest).await.unwrap();
+        assert_eq!(loaded_pipeline, Some(pipeline.clone()));
+
+        let run = CiRunRecord::queued(&snapshot_digest, &pipeline_digest);
+        let saved_run = handle.save_ci_run(&run).await.unwrap();
+        let loaded_run = handle.get_ci_run(&saved_run.run_id).await.unwrap();
+        assert_eq!(loaded_run, Some(saved_run.clone()));
+
+        let runs = handle
+            .list_ci_runs_by_snapshot(&snapshot_digest)
+            .await
+            .unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run_id, saved_run.run_id);
     }
 }
