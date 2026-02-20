@@ -6,6 +6,9 @@ pub enum AivcsError {
     #[error("invalid agent spec: {0}")]
     InvalidAgentSpec(String),
 
+    #[error("invalid ci run spec: {0}")]
+    InvalidCIRunSpec(String),
+
     #[error("run not found: {0}")]
     RunNotFound(uuid::Uuid),
 
@@ -39,6 +42,9 @@ mod tests {
     fn test_aivcs_error_display() {
         let err = AivcsError::InvalidAgentSpec("missing git_sha".to_string());
         assert!(err.to_string().contains("invalid agent spec"));
+
+        let err = AivcsError::InvalidCIRunSpec("stages cannot be empty".to_string());
+        assert!(err.to_string().contains("invalid ci run spec"));
 
         let id = uuid::Uuid::new_v4();
         let err = AivcsError::RunNotFound(id);
