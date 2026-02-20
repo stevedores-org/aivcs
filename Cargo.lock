@@ -63,9 +63,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "aivcs-ci"
+version = "0.2.0"
+dependencies = [
+ "aivcs-core",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures",
+ "hex",
+ "oxidized-state",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "aivcs-cli"
 version = "0.2.0"
 dependencies = [
+ "aivcs-ci",
  "aivcs-core",
  "anyhow",
  "clap",
