@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 /// Status of a CI run or stage.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "snake_case")]
 pub enum CIStatus {
     Pending,
     Running,
@@ -81,7 +81,12 @@ pub struct CIResult {
 
 impl CIResult {
     /// Create a new CI result from stage results.
-    pub fn new(run_id: Uuid, stages: Vec<CIStageResult>, started_at: DateTime<Utc>) -> Self {
+    pub fn new(
+        run_id: Uuid,
+        stages: Vec<CIStageResult>,
+        started_at: DateTime<Utc>,
+        finished_at: Option<DateTime<Utc>>,
+    ) -> Self {
         let passed = stages
             .iter()
             .filter(|s| s.status == CIStatus::Passed)
@@ -90,7 +95,13 @@ impl CIResult {
             .iter()
             .filter(|s| s.status == CIStatus::Failed)
             .count() as u32;
-        let total_duration_ms = stages.iter().map(|s| s.duration_ms).sum();
+        let total_duration_ms = finished_at
+            .as_ref()
+            .map(|finished| {
+                let delta_ms = finished.signed_duration_since(started_at).num_milliseconds();
+                delta_ms.max(0) as u64
+            })
+            .unwrap_or(0);
         let overall_status = if failed > 0 {
             CIStatus::Failed
         } else {
@@ -102,7 +113,7 @@ impl CIResult {
             overall_status,
             stages,
             started_at,
-            finished_at: Some(Utc::now()),
+            finished_at,
             total_duration_ms,
             passed,
             failed,
@@ -128,6 +139,10 @@ mod tests {
             let deserialized: CIStatus = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(*status, deserialized);
         }
+        assert_eq!(
+            serde_json::to_string(&CIStatus::Passed).expect("serialize"),
+            "\"passed\""
+        );
     }
 
     #[test]
@@ -170,7 +185,9 @@ mod tests {
             CIStageResult::new("test".into(), "cargo test".into(), CIStatus::Passed, 2000),
         ];
 
-        let result = CIResult::new(run_id, stages, Utc::now());
+        let started_at = Utc::now();
+        let finished_at = started_at + chrono::Duration::milliseconds(2600);
+        let result = CIResult::new(run_id, stages, started_at, Some(finished_at));
 
         assert_eq!(result.passed, 2);
         assert_eq!(result.failed, 1);
@@ -186,7 +203,9 @@ mod tests {
             CIStageResult::new("test".into(), "cargo test".into(), CIStatus::Passed, 1000),
         ];
 
-        let result = CIResult::new(run_id, stages, Utc::now());
+        let started_at = Utc::now();
+        let finished_at = started_at + chrono::Duration::milliseconds(1100);
+        let result = CIResult::new(run_id, stages, started_at, Some(finished_at));
 
         assert_eq!(result.overall_status, CIStatus::Passed);
         assert_eq!(result.passed, 2);
@@ -202,7 +221,9 @@ mod tests {
             CIStatus::Passed,
             3000,
         )];
-        let result = CIResult::new(run_id, stages, Utc::now());
+        let started_at = Utc::now();
+        let finished_at = started_at + chrono::Duration::milliseconds(3000);
+        let result = CIResult::new(run_id, stages, started_at, Some(finished_at));
 
         let json = serde_json::to_string(&result).expect("serialize");
         let deserialized: CIResult = serde_json::from_str(&json).expect("deserialize");

@@ -42,11 +42,16 @@ impl VerificationLink {
         }
     }
 
-    /// Mark as verified.
-    pub fn verify(mut self, verification_run_id: Uuid) -> Self {
+    /// Mark as verified in-place.
+    pub fn verify(&mut self, verification_run_id: Uuid) {
         self.verified = true;
         self.verified_at = Some(Utc::now());
         self.verification_run_id = Some(verification_run_id);
+    }
+
+    /// Return a verified copy, useful for builder-style chaining.
+    pub fn into_verified(mut self, verification_run_id: Uuid) -> Self {
+        self.verify(verification_run_id);
         self
     }
 }
@@ -78,20 +83,20 @@ mod tests {
 
     #[test]
     fn test_verification_link_verify() {
-        let link = VerificationLink::new(Uuid::new_v4(), "spec".to_string(), "sha".to_string());
+        let mut link = VerificationLink::new(Uuid::new_v4(), "spec".to_string(), "sha".to_string());
 
         let verify_run = Uuid::new_v4();
-        let verified = link.verify(verify_run);
+        link.verify(verify_run);
 
-        assert!(verified.verified);
-        assert!(verified.verified_at.is_some());
-        assert_eq!(verified.verification_run_id, Some(verify_run));
+        assert!(link.verified);
+        assert!(link.verified_at.is_some());
+        assert_eq!(link.verification_run_id, Some(verify_run));
     }
 
     #[test]
     fn test_verified_link_serde_roundtrip() {
         let link = VerificationLink::new(Uuid::new_v4(), "spec".to_string(), "sha".to_string())
-            .verify(Uuid::new_v4());
+            .into_verified(Uuid::new_v4());
 
         let json = serde_json::to_string(&link).expect("serialize");
         let deserialized: VerificationLink = serde_json::from_str(&json).expect("deserialize");
