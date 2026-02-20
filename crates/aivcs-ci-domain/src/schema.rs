@@ -411,6 +411,12 @@ impl RepairPolicy {
     }
 }
 
+impl Default for RepairPolicy {
+    fn default() -> Self {
+        Self::conservative()
+    }
+}
+
 /// A proposed repair action
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepairAction {

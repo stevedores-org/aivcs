@@ -16,6 +16,7 @@ pub mod error;
 pub mod schema;
 pub mod events;
 pub mod recorder;
+pub mod envelope;
 
 pub use error::{CIDomainError, Result};
 pub use schema::{
@@ -30,6 +31,10 @@ pub use events::{
     VerificationFinishedEvent, GateEvaluatedEvent, PromotionAppliedEvent,
 };
 pub use recorder::{EventRecorder, RecorderConfig};
+pub use envelope::{
+    CIRunRequest, CIRunResponse, CIRunResults, CIOptions, RepoSpec, ArtifactRef,
+    RunSummary, PatchDetails, EnvelopeValidator, map_exit_code_to_state, normalize_diagnostics,
+};
 
 /// AIVCS CI domain version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
