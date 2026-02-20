@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal crates
+aivcs-ci-domain.workspace = true
 oxidized-state.workspace = true
 nix-env-manager.workspace = true
 semantic-rag-merge.workspace = true

@@ -1,0 +1,39 @@
+[package]
+name = "aivcs-ci-domain"
+description = "CI domain model for AIVCS - content-addressable CI objects (runs, diagnostics, repairs)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal crates
+oxidized-state.workspace = true
+nix-env-manager.workspace = true
+
+# Async
+tokio.workspace = true
+async-trait.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Hashing & Content-addressing
+sha2.workspace = true
+hex.workspace = true
+
+# Database
+surrealdb.workspace = true
+
+# Utilities
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Logging
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

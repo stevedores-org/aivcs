@@ -4,6 +4,12 @@
 
 pub mod parallel;
 
+pub use aivcs_ci_domain::{
+    CISnapshot, CIRunSpec, CIRun, CIResult, RunStatus, Diagnostic, DiagnosticKind, DiagnosticSeverity,
+    RepairAction, RepairPlan, RepairPolicy, PatchCommit, VerificationLink,
+    compute_snapshot_digest, compute_run_spec_digest, compute_policy_digest,
+};
+
 pub use oxidized_state::{
     CommitId, CommitRecord, BranchRecord, SnapshotRecord, MemoryRecord, SurrealHandle,
 };
