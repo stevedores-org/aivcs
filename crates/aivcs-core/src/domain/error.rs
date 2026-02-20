@@ -6,7 +6,7 @@ pub enum AivcsError {
     #[error("invalid agent spec: {0}")]
     InvalidAgentSpec(String),
 
-    #[error("invalid ci run spec: {0}")]
+    #[error("invalid CI run spec: {0}")]
     InvalidCIRunSpec(String),
 
     #[error("run not found: {0}")]

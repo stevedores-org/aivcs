@@ -81,6 +81,9 @@ pub struct CIResult {
 
 impl CIResult {
     /// Create a new CI result from stage results.
+    ///
+    /// `finished_at` should be the actual completion time; pass `None` if the
+    /// run is still in progress.
     pub fn new(
         run_id: Uuid,
         stages: Vec<CIStageResult>,
