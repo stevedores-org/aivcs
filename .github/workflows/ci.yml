@@ -34,7 +34,41 @@ jobs:
         run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Run local-ci
-        run: local-ci --json
+        id: local_ci
+        run: |
+          set +e
+          set -o pipefail
+          local-ci --json | tee local-ci-report.json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload local-ci report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-ci-report
+          path: local-ci-report.json
+          retention-days: 30
+
+      - name: Summarize results
+        if: always()
+        run: |
+          if [ ! -f local-ci-report.json ]; then exit 0; fi
+          passed=$(jq '.passed' local-ci-report.json)
+          failed=$(jq '.failed' local-ci-report.json)
+          duration=$(jq '.duration_ms' local-ci-report.json)
+          echo "### local-ci: ${passed} passed, ${failed} failed (${duration}ms)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Stage | Status | Duration | Cache |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.results[] | "| \(.name) | \(.status) | \(.duration_ms)ms | \(.cache_hit) |"' \
+            local-ci-report.json >> "$GITHUB_STEP_SUMMARY"
+          # Annotate failures
+          jq -r '.results[] | select(.status == "fail") | "::error title=local-ci: \(.name) failed::\(.error // .output // "unknown error" | .[0:200])"' \
+            local-ci-report.json
+
+      - name: Enforce gate
+        if: always()
+        run: exit ${{ steps.local_ci.outputs.exit_code }}
 
   nix-report:
     runs-on: ubuntu-latest
