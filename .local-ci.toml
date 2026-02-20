@@ -1,0 +1,55 @@
+# Local CI configuration for AIVCS
+
+[workspace]
+
+[stages]
+
+[stages.lint]
+description = "Formatting and lint checks"
+tools = ["cargo-fmt-check", "cargo-clippy"]
+fail_fast = true
+
+[stages.test]
+description = "Workspace tests"
+tools = ["cargo-test"]
+fail_fast = true
+
+[stages.doc]
+description = "Documentation build"
+tools = ["cargo-doc"]
+fail_fast = true
+
+[tools]
+
+[tools.cargo-fmt-check]
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+description = "Check Rust formatting"
+cache_key = "Cargo.lock"
+
+[tools.cargo-clippy]
+command = "cargo"
+args = ["clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
+description = "Run clippy with warnings denied"
+cache_key = "Cargo.lock"
+
+[tools.cargo-test]
+command = "cargo"
+args = ["test", "--workspace"]
+description = "Run workspace tests"
+cache_key = "Cargo.lock"
+
+[tools.cargo-doc]
+command = "cargo"
+args = ["doc", "--workspace", "--no-deps"]
+description = "Build workspace docs"
+cache_key = "Cargo.lock"
+
+[cache]
+enabled = true
+dir = ".local-ci-cache"
+watch_files = ["Cargo.lock", "Cargo.toml", ".local-ci.toml"]
+
+[output]
+github_groups = true
+show_timings = true
