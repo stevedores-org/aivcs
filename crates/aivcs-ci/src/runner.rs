@@ -94,7 +94,6 @@ impl CiRunner {
             success,
         })
     }
-
 }
 
 #[cfg(test)]
@@ -127,7 +126,6 @@ mod tests {
         assert!(!result.passed());
     }
 
-
     #[tokio::test]
     async fn test_execute_simple_command() {
         let config = StageConfig::custom(
@@ -136,7 +134,9 @@ mod tests {
             60,
         );
 
-        let result = CiRunner::execute_stage(&config).await.expect("execute failed");
+        let result = CiRunner::execute_stage(&config)
+            .await
+            .expect("execute failed");
         assert!(result.success);
         assert_eq!(result.exit_code, 0);
         assert!(result.stdout.contains("hello"));
@@ -144,13 +144,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_failing_command() {
-        let config = StageConfig::custom(
-            "false_test".to_string(),
-            vec!["false".to_string()],
-            60,
-        );
+        let config = StageConfig::custom("false_test".to_string(), vec!["false".to_string()], 60);
 
-        let result = CiRunner::execute_stage(&config).await.expect("execute failed");
+        let result = CiRunner::execute_stage(&config)
+            .await
+            .expect("execute failed");
         assert!(!result.success);
         assert_ne!(result.exit_code, 0);
     }

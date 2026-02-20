@@ -43,14 +43,14 @@ async fn test_successful_pipeline() {
 
     // Verify run was recorded
     let run_id = RunId(result.run_id);
-    let run: oxidized_state::RunRecord = ledger
-        .get_run(&run_id)
-        .await
-        .expect("Failed to get run");
+    let run: oxidized_state::RunRecord = ledger.get_run(&run_id).await.expect("Failed to get run");
     assert!(run.summary.is_some(), "Run should have summary");
     let summary = run.summary.unwrap();
     assert!(summary.success, "Summary should mark success");
-    assert_eq!(summary.total_events, 4, "Should have 4 events (2 tool_called + 2 tool_returned)");
+    assert_eq!(
+        summary.total_events, 4,
+        "Should have 4 events (2 tool_called + 2 tool_returned)"
+    );
 }
 
 /// Test: failed stage captured with error info
@@ -58,13 +58,11 @@ async fn test_successful_pipeline() {
 async fn test_failed_stage_captured() {
     let ledger = Arc::new(MemoryRunLedger::new());
 
-    let stages = vec![
-        StageConfig::custom(
-            "false_test".to_string(),
-            vec!["false".to_string()],
-            60,
-        ),
-    ];
+    let stages = vec![StageConfig::custom(
+        "false_test".to_string(),
+        vec!["false".to_string()],
+        60,
+    )];
 
     let ci_spec = CiSpec::new(
         PathBuf::from("."),
@@ -84,10 +82,7 @@ async fn test_failed_stage_captured() {
 
     // Verify run was recorded as failed
     let run_id = RunId(result.run_id);
-    let run: oxidized_state::RunRecord = ledger
-        .get_run(&run_id)
-        .await
-        .expect("Failed to get run");
+    let run: oxidized_state::RunRecord = ledger.get_run(&run_id).await.expect("Failed to get run");
     assert!(run.summary.is_some(), "Run should have summary");
     let summary = run.summary.unwrap();
     assert!(!summary.success, "Summary should mark failure");
@@ -107,13 +102,11 @@ async fn test_failed_stage_captured() {
 async fn test_gate_evaluation_with_failure() {
     let ledger = Arc::new(MemoryRunLedger::new());
 
-    let stages = vec![
-        StageConfig::custom(
-            "fail_test".to_string(),
-            vec!["false".to_string()],
-            60,
-        ),
-    ];
+    let stages = vec![StageConfig::custom(
+        "fail_test".to_string(),
+        vec!["false".to_string()],
+        60,
+    )];
 
     let ci_spec = CiSpec::new(
         PathBuf::from("."),
@@ -149,12 +142,7 @@ async fn test_disabled_stage_skipped() {
             vec!["echo".to_string(), "hello".to_string()],
             60,
         ),
-        StageConfig::custom(
-            "skip_me".to_string(),
-            vec!["false".to_string()],
-            60,
-        )
-        .disabled(),
+        StageConfig::custom("skip_me".to_string(), vec!["false".to_string()], 60).disabled(),
     ];
 
     let ci_spec = CiSpec::new(
@@ -169,7 +157,10 @@ async fn test_disabled_stage_skipped() {
         .expect("pipeline failed");
 
     // Check that only enabled stage was executed
-    assert!(result.success, "Pipeline should succeed (disabled stage not run)");
+    assert!(
+        result.success,
+        "Pipeline should succeed (disabled stage not run)"
+    );
     assert_eq!(result.stages.len(), 1, "Only one stage should be executed");
     assert_eq!(result.passed_count(), 1, "One stage should pass");
 
@@ -181,7 +172,11 @@ async fn test_disabled_stage_skipped() {
         .expect("Failed to get events");
 
     // Should have 2 events: one tool_called + one tool_returned
-    assert_eq!(events.len(), 2, "Should have 2 events (disabled stage not run)");
+    assert_eq!(
+        events.len(),
+        2,
+        "Should have 2 events (disabled stage not run)"
+    );
 }
 
 /// Test: gate passes for all successful stages

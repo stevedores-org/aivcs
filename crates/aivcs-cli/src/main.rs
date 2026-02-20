@@ -1384,7 +1384,7 @@ async fn cmd_ci_run(
 ) -> Result<()> {
     // Get git SHA
     let git_sha = if let Ok(output) = std::process::Command::new("git")
-        .args(&["rev-parse", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .output()
     {
         String::from_utf8(output.stdout)
@@ -1397,7 +1397,7 @@ async fn cmd_ci_run(
 
     // Get toolchain hash
     let toolchain_hash = if let Ok(output) = std::process::Command::new("rustup")
-        .args(&["show", "active-toolchain"])
+        .args(["show", "active-toolchain"])
         .output()
     {
         String::from_utf8(output.stdout)
@@ -1447,7 +1447,14 @@ async fn cmd_ci_run(
 
     // Print results
     println!("Run ID: {}", result.run_id);
-    println!("Status: {}", if result.success { "✓ PASSED" } else { "✗ FAILED" });
+    println!(
+        "Status: {}",
+        if result.success {
+            "✓ PASSED"
+        } else {
+            "✗ FAILED"
+        }
+    );
     println!("Duration: {}ms", result.duration_ms);
     println!();
 
@@ -1460,7 +1467,11 @@ async fn cmd_ci_run(
     }
 
     println!();
-    println!("Summary: {}/{} stages passed", result.passed_count(), result.stages.len());
+    println!(
+        "Summary: {}/{} stages passed",
+        result.passed_count(),
+        result.stages.len()
+    );
 
     // Evaluate gate
     let events = ledger_arc
@@ -1468,7 +1479,14 @@ async fn cmd_ci_run(
         .await?;
 
     let verdict = CiGate::evaluate(&events);
-    println!("Gate: {}", if verdict.passed { "✓ PASSED" } else { "✗ FAILED" });
+    println!(
+        "Gate: {}",
+        if verdict.passed {
+            "✓ PASSED"
+        } else {
+            "✗ FAILED"
+        }
+    );
 
     if !verdict.violations.is_empty() {
         println!("Violations:");

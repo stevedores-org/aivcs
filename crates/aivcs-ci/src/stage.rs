@@ -34,10 +34,20 @@ impl BuiltinStage {
     pub fn command(&self) -> Vec<String> {
         match self {
             BuiltinStage::CargoFmt => {
-                vec!["cargo".to_string(), "fmt".to_string(), "--all".to_string(), "--".to_string(), "--check".to_string()]
+                vec![
+                    "cargo".to_string(),
+                    "fmt".to_string(),
+                    "--all".to_string(),
+                    "--".to_string(),
+                    "--check".to_string(),
+                ]
             }
             BuiltinStage::CargoCheck => {
-                vec!["cargo".to_string(), "check".to_string(), "--workspace".to_string()]
+                vec![
+                    "cargo".to_string(),
+                    "check".to_string(),
+                    "--workspace".to_string(),
+                ]
             }
             BuiltinStage::CargoClippy => {
                 vec![
@@ -51,7 +61,11 @@ impl BuiltinStage {
                 ]
             }
             BuiltinStage::CargoTest => {
-                vec!["cargo".to_string(), "test".to_string(), "--workspace".to_string()]
+                vec![
+                    "cargo".to_string(),
+                    "test".to_string(),
+                    "--workspace".to_string(),
+                ]
             }
         }
     }
@@ -59,9 +73,11 @@ impl BuiltinStage {
     /// Get the stage's auto-repair command (if available).
     pub fn fix_command(&self) -> Option<Vec<String>> {
         match self {
-            BuiltinStage::CargoFmt => {
-                Some(vec!["cargo".to_string(), "fmt".to_string(), "--all".to_string()])
-            }
+            BuiltinStage::CargoFmt => Some(vec![
+                "cargo".to_string(),
+                "fmt".to_string(),
+                "--all".to_string(),
+            ]),
             _ => None,
         }
     }

@@ -46,8 +46,8 @@ impl CiSpec {
         // Compute digests for CI components
         let graph_digest = compute_component_digest(b"ci");
         let prompts_digest = compute_component_digest(self.stages_digest.as_bytes());
-        let tools_digest = compute_component_digest(&self.git_sha.as_bytes());
-        let config_digest = compute_component_digest(&self.toolchain_hash.as_bytes());
+        let tools_digest = compute_component_digest(self.git_sha.as_bytes());
+        let config_digest = compute_component_digest(self.toolchain_hash.as_bytes());
 
         AgentSpec::new(
             self.git_sha.clone(),
