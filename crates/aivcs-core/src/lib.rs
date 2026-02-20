@@ -3,6 +3,7 @@
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
 pub mod cas;
+pub mod ci_gate;
 pub mod compat;
 pub mod deploy;
 pub mod deploy_runner;
