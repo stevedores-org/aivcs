@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Module for serializing chrono DateTime to SurrealDB format
-mod surreal_datetime {
+pub mod surreal_datetime {
     use chrono::{DateTime, Utc};
     use serde::{Deserialize, Deserializer, Serializer};
     use surrealdb::sql::Datetime as SurrealDatetime;
@@ -32,7 +32,7 @@ mod surreal_datetime {
 }
 
 /// Module for serializing optional chrono DateTime to SurrealDB format
-mod surreal_datetime_opt {
+pub mod surreal_datetime_opt {
     use chrono::{DateTime, Utc};
     use serde::{Deserialize, Deserializer, Serializer};
     use surrealdb::sql::Datetime as SurrealDatetime;

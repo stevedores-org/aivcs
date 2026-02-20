@@ -14,6 +14,8 @@
 
 pub mod error;
 pub mod schema;
+pub mod events;
+pub mod recorder;
 
 pub use error::{CIDomainError, Result};
 pub use schema::{
@@ -21,6 +23,13 @@ pub use schema::{
     RepairAction, RepairPlan, RepairPolicy, PatchCommit, VerificationLink,
     compute_snapshot_digest, compute_run_spec_digest, compute_policy_digest,
 };
+pub use events::{
+    CIEvent, EventId, EventRecord, RunLedgerEntry,
+    RunStartedEvent, StageStartedEvent, StageFinishedEvent, RunFinishedEvent,
+    DiagnosticsProducedEvent, RepairPlannedEvent, PatchAppliedEvent,
+    VerificationFinishedEvent, GateEvaluatedEvent, PromotionAppliedEvent,
+};
+pub use recorder::{EventRecorder, RecorderConfig};
 
 /// AIVCS CI domain version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
