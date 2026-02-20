@@ -17,6 +17,7 @@
 //! - `ReleaseRecordSchema`: Schema for release management
 //! - `init_schema`: Initialize all tables with constraints and indexes
 
+pub mod ci;
 mod error;
 pub mod fakes;
 mod handle;
