@@ -17,6 +17,7 @@ pub mod schema;
 pub mod events;
 pub mod recorder;
 pub mod envelope;
+pub mod runner;
 
 pub use error::{CIDomainError, Result};
 pub use schema::{
@@ -34,6 +35,9 @@ pub use recorder::{EventRecorder, RecorderConfig};
 pub use envelope::{
     CIRunRequest, CIRunResponse, CIRunResults, CIOptions, RepoSpec, ArtifactRef,
     RunSummary, PatchDetails, EnvelopeValidator, map_exit_code_to_state, normalize_diagnostics,
+};
+pub use runner::{
+    CiRunner, LocalCiRunner, EnvSpec, RunOutput,
 };
 
 /// AIVCS CI domain version
