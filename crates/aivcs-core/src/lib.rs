@@ -4,6 +4,7 @@
 
 pub mod cas;
 pub mod ci_diagnostics;
+pub mod ci_repair;
 pub mod ci_runner;
 pub mod compat;
 pub mod deploy;
