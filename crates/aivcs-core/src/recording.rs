@@ -34,29 +34,41 @@ impl GraphRunRecorder {
         spec_digest: &ContentDigest,
         metadata: RunMetadata,
     ) -> StorageResult<Self> {
-        let run_id = ledger.create_run(spec_digest, metadata).await?;
+        let run_id = ledger.create_run(spec_digest, metadata.clone()).await?;
+        crate::obs::emit_run_started(run_id.to_string().as_str(), &metadata.agent_name);
         Ok(Self { ledger, run_id })
     }
 
     /// Record a single domain event into the ledger.
     pub async fn record(&self, event: &Event) -> StorageResult<()> {
+        let kind_str = event_kind_str(&event.kind);
         let run_event = RunEvent {
             seq: event.seq,
-            kind: event_kind_str(&event.kind),
+            kind: kind_str.clone(),
             payload: event.payload.clone(),
             timestamp: event.timestamp,
         };
-        self.ledger.append_event(&self.run_id, run_event).await
+        self.ledger.append_event(&self.run_id, run_event).await?;
+        crate::obs::emit_event_appended(&self.run_id.to_string(), &kind_str, event.seq);
+        Ok(())
     }
 
     /// Finalize the run as completed.
     pub async fn finish_ok(self, summary: RunSummary) -> StorageResult<()> {
-        self.ledger.complete_run(&self.run_id, summary).await
+        let duration_ms = summary.duration_ms;
+        let total_events = summary.total_events;
+        self.ledger.complete_run(&self.run_id, summary).await?;
+        crate::obs::emit_run_finished(&self.run_id.to_string(), duration_ms, total_events, true);
+        Ok(())
     }
 
     /// Finalize the run as failed.
     pub async fn finish_err(self, summary: RunSummary) -> StorageResult<()> {
-        self.ledger.fail_run(&self.run_id, summary).await
+        let duration_ms = summary.duration_ms;
+        let total_events = summary.total_events;
+        self.ledger.fail_run(&self.run_id, summary).await?;
+        crate::obs::emit_run_finished(&self.run_id.to_string(), duration_ms, total_events, false);
+        Ok(())
     }
 
     /// Return a reference to the run ID.
