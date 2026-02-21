@@ -7,6 +7,8 @@ pub mod diff;
 pub mod domain;
 pub mod gate;
 pub mod git;
+pub mod metrics;
+pub mod obs;
 pub mod parallel;
 pub mod recording;
 
