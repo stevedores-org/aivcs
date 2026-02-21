@@ -8,6 +8,7 @@ resolver = "2"
 members = [
     "crates/aivcs-core",
     "crates/aivcs-cli",
+    "crates/aivcs-ci",
     "crates/aivcsd",
     "crates/oxidized-state",
     "crates/nix-env-manager",
@@ -15,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Stevedores Org <engineering@stevedores.org>"]
 license = "Apache-2.0"
@@ -60,13 +61,14 @@ hex = "0.4"
 tempfile = "3.10"
 
 # External crates (Stevedores ecosystem)
-oxidizedgraph = { git = "https://github.com/stevedores-org/oxidizedgraph.git" }
+oxidizedgraph = "0.2.0"
 
-# Internal crates
-aivcs-core = { path = "crates/aivcs-core" }
-oxidized-state = { path = "crates/oxidized-state" }
-nix-env-manager = { path = "crates/nix-env-manager" }
-semantic-rag-merge = { path = "crates/semantic-rag-merge" }
+# Internal crates (use published versions for crates.io)
+aivcs-core = { version = "0.2.0", path = "crates/aivcs-core" }
+aivcs-ci = { version = "0.2.0", path = "crates/aivcs-ci" }
+oxidized-state = { version = "0.2.0", path = "crates/oxidized-state" }
+nix-env-manager = { version = "0.2.0", path = "crates/nix-env-manager" }
+semantic-rag-merge = { version = "0.2.0", path = "crates/semantic-rag-merge" }
 
 [profile.release]
 opt-level = "z"

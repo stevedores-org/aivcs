@@ -17,6 +17,7 @@
 //! - `ReleaseRecordSchema`: Schema for release management
 //! - `init_schema`: Initialize all tables with constraints and indexes
 
+mod ci;
 mod error;
 pub mod fakes;
 mod handle;
@@ -26,6 +27,10 @@ pub mod storage_traits;
 pub mod surreal_ledger;
 pub mod surreal_release_registry;
 
+pub use ci::{
+    CiArtifact, CiCommand, CiPipelineSpec, CiRunRecord, CiRunStatus, CiSnapshot, CiStepResult,
+    CiStepSpec,
+};
 pub use error::{StateError, StorageError};
 pub use handle::{CloudConfig, SurrealHandle};
 pub use migrations::init_schema;
