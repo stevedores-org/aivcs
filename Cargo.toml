@@ -21,6 +21,8 @@ edition = "2021"
 authors = ["Stevedores Org <engineering@stevedores.org>"]
 license = "Apache-2.0"
 repository = "https://github.com/stevedores-org/aivcs"
+homepage = "https://docs.stevedores.org/aivcs"
+documentation = "https://docs.stevedores.org/aivcs"
 
 [workspace.dependencies]
 # Async Runtime
