@@ -44,7 +44,7 @@ mod tests {
         assert!(err.to_string().contains("invalid agent spec"));
 
         let err = AivcsError::InvalidCIRunSpec("stages cannot be empty".to_string());
-        assert!(err.to_string().contains("invalid ci run spec"));
+        assert!(err.to_string().contains("invalid CI run spec"));
 
         let id = uuid::Uuid::new_v4();
         let err = AivcsError::RunNotFound(id);

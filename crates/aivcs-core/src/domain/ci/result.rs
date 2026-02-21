@@ -101,7 +101,9 @@ impl CIResult {
         let total_duration_ms = finished_at
             .as_ref()
             .map(|finished| {
-                let delta_ms = finished.signed_duration_since(started_at).num_milliseconds();
+                let delta_ms = finished
+                    .signed_duration_since(started_at)
+                    .num_milliseconds();
                 delta_ms.max(0) as u64
             })
             .unwrap_or(0);
