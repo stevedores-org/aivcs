@@ -8,6 +8,7 @@ resolver = "2"
 members = [
     "crates/aivcs-core",
     "crates/aivcs-cli",
+    "crates/aivcs-ci",
     "crates/aivcsd",
     "crates/oxidized-state",
     "crates/nix-env-manager",
@@ -62,6 +63,7 @@ oxidizedgraph = "0.2.0"
 
 # Internal crates (use published versions for crates.io)
 aivcs-core = { version = "0.2.0", path = "crates/aivcs-core" }
+aivcs-ci = { version = "0.2.0", path = "crates/aivcs-ci" }
 oxidized-state = { version = "0.2.0", path = "crates/oxidized-state" }
 nix-env-manager = { version = "0.2.0", path = "crates/nix-env-manager" }
 semantic-rag-merge = { version = "0.2.0", path = "crates/semantic-rag-merge" }

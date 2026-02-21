@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
 
+use aivcs_ci::{BuiltinStage, CiGate, CiPipeline, CiSpec, StageConfig};
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
 
 #[derive(Parser)]
@@ -193,6 +194,34 @@ enum Commands {
         /// Second run ID
         #[arg(long)]
         run_b: String,
+    },
+
+    /// CI pipeline operations
+    Ci {
+        #[command(subcommand)]
+        action: CiAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum CiAction {
+    /// Run CI stages and record execution
+    Run {
+        /// Workspace path (default: current directory)
+        #[arg(short, long, default_value = ".")]
+        workspace: PathBuf,
+
+        /// Stages to run (comma-separated: fmt,check,clippy,test)
+        #[arg(short, long, default_value = "fmt,check")]
+        stages: String,
+
+        /// Skip caching
+        #[arg(long)]
+        no_cache: bool,
+
+        /// Auto-repair (use fix commands)
+        #[arg(long)]
+        fix: bool,
     },
 }
 
@@ -426,6 +455,14 @@ async fn main() -> Result<()> {
                 .context("Failed to connect to run ledger")?;
             cmd_diff_runs(&ledger, &run_a, &run_b).await
         }
+        Commands::Ci { action } => match action {
+            CiAction::Run {
+                workspace,
+                stages,
+                no_cache,
+                fix,
+            } => cmd_ci_run(&workspace, &stages, no_cache, fix).await,
+        },
     }
 }
 
@@ -1336,6 +1373,134 @@ async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result
 
     println!("\nChanges: {}", diff.changes.len());
     Ok(())
+}
+
+/// Run CI stages and record execution
+async fn cmd_ci_run(
+    workspace: &PathBuf,
+    stages_str: &str,
+    _no_cache: bool,
+    _fix: bool,
+) -> Result<()> {
+    // Get git SHA
+    let git_sha = if let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+    {
+        String::from_utf8(output.stdout)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    // Get toolchain hash
+    let toolchain_hash = if let Ok(output) = std::process::Command::new("rustup")
+        .args(["show", "active-toolchain"])
+        .output()
+    {
+        String::from_utf8(output.stdout)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    // Parse stages
+    let stage_names: Vec<String> = stages_str
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .collect();
+
+    let mut stage_configs = Vec::new();
+    for stage_name in &stage_names {
+        let config = match stage_name.as_str() {
+            "fmt" => StageConfig::from_builtin(BuiltinStage::CargoFmt, 300),
+            "check" => StageConfig::from_builtin(BuiltinStage::CargoCheck, 300),
+            "clippy" => StageConfig::from_builtin(BuiltinStage::CargoClippy, 600),
+            "test" => StageConfig::from_builtin(BuiltinStage::CargoTest, 1200),
+            _ => anyhow::bail!("Unknown stage: {}", stage_name),
+        };
+        stage_configs.push(config);
+    }
+
+    // Create CI spec
+    let ci_spec = CiSpec::new(
+        workspace.clone(),
+        &stage_names,
+        git_sha.clone(),
+        toolchain_hash.clone(),
+    );
+
+    println!("Running CI pipeline for workspace: {:?}", workspace);
+    println!("Stages: {}", stages_str);
+    println!("Git SHA: {}", git_sha);
+    println!();
+
+    // Run pipeline
+    let ledger_arc = std::sync::Arc::new(oxidized_state::SurrealRunLedger::from_env().await?);
+    let result = CiPipeline::run(ledger_arc.clone(), &ci_spec, stage_configs)
+        .await
+        .context("CI pipeline failed to run")?;
+
+    // Print results
+    println!("Run ID: {}", result.run_id);
+    println!(
+        "Status: {}",
+        if result.success {
+            "✓ PASSED"
+        } else {
+            "✗ FAILED"
+        }
+    );
+    println!("Duration: {}ms", result.duration_ms);
+    println!();
+
+    for stage_result in &result.stages {
+        let status = if stage_result.passed() { "✓" } else { "✗" };
+        println!(
+            "  {} {} ({}ms, exit code: {})",
+            status, stage_result.stage_name, stage_result.duration_ms, stage_result.exit_code
+        );
+    }
+
+    println!();
+    println!(
+        "Summary: {}/{} stages passed",
+        result.passed_count(),
+        result.stages.len()
+    );
+
+    // Evaluate gate
+    let events = ledger_arc
+        .get_events(&oxidized_state::RunId(result.run_id.clone()))
+        .await?;
+
+    let verdict = CiGate::evaluate(&events);
+    println!(
+        "Gate: {}",
+        if verdict.passed {
+            "✓ PASSED"
+        } else {
+            "✗ FAILED"
+        }
+    );
+
+    if !verdict.violations.is_empty() {
+        println!("Violations:");
+        for violation in &verdict.violations {
+            println!("  - {}", violation);
+        }
+    }
+
+    if result.success && verdict.passed {
+        println!("\n✓ All checks passed!");
+        Ok(())
+    } else {
+        anyhow::bail!("CI checks failed")
+    }
 }
 
 #[cfg(test)]
