@@ -16,13 +16,19 @@ use nix_env_manager::{
     generate_environment_hash, generate_logic_hash, is_attic_available, is_nix_available,
     AtticClient, NixHash,
 };
-use oxidized_state::{BranchRecord, CommitId, CommitRecord, SurrealHandle};
+use oxidized_state::{
+    BranchRecord, CommitId, CommitRecord, ReleaseRegistry, RunEvent, RunLedger,
+    SurrealDbReleaseRegistry, SurrealHandle, SurrealRunLedger,
+};
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
 
-use aivcs_core::fork_agent_parallel;
+use aivcs_ci::{BuiltinStage, CiGate, CiPipeline, CiSpec, StageConfig};
+use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -33,6 +39,10 @@ struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Emit JSON-formatted log lines
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -86,8 +96,8 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// Replay a recorded run artifact by run ID
-    Replay {
+    /// Replay a recorded run artifact from disk by run ID
+    ReplayArtifact {
         /// Run ID to replay
         #[arg(long)]
         run: String,
@@ -132,19 +142,22 @@ enum Commands {
         message: Option<String>,
     },
 
-    /// Show differences between commits or branches
+    /// Show differences for specs or runs
     Diff {
-        /// First commit/branch
-        a: String,
-
-        /// Second commit/branch
-        b: String,
+        #[command(subcommand)]
+        action: DiffAction,
     },
 
     /// Environment management (Nix/Attic)
     Env {
         #[command(subcommand)]
         action: EnvAction,
+    },
+
+    /// Release registry operations (promote/rollback/current/history)
+    Release {
+        #[command(subcommand)]
+        action: ReleaseAction,
     },
 
     /// Fork multiple parallel branches for exploration (Phase 4)
@@ -170,6 +183,45 @@ enum Commands {
         /// Maximum depth of trace
         #[arg(short, long, default_value = "20")]
         depth: usize,
+    },
+
+    /// Diff the tool-call sequences of two runs
+    DiffRuns {
+        /// First run ID
+        #[arg(long)]
+        run_a: String,
+
+        /// Second run ID
+        #[arg(long)]
+        run_b: String,
+    },
+
+    /// CI pipeline operations
+    Ci {
+        #[command(subcommand)]
+        action: CiAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum CiAction {
+    /// Run CI stages and record execution
+    Run {
+        /// Workspace path (default: current directory)
+        #[arg(short, long, default_value = ".")]
+        workspace: PathBuf,
+
+        /// Stages to run (comma-separated: fmt,check,clippy,test)
+        #[arg(short, long, default_value = "fmt,check")]
+        stages: String,
+
+        /// Skip caching
+        #[arg(long)]
+        no_cache: bool,
+
+        /// Auto-repair (use fix commands)
+        #[arg(long)]
+        fix: bool,
     },
 }
 
@@ -224,6 +276,78 @@ enum EnvAction {
     Info,
 }
 
+#[derive(Subcommand)]
+enum DiffAction {
+    /// Diff two spec JSON files
+    Spec {
+        /// First spec JSON file
+        a: PathBuf,
+        /// Second spec JSON file
+        b: PathBuf,
+        /// Emit JSON output instead of terminal text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Diff two run event-log JSON files
+    Run {
+        /// First run events JSON file (array of RunEvent)
+        a: PathBuf,
+        /// Second run events JSON file (array of RunEvent)
+        b: PathBuf,
+        /// Emit JSON output instead of terminal text
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReleaseAction {
+    /// Promote a validated agent spec as the latest release
+    Promote {
+        /// Agent name
+        name: String,
+        /// Git commit SHA linked to this spec
+        #[arg(long)]
+        git_sha: String,
+        /// SHA256 hex of graph definition
+        #[arg(long)]
+        graph_digest: String,
+        /// SHA256 hex of prompts definition
+        #[arg(long)]
+        prompts_digest: String,
+        /// SHA256 hex of tools definition
+        #[arg(long)]
+        tools_digest: String,
+        /// SHA256 hex of configuration
+        #[arg(long)]
+        config_digest: String,
+        /// Who promoted this release
+        #[arg(long, default_value = "aivcs-cli")]
+        promoted_by: String,
+        /// Optional version label (e.g. v1.2.3)
+        #[arg(long)]
+        version: Option<String>,
+        /// Optional release notes
+        #[arg(long)]
+        notes: Option<String>,
+    },
+    /// Roll back the agent to the previous release (append-only history)
+    Rollback {
+        /// Agent name
+        name: String,
+    },
+    /// Show the current release pointer for an agent
+    Current {
+        /// Agent name
+        name: String,
+    },
+    /// Show release history for an agent (newest first)
+    History {
+        /// Agent name
+        name: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -234,12 +358,7 @@ async fn main() -> Result<()> {
     } else {
         Level::INFO
     };
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(level)
-        .with_target(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .context("Failed to set tracing subscriber")?;
+    aivcs_core::init_tracing(cli.json, level);
 
     // Initialize database connection
     let handle = SurrealHandle::setup_from_env()
@@ -270,11 +389,11 @@ async fn main() -> Result<()> {
         Commands::Restore { commit, output } => {
             cmd_restore(&handle, &commit, output.as_deref()).await
         }
-        Commands::Replay {
+        Commands::ReplayArtifact {
             run,
             artifacts_dir,
             output,
-        } => cmd_replay(&run, artifacts_dir.as_deref(), output.as_deref()),
+        } => cmd_replay_artifact(&run, artifacts_dir.as_deref(), output.as_deref()),
         Commands::Branch { action } => match action {
             BranchAction::List => cmd_branch_list(&handle).await,
             BranchAction::Create { name, from } => cmd_branch_create(&handle, &name, &from).await,
@@ -286,7 +405,7 @@ async fn main() -> Result<()> {
             target,
             message,
         } => cmd_merge(&handle, &source, &target, message.as_deref()).await,
-        Commands::Diff { a, b } => cmd_diff(&handle, &a, &b).await,
+        Commands::Diff { action } => cmd_diff(action).await,
         Commands::Env { action } => match action {
             EnvAction::Hash { path } => cmd_env_hash(&path).await,
             EnvAction::LogicHash { path } => cmd_logic_hash(&path).await,
@@ -294,12 +413,56 @@ async fn main() -> Result<()> {
             EnvAction::IsCached { hash } => cmd_is_cached(&hash).await,
             EnvAction::Info => cmd_env_info().await,
         },
+        Commands::Release { action } => match action {
+            ReleaseAction::Promote {
+                name,
+                git_sha,
+                graph_digest,
+                prompts_digest,
+                tools_digest,
+                config_digest,
+                promoted_by,
+                version,
+                notes,
+            } => {
+                cmd_release_promote(
+                    &handle,
+                    &name,
+                    &git_sha,
+                    &graph_digest,
+                    &prompts_digest,
+                    &tools_digest,
+                    &config_digest,
+                    &promoted_by,
+                    version.as_deref(),
+                    notes.as_deref(),
+                )
+                .await
+            }
+            ReleaseAction::Rollback { name } => cmd_release_rollback(&handle, &name).await,
+            ReleaseAction::Current { name } => cmd_release_current(&handle, &name).await,
+            ReleaseAction::History { name } => cmd_release_history(&handle, &name).await,
+        },
         Commands::Fork {
             parent,
             count,
             prefix,
         } => cmd_fork(&handle, &parent, count, &prefix).await,
         Commands::Trace { commit, depth } => cmd_trace(&handle, &commit, depth).await,
+        Commands::DiffRuns { run_a, run_b } => {
+            let ledger = SurrealRunLedger::from_env()
+                .await
+                .context("Failed to connect to run ledger")?;
+            cmd_diff_runs(&ledger, &run_a, &run_b).await
+        }
+        Commands::Ci { action } => match action {
+            CiAction::Run {
+                workspace,
+                stages,
+                no_cache,
+                fix,
+            } => cmd_ci_run(&workspace, &stages, no_cache, fix).await,
+        },
     }
 }
 
@@ -450,7 +613,7 @@ async fn cmd_restore(
 /// Expected layout:
 /// - `<artifacts_dir>/<run_id>/output.json`
 /// - `<artifacts_dir>/<run_id>/output.digest`
-fn cmd_replay(
+fn cmd_replay_artifact(
     run_id: &str,
     artifacts_dir: Option<&std::path::Path>,
     output: Option<&std::path::Path>,
@@ -639,59 +802,195 @@ async fn cmd_merge(
     Ok(())
 }
 
-/// Show differences between commits/branches
-async fn cmd_diff(handle: &SurrealHandle, a: &str, b: &str) -> Result<()> {
-    // Resolve references
-    let commit_a = if let Ok(Some(branch)) = handle.get_branch(a).await {
-        branch.head_commit_id
+#[derive(Debug, Clone, Serialize, PartialEq)]
+struct SpecDiffOutput {
+    changed_paths: Vec<String>,
+    only_in_a: Vec<String>,
+    only_in_b: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+struct RunDiffOutput {
+    events_a: usize,
+    events_b: usize,
+    tool_call_changes: usize,
+    added: usize,
+    removed: usize,
+    reordered: usize,
+    param_changed: usize,
+}
+
+async fn cmd_diff(action: DiffAction) -> Result<()> {
+    match action {
+        DiffAction::Spec { a, b, json } => cmd_diff_spec(&a, &b, json),
+        DiffAction::Run { a, b, json } => cmd_diff_run(&a, &b, json),
+    }
+}
+
+fn cmd_diff_spec(a: &PathBuf, b: &PathBuf, json: bool) -> Result<()> {
+    let left: Value = read_json_file(a)?;
+    let right: Value = read_json_file(b)?;
+    let diff = build_spec_diff(&left, &right);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&diff)?);
     } else {
-        a.to_string()
-    };
-
-    let commit_b = if let Ok(Some(branch)) = handle.get_branch(b).await {
-        branch.head_commit_id
-    } else {
-        b.to_string()
-    };
-
-    let delta = semantic_rag_merge::diff_memory_vectors(handle, &commit_a, &commit_b).await?;
-
-    let a_short = &commit_a[..8.min(commit_a.len())];
-    let b_short = &commit_b[..8.min(commit_b.len())];
-
-    println!("Diff {} -> {}", a_short, b_short);
-    println!();
-
-    if !delta.only_in_a.is_empty() {
-        println!("Only in {}:", a_short);
-        for mem in &delta.only_in_a {
-            println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
-        }
-        println!();
+        println!("{}", render_spec_diff_text(&diff));
     }
-
-    if !delta.only_in_b.is_empty() {
-        println!("Only in {}:", b_short);
-        for mem in &delta.only_in_b {
-            println!("  + {}: {}", mem.key, truncate(&mem.content, 50));
-        }
-        println!();
-    }
-
-    if !delta.conflicts.is_empty() {
-        println!("Conflicts:");
-        for conflict in &delta.conflicts {
-            println!("  ! {}", conflict.key);
-            println!("    A: {}", truncate(&conflict.memory_a.content, 40));
-            println!("    B: {}", truncate(&conflict.memory_b.content, 40));
-        }
-    }
-
-    if delta.only_in_a.is_empty() && delta.only_in_b.is_empty() && delta.conflicts.is_empty() {
-        println!("No differences found.");
-    }
-
     Ok(())
+}
+
+fn cmd_diff_run(a: &PathBuf, b: &PathBuf, json: bool) -> Result<()> {
+    let left: Vec<RunEvent> = read_json_file(a)?;
+    let right: Vec<RunEvent> = read_json_file(b)?;
+    let diff = build_run_diff(&left, &right);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&diff)?);
+    } else {
+        println!("{}", render_run_diff_text(&diff));
+    }
+    Ok(())
+}
+
+fn read_json_file<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read JSON file: {:?}", path))?;
+    serde_json::from_str(&content).with_context(|| format!("Invalid JSON in {:?}", path))
+}
+
+fn collect_leaf_paths(prefix: &str, value: &Value, out: &mut BTreeMap<String, Value>) {
+    if let Some(obj) = value.as_object() {
+        for (k, v) in obj {
+            let next = if prefix.is_empty() {
+                format!("/{}", k.replace('~', "~0").replace('/', "~1"))
+            } else {
+                format!("{}/{}", prefix, k.replace('~', "~0").replace('/', "~1"))
+            };
+            collect_leaf_paths(&next, v, out);
+        }
+        return;
+    }
+
+    if let Some(arr) = value.as_array() {
+        for (idx, v) in arr.iter().enumerate() {
+            let next = if prefix.is_empty() {
+                format!("/{}", idx)
+            } else {
+                format!("{}/{}", prefix, idx)
+            };
+            collect_leaf_paths(&next, v, out);
+        }
+        return;
+    }
+
+    let path = if prefix.is_empty() {
+        "/".to_string()
+    } else {
+        prefix.to_string()
+    };
+    out.insert(path, value.clone());
+}
+
+fn build_spec_diff(a: &Value, b: &Value) -> SpecDiffOutput {
+    let mut left = BTreeMap::new();
+    let mut right = BTreeMap::new();
+    collect_leaf_paths("", a, &mut left);
+    collect_leaf_paths("", b, &mut right);
+
+    let mut changed_paths = Vec::new();
+    let mut only_in_a = Vec::new();
+    let mut only_in_b = Vec::new();
+
+    for (path, val_a) in &left {
+        match right.get(path) {
+            Some(val_b) if val_a != val_b => changed_paths.push(path.clone()),
+            None => only_in_a.push(path.clone()),
+            _ => {}
+        }
+    }
+
+    for path in right.keys() {
+        if !left.contains_key(path) {
+            only_in_b.push(path.clone());
+        }
+    }
+
+    SpecDiffOutput {
+        changed_paths,
+        only_in_a,
+        only_in_b,
+    }
+}
+
+fn build_run_diff(a: &[RunEvent], b: &[RunEvent]) -> RunDiffOutput {
+    let tool_diff = diff_tool_calls(a, b);
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    let mut reordered = 0usize;
+    let mut param_changed = 0usize;
+
+    for change in &tool_diff.changes {
+        match change {
+            ToolCallChange::Added(_) => added += 1,
+            ToolCallChange::Removed(_) => removed += 1,
+            ToolCallChange::Reordered { .. } => reordered += 1,
+            ToolCallChange::ParamChanged { .. } => param_changed += 1,
+        }
+    }
+
+    RunDiffOutput {
+        events_a: a.len(),
+        events_b: b.len(),
+        tool_call_changes: tool_diff.changes.len(),
+        added,
+        removed,
+        reordered,
+        param_changed,
+    }
+}
+
+fn render_spec_diff_text(diff: &SpecDiffOutput) -> String {
+    let mut out = String::new();
+    out.push_str("Spec Diff\n");
+    out.push_str("=========\n");
+    out.push_str(&format!("changed_paths: {}\n", diff.changed_paths.len()));
+    out.push_str(&format!("only_in_a: {}\n", diff.only_in_a.len()));
+    out.push_str(&format!("only_in_b: {}\n", diff.only_in_b.len()));
+
+    if !diff.changed_paths.is_empty() {
+        out.push_str("\nChanged:\n");
+        for p in &diff.changed_paths {
+            out.push_str(&format!("  ~ {}\n", p));
+        }
+    }
+    if !diff.only_in_a.is_empty() {
+        out.push_str("\nOnly in A:\n");
+        for p in &diff.only_in_a {
+            out.push_str(&format!("  - {}\n", p));
+        }
+    }
+    if !diff.only_in_b.is_empty() {
+        out.push_str("\nOnly in B:\n");
+        for p in &diff.only_in_b {
+            out.push_str(&format!("  + {}\n", p));
+        }
+    }
+
+    out.trim_end().to_string()
+}
+
+fn render_run_diff_text(diff: &RunDiffOutput) -> String {
+    format!(
+        "Run Diff\n========\nevents_a: {}\nevents_b: {}\ntool_call_changes: {}\n  added: {}\n  removed: {}\n  reordered: {}\n  param_changed: {}",
+        diff.events_a,
+        diff.events_b,
+        diff.tool_call_changes,
+        diff.added,
+        diff.removed,
+        diff.reordered,
+        diff.param_changed
+    )
 }
 
 /// Truncate a string for display
@@ -825,6 +1124,99 @@ async fn cmd_env_info() -> Result<()> {
     Ok(())
 }
 
+// ========== Release Registry Commands (Phase 4) ==========
+
+#[allow(clippy::too_many_arguments)]
+async fn cmd_release_promote(
+    handle: &SurrealHandle,
+    name: &str,
+    git_sha: &str,
+    graph_digest: &str,
+    prompts_digest: &str,
+    tools_digest: &str,
+    config_digest: &str,
+    promoted_by: &str,
+    version: Option<&str>,
+    notes: Option<&str>,
+) -> Result<()> {
+    let spec = aivcs_core::AgentSpec::new(
+        git_sha.to_string(),
+        graph_digest.to_string(),
+        prompts_digest.to_string(),
+        tools_digest.to_string(),
+        config_digest.to_string(),
+    )
+    .context("failed to build AgentSpec")?;
+
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let api = aivcs_core::ReleaseRegistryApi::new(registry);
+
+    let release = api
+        .promote(
+            name,
+            &spec,
+            promoted_by,
+            version.map(ToString::to_string),
+            notes.map(ToString::to_string),
+        )
+        .await
+        .context("promote failed")?;
+
+    println!(
+        "Promoted {} -> {}",
+        release.name,
+        release.spec_digest.as_str()
+    );
+    Ok(())
+}
+
+async fn cmd_release_rollback(handle: &SurrealHandle, name: &str) -> Result<()> {
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let release = registry.rollback(name).await?;
+    println!(
+        "Rolled back {} -> {}",
+        release.name,
+        release.spec_digest.as_str()
+    );
+    Ok(())
+}
+
+async fn cmd_release_current(handle: &SurrealHandle, name: &str) -> Result<()> {
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let current = registry.current(name).await?;
+    match current {
+        Some(release) => {
+            println!(
+                "Current {} -> {}",
+                release.name,
+                release.spec_digest.as_str()
+            );
+        }
+        None => println!("No release found for {}", name),
+    }
+    Ok(())
+}
+
+async fn cmd_release_history(handle: &SurrealHandle, name: &str) -> Result<()> {
+    let registry = SurrealDbReleaseRegistry::new(Arc::new(handle.clone()));
+    let history = registry.history(name).await?;
+
+    if history.is_empty() {
+        println!("No release history for {}", name);
+        return Ok(());
+    }
+
+    for release in history {
+        println!(
+            "{} {} {}",
+            release.created_at.to_rfc3339(),
+            release.name,
+            release.spec_digest.as_str()
+        );
+    }
+    Ok(())
+}
+
 // ========== Parallel Simulation Commands (Phase 4) ==========
 
 /// Fork multiple parallel branches for exploration
@@ -927,9 +1319,194 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
     Ok(())
 }
 
+/// Diff the tool-call sequences of two runs
+async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result<()> {
+    let (events_a, summary_a) = aivcs_core::replay_run(ledger, id_a)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_a))?;
+    let (events_b, summary_b) = aivcs_core::replay_run(ledger, id_b)
+        .await
+        .with_context(|| format!("replay failed for run: {}", id_b))?;
+
+    let diff = diff_tool_calls(&events_a, &events_b);
+
+    println!("A: {} ({})", summary_a.run_id, summary_a.agent_name);
+    println!("B: {} ({})", summary_b.run_id, summary_b.agent_name);
+    println!();
+
+    if diff.is_empty() {
+        println!("Tool-call sequences are identical.");
+        return Ok(());
+    }
+
+    for change in &diff.changes {
+        match change {
+            ToolCallChange::Added(call) => {
+                println!("  + [{}] {}", call.seq, call.tool_name);
+            }
+            ToolCallChange::Removed(call) => {
+                println!("  - [{}] {}", call.seq, call.tool_name);
+            }
+            ToolCallChange::Reordered {
+                call,
+                from_index,
+                to_index,
+            } => {
+                println!(
+                    "  ~ {} (pos {} -> {})",
+                    call.tool_name, from_index, to_index
+                );
+            }
+            ToolCallChange::ParamChanged {
+                tool_name,
+                seq_a,
+                seq_b,
+                deltas,
+            } => {
+                println!("  Δ {} (A:[{}] / B:[{}])", tool_name, seq_a, seq_b);
+                for d in deltas {
+                    println!("      {} : {} -> {}", d.key, d.before, d.after);
+                }
+            }
+        }
+    }
+
+    println!("\nChanges: {}", diff.changes.len());
+    Ok(())
+}
+
+/// Run CI stages and record execution
+async fn cmd_ci_run(
+    workspace: &PathBuf,
+    stages_str: &str,
+    _no_cache: bool,
+    _fix: bool,
+) -> Result<()> {
+    // Get git SHA
+    let git_sha = if let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+    {
+        String::from_utf8(output.stdout)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    // Get toolchain hash
+    let toolchain_hash = if let Ok(output) = std::process::Command::new("rustup")
+        .args(["show", "active-toolchain"])
+        .output()
+    {
+        String::from_utf8(output.stdout)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    // Parse stages
+    let stage_names: Vec<String> = stages_str
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .collect();
+
+    let mut stage_configs = Vec::new();
+    for stage_name in &stage_names {
+        let config = match stage_name.as_str() {
+            "fmt" => StageConfig::from_builtin(BuiltinStage::CargoFmt, 300),
+            "check" => StageConfig::from_builtin(BuiltinStage::CargoCheck, 300),
+            "clippy" => StageConfig::from_builtin(BuiltinStage::CargoClippy, 600),
+            "test" => StageConfig::from_builtin(BuiltinStage::CargoTest, 1200),
+            _ => anyhow::bail!("Unknown stage: {}", stage_name),
+        };
+        stage_configs.push(config);
+    }
+
+    // Create CI spec
+    let ci_spec = CiSpec::new(
+        workspace.clone(),
+        &stage_names,
+        git_sha.clone(),
+        toolchain_hash.clone(),
+    );
+
+    println!("Running CI pipeline for workspace: {:?}", workspace);
+    println!("Stages: {}", stages_str);
+    println!("Git SHA: {}", git_sha);
+    println!();
+
+    // Run pipeline
+    let ledger_arc = std::sync::Arc::new(oxidized_state::SurrealRunLedger::from_env().await?);
+    let result = CiPipeline::run(ledger_arc.clone(), &ci_spec, stage_configs)
+        .await
+        .context("CI pipeline failed to run")?;
+
+    // Print results
+    println!("Run ID: {}", result.run_id);
+    println!(
+        "Status: {}",
+        if result.success {
+            "✓ PASSED"
+        } else {
+            "✗ FAILED"
+        }
+    );
+    println!("Duration: {}ms", result.duration_ms);
+    println!();
+
+    for stage_result in &result.stages {
+        let status = if stage_result.passed() { "✓" } else { "✗" };
+        println!(
+            "  {} {} ({}ms, exit code: {})",
+            status, stage_result.stage_name, stage_result.duration_ms, stage_result.exit_code
+        );
+    }
+
+    println!();
+    println!(
+        "Summary: {}/{} stages passed",
+        result.passed_count(),
+        result.stages.len()
+    );
+
+    // Evaluate gate
+    let events = ledger_arc
+        .get_events(&oxidized_state::RunId(result.run_id.clone()))
+        .await?;
+
+    let verdict = CiGate::evaluate(&events);
+    println!(
+        "Gate: {}",
+        if verdict.passed {
+            "✓ PASSED"
+        } else {
+            "✗ FAILED"
+        }
+    );
+
+    if !verdict.violations.is_empty() {
+        println!("Violations:");
+        for violation in &verdict.violations {
+            println!("  - {}", violation);
+        }
+    }
+
+    if result.success && verdict.passed {
+        println!("\n✓ All checks passed!");
+        Ok(())
+    } else {
+        anyhow::bail!("CI checks failed")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_agent_git_snapshot_cli_returns_valid_id() {
@@ -1092,7 +1669,7 @@ mod tests {
         std::fs::write(run_dir.join("output.digest"), format!("{}\n", digest)).unwrap();
 
         let replayed = temp_dir.path().join("replayed.json");
-        let result = cmd_replay(run_id, Some(temp_dir.path()), Some(replayed.as_path()));
+        let result = cmd_replay_artifact(run_id, Some(temp_dir.path()), Some(replayed.as_path()));
         assert!(result.is_ok(), "replay failed: {:?}", result.err());
 
         let written = std::fs::read(replayed).unwrap();
@@ -1104,11 +1681,74 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let run_id = "run-missing-1";
 
-        let err = cmd_replay(run_id, Some(temp_dir.path()), None).unwrap_err();
+        let err = cmd_replay_artifact(run_id, Some(temp_dir.path()), None).unwrap_err();
         let msg = format!("{err:#}");
         assert!(
             msg.contains("Recorded artifact not found"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn test_spec_diff_json_output_stability() {
+        let a = json!({
+            "model": "gpt-4",
+            "routing": {"strategy": "math"},
+            "threshold": 0.9
+        });
+        let b = json!({
+            "model": "gpt-4o",
+            "routing": {"strategy": "search"},
+            "new_flag": true
+        });
+
+        let diff = build_spec_diff(&a, &b);
+        let actual = serde_json::to_string_pretty(&diff).unwrap();
+        let expected = r#"{
+  "changed_paths": [
+    "/model",
+    "/routing/strategy"
+  ],
+  "only_in_a": [
+    "/threshold"
+  ],
+  "only_in_b": [
+    "/new_flag"
+  ]
+}"#;
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_run_diff_json_output_stability() {
+        let a: Vec<RunEvent> = serde_json::from_value(json!([{
+            "seq": 1,
+            "kind": "tool_called",
+            "payload": {"tool_name":"search","query":"rust"},
+            "timestamp": "2026-01-01T00:00:00Z"
+        }]))
+        .unwrap();
+        let b: Vec<RunEvent> = serde_json::from_value(json!([{
+            "seq": 1,
+            "kind": "tool_called",
+            "payload": {"tool_name":"search","query":"python"},
+            "timestamp": "2026-01-01T00:00:00Z"
+        }]))
+        .unwrap();
+
+        let diff = build_run_diff(&a, &b);
+        let actual = serde_json::to_string_pretty(&diff).unwrap();
+        let expected = r#"{
+  "events_a": 1,
+  "events_b": 1,
+  "tool_call_changes": 1,
+  "added": 0,
+  "removed": 0,
+  "reordered": 0,
+  "param_changed": 1
+}"#;
+
+        assert_eq!(actual, expected);
     }
 }
