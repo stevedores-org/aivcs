@@ -27,11 +27,20 @@ pub struct CaseResult {
 }
 
 /// Aggregated report from an eval run — the input to the gate engine.
+///
+/// # Invariants
+///
+/// `pass_rate` must be derived from `case_results` by the eval runner (number
+/// of `passed == true` cases divided by total cases) and kept consistent.
+/// Gate rules that operate on overall pass rate (`MinPassRate`, `MaxRegression`)
+/// use `pass_rate`; per-case rules (`RequireTag`) use `case_results`.
+/// Inconsistent values are a bug in the producer and can cause surprising verdicts.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EvalReport {
-    /// Per-case results.
+    /// Per-case results used by per-case and tag-based rules.
     pub case_results: Vec<CaseResult>,
-    /// Pass rate (0.0–1.0) from the eval runner.
+    /// Overall pass rate (0.0–1.0) used by aggregate rules. Must be derived
+    /// from `case_results` and remain consistent with it.
     pub pass_rate: f32,
     /// Optional baseline pass rate for regression detection.
     pub baseline_pass_rate: Option<f32>,
@@ -88,7 +97,7 @@ impl GateRuleSet {
 // ---------------------------------------------------------------------------
 
 /// A single rule violation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Violation {
     /// Which rule was violated.
     pub rule: GateRule,
@@ -97,10 +106,8 @@ pub struct Violation {
 }
 
 /// The outcome of evaluating a gate rule set against an eval report.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GateVerdict {
-    /// Whether the gate passed (no violations).
-    pub passed: bool,
     /// Violations found (empty when passed).
     pub violations: Vec<Violation>,
 }
@@ -108,16 +115,17 @@ pub struct GateVerdict {
 impl GateVerdict {
     fn pass() -> Self {
         Self {
-            passed: true,
             violations: Vec::new(),
         }
     }
 
     fn fail(violations: Vec<Violation>) -> Self {
-        Self {
-            passed: false,
-            violations,
-        }
+        Self { violations }
+    }
+
+    /// Whether the gate passed (i.e., there are no violations).
+    pub fn passed(&self) -> bool {
+        self.violations.is_empty()
     }
 }
 
