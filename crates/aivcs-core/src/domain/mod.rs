@@ -7,6 +7,7 @@
 //! - `Release`: Deployment records
 
 pub mod agent_spec;
+pub mod ci;
 pub mod digest;
 pub mod error;
 pub mod eval;
