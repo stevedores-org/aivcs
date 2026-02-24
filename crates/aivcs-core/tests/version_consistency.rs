@@ -54,6 +54,7 @@ fn all_crates_use_workspace_version() {
 
     let crates = [
         "crates/aivcs-core",
+        "crates/aivcs-ci",
         "crates/aivcs-cli",
         "crates/aivcsd",
         "crates/oxidized-state",
