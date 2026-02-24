@@ -51,6 +51,9 @@ pub enum AivcsError {
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("multi-repo error: {0}")]
+    MultiRepo(String),
 }
 
 /// Result type for AIVCS domain operations.

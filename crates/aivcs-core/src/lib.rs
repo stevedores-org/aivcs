@@ -137,10 +137,12 @@ pub use memory::{
 
 pub use metrics::METRICS;
 pub use multi_repo::{
-    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CiAggregator, CiHealthReport,
-    CiRunFetcher, MultiRepoError, MultiRepoResult, ReleaseSequencer, RepoDependencyGraph,
-    RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoNode, RepoReleaseStatus, RepoReleaser,
-    RepoStep, SequenceItem, SequenceOutcome, SequencePlan,
+    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CIHealthView, CiAggregator,
+    CiHealthReport, CiRunFetcher, CrossRepoGraph, MultiRepoError, MultiRepoExecutionPlan,
+    MultiRepoOrchestrator, MultiRepoResult, ReleaseProvenance, ReleaseSequencer, RepoCIStatus,
+    RepoDependency, RepoDependencyGraph, RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoId,
+    RepoNode, RepoReleaseStatus, RepoReleaser, RepoStep, SequenceItem, SequenceOutcome,
+    SequencePlan,
 };
 pub use obs::{
     emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
