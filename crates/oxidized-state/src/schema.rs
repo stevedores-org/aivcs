@@ -390,7 +390,7 @@ pub struct RunRecord {
     pub agent_name: String,
     /// Arbitrary tags (JSON)
     pub tags: serde_json::Value,
-    /// Run status: "running" | "completed" | "failed"
+    /// Run status: "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED"
     pub status: String,
     /// Total events recorded
     pub total_events: u64,
@@ -424,7 +424,7 @@ impl RunRecord {
             git_sha,
             agent_name,
             tags,
-            status: "running".to_string(),
+            status: "RUNNING".to_string(),
             total_events: 0,
             final_state_digest: None,
             duration_ms: 0,
@@ -441,7 +441,7 @@ impl RunRecord {
         final_state_digest: Option<String>,
         duration_ms: u64,
     ) -> Self {
-        self.status = "completed".to_string();
+        self.status = "COMPLETED".to_string();
         self.total_events = total_events;
         self.final_state_digest = final_state_digest;
         self.duration_ms = duration_ms;
@@ -452,7 +452,7 @@ impl RunRecord {
 
     /// Mark run as failed
     pub fn fail(mut self, total_events: u64, duration_ms: u64) -> Self {
-        self.status = "failed".to_string();
+        self.status = "FAILED".to_string();
         self.total_events = total_events;
         self.duration_ms = duration_ms;
         self.success = false;
@@ -462,7 +462,7 @@ impl RunRecord {
 
     /// Mark run as cancelled
     pub fn cancel(mut self, total_events: u64, duration_ms: u64) -> Self {
-        self.status = "cancelled".to_string();
+        self.status = "CANCELLED".to_string();
         self.total_events = total_events;
         self.duration_ms = duration_ms;
         self.success = false;
@@ -508,8 +508,8 @@ impl RunEventRecord {
 pub struct ReleaseRecordSchema {
     /// SurrealDB record ID
     pub id: Option<surrealdb::sql::Thing>,
-    /// Agent name
-    pub agent_name: String,
+    /// Release/Agent name
+    pub name: String,
     /// Spec digest being released
     pub spec_digest: String,
     /// Version label (e.g. "v1.2.3")
@@ -526,7 +526,7 @@ pub struct ReleaseRecordSchema {
 impl ReleaseRecordSchema {
     /// Create a new release record
     pub fn new(
-        agent_name: String,
+        name: String,
         spec_digest: String,
         version_label: Option<String>,
         promoted_by: String,
@@ -534,7 +534,7 @@ impl ReleaseRecordSchema {
     ) -> Self {
         ReleaseRecordSchema {
             id: None,
-            agent_name,
+            name,
             spec_digest,
             version_label,
             promoted_by,
@@ -625,7 +625,7 @@ mod tests {
         );
 
         assert_eq!(run.run_id, "run-123");
-        assert_eq!(run.status, "running");
+        assert_eq!(run.status, "RUNNING");
         assert_eq!(run.total_events, 0);
         assert!(!run.success);
     }
@@ -641,7 +641,7 @@ mod tests {
         )
         .complete(5, Some("state-digest-xyz".to_string()), 1000);
 
-        assert_eq!(run.status, "completed");
+        assert_eq!(run.status, "COMPLETED");
         assert_eq!(run.total_events, 5);
         assert!(run.success);
         assert!(run.completed_at.is_some());
@@ -658,7 +658,7 @@ mod tests {
         )
         .fail(2, 500);
 
-        assert_eq!(run.status, "failed");
+        assert_eq!(run.status, "FAILED");
         assert_eq!(run.total_events, 2);
         assert!(!run.success);
         assert!(run.completed_at.is_some());
@@ -688,7 +688,7 @@ mod tests {
             Some("Initial release".to_string()),
         );
 
-        assert_eq!(release.agent_name, "my-agent");
+        assert_eq!(release.name, "my-agent");
         assert_eq!(release.version_label, Some("v1.0.0".to_string()));
     }
 }

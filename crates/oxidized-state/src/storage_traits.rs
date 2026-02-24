@@ -153,6 +153,7 @@ pub struct RunSummary {
 
 /// Status of a run
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
 pub enum RunStatus {
     Running,
     Completed,
@@ -264,4 +265,20 @@ pub trait ReleaseRegistry: Send + Sync {
 
     /// Get full release history for a name (newest first).
     async fn history(&self, name: &str) -> StorageResult<Vec<ReleaseRecord>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_run_status_serialization() {
+        let status = RunStatus::Running;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"RUNNING\"");
+
+        let status = RunStatus::Completed;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"COMPLETED\"");
+    }
 }
