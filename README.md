@@ -115,6 +115,11 @@ aivcs trace experiment-0 --depth 50
 - [Database Configuration](docs/runbooks/database-configuration.md) — in-memory, local, cloud setup
 - [CI Troubleshooting](docs/runbooks/ci-troubleshooting.md) — common failures, reproduce locally
 
+## Contributing
+
+- Start here: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Agent/operator workflow rules: [CODEX.md](CODEX.md)
+
 ## Crate Structure
 
 - **aivcs-core**: Main CLI and orchestration logic

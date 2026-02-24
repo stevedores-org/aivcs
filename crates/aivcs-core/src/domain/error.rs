@@ -1,5 +1,18 @@
 //! Domain-level error taxonomy for AIVCS.
 
+/// Errors produced by event payload validation.
+#[derive(Debug, thiserror::Error)]
+pub enum ValidationError {
+    #[error("unknown event kind: {kind}")]
+    UnknownEventKind { kind: String },
+
+    #[error("event kind {kind} missing required payload field: {field}")]
+    MissingPayloadField { kind: String, field: String },
+
+    #[error("event kind must not be empty")]
+    EmptyKind,
+}
+
 /// AIVCS domain errors.
 #[derive(Debug, thiserror::Error)]
 pub enum AivcsError {
@@ -29,6 +42,15 @@ pub enum AivcsError {
 
     #[error("storage error: {0}")]
     StorageError(String),
+
+    #[error("validation error: {0}")]
+    Validation(#[from] ValidationError),
+
+    #[error("memory error: {0}")]
+    Memory(String),
+
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Result type for AIVCS domain operations.

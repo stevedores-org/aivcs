@@ -15,14 +15,23 @@ use tracing::{debug, info};
 pub async fn init_schema(db: &Surreal<Any>) -> Result<()> {
     info!("Initializing AIVCS SurrealDB schema");
 
-    // Initialize run ledger tables
+    // Core VCS tables
+    init_commits_table(db).await?;
+    init_snapshots_table(db).await?;
+    init_branches_table(db).await?;
+    init_graph_edges_table(db).await?;
+    init_memories_table(db).await?;
+    init_agents_table(db).await?;
+
+    // Run Ledger tables
     init_runs_table(db).await?;
     init_run_events_table(db).await?;
+
+    // Release Registry tables
     init_releases_table(db).await?;
 
-    // Initialize existing tables if needed
-    init_commits_table(db).await?;
-    init_branches_table(db).await?;
+    // CI tables
+    init_ci_tables(db).await?;
 
     info!("AIVCS schema initialization complete");
     Ok(())
@@ -164,25 +173,21 @@ async fn init_releases_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing releases table");
 
     let sql = r#"
-        DEFINE TABLE releases SCHEMALESS
-            PERMISSIONS
-                FOR create FULL
-                FOR select FULL
-                FOR update NONE
-                FOR delete NONE;
+        DEFINE TABLE releases SCHEMAFULL;
+        DEFINE FIELD name ON releases TYPE string;
+        DEFINE FIELD agent_name ON releases TYPE option<string>;
+        DEFINE FIELD spec_digest ON releases TYPE string;
+        DEFINE FIELD metadata ON releases FLEXIBLE TYPE object;
+        DEFINE FIELD version_label ON releases TYPE option<string>;
+        DEFINE FIELD promoted_by ON releases TYPE option<string>;
+        DEFINE FIELD notes ON releases TYPE option<string>;
+        DEFINE FIELD created_at ON releases TYPE datetime;
 
-        -- Index agent_name for finding releases by agent
-        DEFINE INDEX idx_agent_name ON TABLE releases COLUMNS agent_name;
-
-        -- Composite index (agent_name, created_at) for fast history retrieval
-        -- Newer releases first
-        DEFINE INDEX idx_agent_name_created_at ON TABLE releases COLUMNS agent_name, created_at;
-
-        -- Index spec_digest for reverse lookup (which agents have this version)
-        DEFINE INDEX idx_spec_digest ON TABLE releases COLUMNS spec_digest;
-
-        -- Index version_label for version-based lookups
-        DEFINE INDEX idx_version_label ON TABLE releases COLUMNS version_label;
+        DEFINE INDEX idx_release_name ON releases FIELDS name;
+        DEFINE INDEX idx_release_agent_name ON releases FIELDS agent_name;
+        DEFINE INDEX idx_release_name_created_at ON releases FIELDS name, created_at;
+        DEFINE INDEX idx_agent_name_created_at ON releases FIELDS agent_name, created_at;
+        DEFINE INDEX idx_spec_digest ON releases FIELDS spec_digest;
     "#;
 
     db.query(sql).await?;
@@ -190,22 +195,25 @@ async fn init_releases_table(db: &Surreal<Any>) -> Result<()> {
     Ok(())
 }
 
-/// Initialize `commits` table (existing, for reference)
+/// Initialize `commits` table
 async fn init_commits_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing commits table");
 
     let sql = r#"
-        DEFINE TABLE commits SCHEMALESS
-            PERMISSIONS
-                FOR create FULL
-                FOR select FULL
-                FOR update FULL
-                FOR delete NONE;
-
-        DEFINE INDEX idx_commit_id ON TABLE commits COLUMNS commit_id UNIQUE;
-        DEFINE INDEX idx_parent_id ON TABLE commits COLUMNS parent_id;
-        DEFINE INDEX idx_author ON TABLE commits COLUMNS author;
-        DEFINE INDEX idx_branch ON TABLE commits COLUMNS branch;
+        DEFINE TABLE commits SCHEMAFULL;
+        DEFINE FIELD commit_id ON commits TYPE object;
+        DEFINE FIELD commit_id.hash ON commits TYPE string;
+        DEFINE FIELD commit_id.logic_hash ON commits TYPE option<string>;
+        DEFINE FIELD commit_id.state_hash ON commits TYPE string;
+        DEFINE FIELD commit_id.env_hash ON commits TYPE option<string>;
+        DEFINE FIELD parent_ids ON commits TYPE array<string>;
+        DEFINE FIELD message ON commits TYPE string;
+        DEFINE FIELD author ON commits TYPE string;
+        DEFINE FIELD created_at ON commits TYPE datetime;
+        DEFINE FIELD branch ON commits TYPE option<string>;
+        DEFINE INDEX idx_commit_hash ON commits FIELDS commit_id.hash UNIQUE;
+        DEFINE INDEX idx_author ON commits FIELDS author;
+        DEFINE INDEX idx_branch ON commits FIELDS branch;
     "#;
 
     db.query(sql).await?;
@@ -213,25 +221,133 @@ async fn init_commits_table(db: &Surreal<Any>) -> Result<()> {
     Ok(())
 }
 
-/// Initialize `branches` table (existing, for reference)
+/// Initialize `snapshots` table
+async fn init_snapshots_table(db: &Surreal<Any>) -> Result<()> {
+    debug!("Initializing snapshots table");
+
+    let sql = r#"
+        DEFINE TABLE snapshots SCHEMAFULL;
+        DEFINE FIELD commit_id ON snapshots TYPE string;
+        DEFINE FIELD state ON snapshots FLEXIBLE TYPE object;
+        DEFINE FIELD size_bytes ON snapshots TYPE int;
+        DEFINE FIELD created_at ON snapshots TYPE datetime;
+        DEFINE INDEX idx_snapshot_commit ON snapshots FIELDS commit_id UNIQUE;
+    "#;
+
+    db.query(sql).await?;
+    info!("✓ snapshots table initialized");
+    Ok(())
+}
+
+/// Initialize `branches` table
 async fn init_branches_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing branches table");
 
     let sql = r#"
-        DEFINE TABLE branches SCHEMALESS
-            PERMISSIONS
-                FOR create FULL
-                FOR select FULL
-                FOR update FULL
-                FOR delete FULL;
-
-        DEFINE INDEX idx_branch_name ON TABLE branches COLUMNS name UNIQUE;
-        DEFINE INDEX idx_head_commit_id ON TABLE branches COLUMNS head_commit_id;
-        DEFINE INDEX idx_is_default ON TABLE branches COLUMNS is_default;
+        DEFINE TABLE branches SCHEMAFULL;
+        DEFINE FIELD name ON branches TYPE string;
+        DEFINE FIELD head_commit_id ON branches TYPE string;
+        DEFINE FIELD is_default ON branches TYPE bool;
+        DEFINE FIELD created_at ON branches TYPE datetime;
+        DEFINE FIELD updated_at ON branches TYPE datetime;
+        DEFINE INDEX idx_branch_name ON branches FIELDS name UNIQUE;
     "#;
 
     db.query(sql).await?;
     info!("✓ branches table initialized");
+    Ok(())
+}
+
+/// Initialize `graph_edges` table
+async fn init_graph_edges_table(db: &Surreal<Any>) -> Result<()> {
+    debug!("Initializing graph_edges table");
+
+    let sql = r#"
+        DEFINE TABLE graph_edges SCHEMAFULL;
+        DEFINE FIELD child_id ON graph_edges TYPE string;
+        DEFINE FIELD parent_id ON graph_edges TYPE string;
+        DEFINE FIELD edge_type ON graph_edges TYPE string;
+        DEFINE FIELD created_at ON graph_edges TYPE datetime;
+        DEFINE INDEX idx_edge_child ON graph_edges FIELDS child_id;
+        DEFINE INDEX idx_edge_parent ON graph_edges FIELDS parent_id;
+    "#;
+
+    db.query(sql).await?;
+    info!("✓ graph_edges table initialized");
+    Ok(())
+}
+
+/// Initialize `memories` table
+async fn init_memories_table(db: &Surreal<Any>) -> Result<()> {
+    debug!("Initializing memories table");
+
+    let sql = r#"
+        DEFINE TABLE memories SCHEMAFULL;
+        DEFINE FIELD commit_id ON memories TYPE string;
+        DEFINE FIELD key ON memories TYPE string;
+        DEFINE FIELD content ON memories TYPE string;
+        DEFINE FIELD embedding ON memories TYPE option<array>;
+        DEFINE FIELD metadata ON memories FLEXIBLE TYPE object;
+        DEFINE FIELD created_at ON memories TYPE datetime;
+        DEFINE INDEX idx_memory_commit ON memories FIELDS commit_id;
+    "#;
+
+    db.query(sql).await?;
+    info!("✓ memories table initialized");
+    Ok(())
+}
+
+/// Initialize `agents` table
+async fn init_agents_table(db: &Surreal<Any>) -> Result<()> {
+    debug!("Initializing agents table");
+
+    let sql = r#"
+        DEFINE TABLE agents SCHEMAFULL;
+        DEFINE FIELD agent_id ON agents TYPE string;
+        DEFINE FIELD name ON agents TYPE string;
+        DEFINE FIELD agent_type ON agents TYPE string;
+        DEFINE FIELD config ON agents FLEXIBLE TYPE object;
+        DEFINE FIELD created_at ON agents TYPE datetime;
+        DEFINE INDEX idx_agent_id ON agents FIELDS agent_id UNIQUE;
+    "#;
+
+    db.query(sql).await?;
+    info!("✓ agents table initialized");
+    Ok(())
+}
+
+/// Initialize CI related tables
+async fn init_ci_tables(db: &Surreal<Any>) -> Result<()> {
+    debug!("Initializing CI tables");
+
+    let sql = r#"
+        -- CI snapshot table (content-addressed by digest)
+        DEFINE TABLE ci_snapshots SCHEMAFULL;
+        DEFINE FIELD digest ON ci_snapshots TYPE string;
+        DEFINE FIELD snapshot_json ON ci_snapshots TYPE string;
+        DEFINE INDEX idx_ci_snapshot_digest ON ci_snapshots FIELDS digest UNIQUE;
+
+        -- CI pipeline table (content-addressed by digest)
+        DEFINE TABLE ci_pipelines SCHEMAFULL;
+        DEFINE FIELD digest ON ci_pipelines TYPE string;
+        DEFINE FIELD pipeline_json ON ci_pipelines TYPE string;
+        DEFINE INDEX idx_ci_pipeline_digest ON ci_pipelines FIELDS digest UNIQUE;
+
+        -- CI run table (linked by run_id and digests)
+        DEFINE TABLE ci_runs SCHEMAFULL;
+        DEFINE FIELD run_id ON ci_runs TYPE string;
+        DEFINE FIELD snapshot_digest ON ci_runs TYPE string;
+        DEFINE FIELD pipeline_digest ON ci_runs TYPE string;
+        DEFINE FIELD status ON ci_runs TYPE string;
+        DEFINE FIELD run_json ON ci_runs TYPE string;
+        DEFINE FIELD started_at ON ci_runs TYPE option<string>;
+        DEFINE FIELD finished_at ON ci_runs TYPE option<string>;
+        DEFINE INDEX idx_ci_run_id ON ci_runs FIELDS run_id UNIQUE;
+        DEFINE INDEX idx_ci_run_snapshot ON ci_runs FIELDS snapshot_digest;
+    "#;
+
+    db.query(sql).await?;
+    info!("✓ CI tables initialized");
     Ok(())
 }
 

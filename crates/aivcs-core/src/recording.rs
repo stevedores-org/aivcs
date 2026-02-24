@@ -42,10 +42,24 @@ impl GraphRunRecorder {
     /// Record a single domain event into the ledger.
     pub async fn record(&self, event: &Event) -> StorageResult<()> {
         let kind_str = event_kind_str(&event.kind);
+
+        // Merge fields from EventKind into payload so they are preserved in the ledger.
+        // This ensures that tool_name, node_id, etc. are queryable from the payload.
+        let mut payload = event.payload.clone();
+        if let serde_json::Value::Object(ref mut map) = payload {
+            if let Ok(serde_json::Value::Object(kind_map)) = serde_json::to_value(&event.kind) {
+                for (k, v) in kind_map {
+                    if k != "type" {
+                        map.insert(k, v);
+                    }
+                }
+            }
+        }
+
         let run_event = RunEvent {
             seq: event.seq,
             kind: kind_str.clone(),
-            payload: event.payload.clone(),
+            payload,
             timestamp: event.timestamp,
         };
         self.ledger.append_event(&self.run_id, run_event).await?;
@@ -74,5 +88,58 @@ impl GraphRunRecorder {
     /// Return a reference to the run ID.
     pub fn run_id(&self) -> &RunId {
         &self.run_id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::run::{Event, EventKind};
+    use oxidized_state::SurrealRunLedger;
+    use serde_json::json;
+    use std::sync::Arc;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn test_tool_name_is_preserved_in_ledger() {
+        let ledger = Arc::new(SurrealRunLedger::in_memory().await.unwrap());
+        let spec_digest = oxidized_state::ContentDigest::from_bytes(b"spec");
+        let metadata = oxidized_state::RunMetadata {
+            git_sha: None,
+            agent_name: "test".to_string(),
+            tags: json!({}),
+        };
+
+        let recorder = GraphRunRecorder::start(ledger.clone(), &spec_digest, metadata)
+            .await
+            .unwrap();
+        let run_id = recorder.run_id().clone();
+
+        let event = Event::new(
+            Uuid::new_v4(),
+            1,
+            EventKind::ToolCalled {
+                tool_name: "my_tool".to_string(),
+            },
+            json!({"param": "value"}),
+        );
+
+        recorder.record(&event).await.unwrap();
+
+        let events = ledger.get_events(&run_id).await.unwrap();
+        assert_eq!(events.len(), 1);
+        let recorded_event = &events[0];
+
+        assert_eq!(recorded_event.kind, "tool_called");
+
+        // This is where the bug is: tool_name should be in the payload if we want diff to work
+        assert_eq!(
+            recorded_event
+                .payload
+                .get("tool_name")
+                .and_then(|v| v.as_str()),
+            Some("my_tool"),
+            "tool_name missing from recorded payload"
+        );
     }
 }
