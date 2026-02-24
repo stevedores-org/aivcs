@@ -92,3 +92,29 @@ fn workflow_has_gate_enforcement_step() {
         "must have gate enforcement step"
     );
 }
+
+#[test]
+fn workflow_validates_eval_suite_input_when_provided() {
+    let content = workflow_content();
+    assert!(
+        content.contains("Validate eval suite input"),
+        "must validate eval-suite input path/json when provided"
+    );
+    assert!(
+        content.contains("python -m json.tool"),
+        "eval-suite input should be validated as JSON"
+    );
+}
+
+#[test]
+fn workflow_has_concurrency_guard() {
+    let content = workflow_content();
+    assert!(
+        content.contains("concurrency:"),
+        "reusable eval workflow should declare concurrency control"
+    );
+    assert!(
+        content.contains("cancel-in-progress: true"),
+        "reusable eval workflow should cancel superseded runs"
+    );
+}

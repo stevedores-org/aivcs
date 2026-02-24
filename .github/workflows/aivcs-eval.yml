@@ -40,6 +40,10 @@ on:
         description: "Name of the uploaded eval artifact"
         value: ${{ jobs.eval.outputs.artifact-name }}
 
+concurrency:
+  group: aivcs-eval-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   eval:
     runs-on: ubuntu-latest
@@ -73,6 +77,16 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+      - name: Validate eval suite input
+        if: inputs.eval-suite != ''
+        shell: bash
+        run: |
+          if [ ! -f "${{ inputs.eval-suite }}" ]; then
+            echo "::error::eval-suite file not found: ${{ inputs.eval-suite }}"
+            exit 1
+          fi
+          python -m json.tool "${{ inputs.eval-suite }}" > /dev/null
 
       - name: Run eval suite
         id: eval
