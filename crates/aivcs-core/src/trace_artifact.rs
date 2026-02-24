@@ -81,16 +81,34 @@ pub fn write_trace_artifact(artifact: &RunTraceArtifact, dir: &Path) -> Result<P
 
 /// Read and integrity-verify a `RunTraceArtifact` from `<dir>/<run_id>/trace.json`.
 ///
-/// Recomputes the SHA-256 digest of the event list and compares it to the
-/// stored `replay_digest`. Returns `AivcsError::DigestMismatch` if they differ.
+/// Performs two integrity checks:
+/// 1. Reads `trace.digest` (companion file) and compares it to the `replay_digest`
+///    stored inside `trace.json`. Detects out-of-band tampering of `trace.json`
+///    when the companion digest file was not also updated.
+/// 2. Recomputes the SHA-256 digest of the event list and compares it to the
+///    stored `replay_digest`. Detects in-place event tampering.
+///
+/// Returns `AivcsError::DigestMismatch` if either check fails.
 pub fn read_trace_artifact(run_id: &str, dir: &Path) -> Result<RunTraceArtifact> {
     let run_dir = dir.join(run_id);
     let trace_path = run_dir.join("trace.json");
+    let digest_path = run_dir.join("trace.digest");
 
     let json = std::fs::read(&trace_path)?;
     let artifact: RunTraceArtifact = serde_json::from_slice(&json)?;
 
-    // Re-derive the digest and verify it matches the stored value
+    // Check 1: verify companion trace.digest matches the JSON's replay_digest
+    if digest_path.exists() {
+        let companion_digest = std::fs::read_to_string(&digest_path)?.trim().to_string();
+        if companion_digest != artifact.replay_digest {
+            return Err(AivcsError::DigestMismatch {
+                expected: companion_digest,
+                actual: artifact.replay_digest.clone(),
+            });
+        }
+    }
+
+    // Check 2: re-derive the digest from events and verify it matches
     let events_json = serde_json::to_vec(&artifact.events)?;
     let actual_digest = ContentDigest::from_bytes(&events_json).as_str().to_string();
 
@@ -154,25 +172,24 @@ impl RetentionPolicy {
         // Age-based pruning
         if let Some(max_days) = self.max_age_days {
             let cutoff = now - chrono::Duration::days(max_days as i64);
-            entries.retain(|(created_at, path)| {
-                if *created_at < cutoff {
-                    if std::fs::remove_dir_all(path).is_ok() {
-                        pruned += 1;
-                    }
-                    false
+            let mut kept = Vec::new();
+            for (created_at, path) in entries {
+                if created_at < cutoff {
+                    std::fs::remove_dir_all(&path)?;
+                    pruned += 1;
                 } else {
-                    true
+                    kept.push((created_at, path));
                 }
-            });
+            }
+            entries = kept;
         }
 
         // Count-based pruning (entries is already newest-first)
         if let Some(max_runs) = self.max_runs {
             if entries.len() > max_runs {
                 for (_, path) in entries.drain(max_runs..) {
-                    if std::fs::remove_dir_all(&path).is_ok() {
-                        pruned += 1;
-                    }
+                    std::fs::remove_dir_all(&path)?;
+                    pruned += 1;
                 }
             }
         }

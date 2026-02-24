@@ -81,7 +81,10 @@ async fn build_seeded_run(ledger: &dyn RunLedger) -> RunId {
 /// serialization of the four-event sequence above.
 ///
 /// If this test fails, it means the event serialization format has changed.
-/// Update the constant only after verifying the change is intentional.
+/// Update the constant **only** after verifying the change is intentional.
+const GOLDEN_REPLAY_DIGEST: &str =
+    "4f1d1a3b33f80618f257cf15e0806fecff3678135c64a6939a277efd2dc918f3";
+
 #[tokio::test]
 async fn test_golden_digest_pin() {
     let ledger: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
@@ -89,19 +92,12 @@ async fn test_golden_digest_pin() {
 
     let (_events, summary) = replay_run(&*ledger, &run_id.0).await.expect("replay_run");
 
-    // Compute the expected digest from the same deterministic input so the
-    // test self-bootstraps on first run and acts as a regression canary
-    // on subsequent runs.
-    let ledger2: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
-    let run_id2 = build_seeded_run(&*ledger2).await;
-    let (_events2, summary2) = replay_run(&*ledger2, &run_id2.0)
-        .await
-        .expect("replay_run2");
-
-    // Both identical runs must produce identical digests.
+    // Assert against the pinned literal — catches serialization drift even
+    // when the change is internally consistent.
     assert_eq!(
-        summary.replay_digest, summary2.replay_digest,
-        "Golden digest mismatch — serialization format may have changed"
+        summary.replay_digest, GOLDEN_REPLAY_DIGEST,
+        "Golden digest mismatch — serialization format may have changed. \
+         If intentional, update GOLDEN_REPLAY_DIGEST."
     );
 
     // Digest must be a valid 64-char hex string.
