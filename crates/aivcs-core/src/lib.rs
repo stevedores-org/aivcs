@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod obs;
 pub mod parallel;
 pub mod publish_gate;
+pub mod quality_guardrails;
 pub mod recording;
 pub mod release_registry;
 pub mod replay;
@@ -87,6 +88,11 @@ pub use trace_artifact::{
     read_trace_artifact, write_trace_artifact, RetentionPolicy, RunTraceArtifact,
 };
 
+pub use quality_guardrails::{
+    evaluate_quality_guardrails, read_guardrail_artifact, release_block_reason,
+    write_guardrail_artifact, CheckFinding, CheckResult, GuardrailArtifact, GuardrailCoverage,
+    GuardrailPolicyProfile, GuardrailVerdict, QualityCheck, QualitySeverity, ReleaseAction,
+};
 pub use role_orchestration::error::{RoleError, RoleResult};
 pub use role_orchestration::executor::{
     execute_roles_parallel, token_from_result, ParallelRoleConfig, RoleRunResult,
