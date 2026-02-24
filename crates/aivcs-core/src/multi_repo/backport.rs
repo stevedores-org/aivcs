@@ -213,37 +213,47 @@ impl BackportExecutor {
 
 /// Simple glob matcher: `*` matches any sequence of non-slash characters.
 fn glob_match(pattern: &str, value: &str) -> bool {
-    if pattern == "*" {
-        return true;
-    }
-    if !pattern.contains('*') {
-        return pattern == value;
-    }
-    // Split on `*` and check that each segment appears in order.
-    let parts: Vec<&str> = pattern.split('*').collect();
-    let mut remaining = value;
-    for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() {
+    let p: Vec<char> = pattern.chars().collect();
+    let v: Vec<char> = value.chars().collect();
+
+    let mut pi = 0usize;
+    let mut vi = 0usize;
+    let mut last_star: Option<usize> = None;
+    let mut last_match_vi = 0usize;
+
+    while vi < v.len() {
+        if pi < p.len() && p[pi] == v[vi] {
+            pi += 1;
+            vi += 1;
             continue;
         }
-        match remaining.find(part) {
-            None => return false,
-            Some(pos) => {
-                // First part must be a prefix.
-                if i == 0 && pos != 0 {
-                    return false;
-                }
-                remaining = &remaining[pos + part.len()..];
+
+        if pi < p.len() && p[pi] == '*' {
+            last_star = Some(pi);
+            pi += 1;
+            last_match_vi = vi;
+            continue;
+        }
+
+        if let Some(star_idx) = last_star {
+            // `*` can consume only non-slash chars.
+            if v[last_match_vi] == '/' {
+                return false;
             }
+            last_match_vi += 1;
+            vi = last_match_vi;
+            pi = star_idx + 1;
+            continue;
         }
+
+        return false;
     }
-    // Last part must be a suffix (no trailing characters).
-    if let Some(last) = parts.last() {
-        if !last.is_empty() && !value.ends_with(last) {
-            return false;
-        }
+
+    while pi < p.len() && p[pi] == '*' {
+        pi += 1;
     }
-    true
+
+    pi == p.len()
 }
 
 #[cfg(test)]
@@ -347,6 +357,8 @@ mod tests {
         assert!(glob_match("release/*", "release/main"));
         assert!(!glob_match("release/*", "main"));
         assert!(glob_match("*", "anything"));
+        assert!(!glob_match("*", "release/main"));
+        assert!(!glob_match("release/*", "release/main/hotfix"));
     }
 
     #[test]

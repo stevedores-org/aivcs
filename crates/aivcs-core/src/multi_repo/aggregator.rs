@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use oxidized_state::{CiRunRecord, CiRunStatus};
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinSet;
 
 use crate::multi_repo::error::{MultiRepoError, MultiRepoResult};
 
@@ -106,29 +107,38 @@ impl CiAggregator {
         objective: &str,
         repo_ids: &[String],
     ) -> MultiRepoResult<CiHealthReport> {
-        let futures: Vec<_> = repo_ids
-            .iter()
-            .map(|id| {
-                let fetcher = Arc::clone(&self.fetcher);
-                let id = id.clone();
-                let objective = objective.to_string();
-                async move {
-                    fetcher
-                        .fetch_latest_run(&id)
-                        .await
-                        .map_err(|e: MultiRepoError| MultiRepoError::AggregationError {
-                            objective: objective.clone(),
-                            detail: e.to_string(),
-                        })
-                }
-            })
-            .collect();
+        let objective_owned = objective.to_string();
+        let mut join_set = JoinSet::new();
+        for (idx, repo_id) in repo_ids.iter().cloned().enumerate() {
+            let fetcher = Arc::clone(&self.fetcher);
+            let objective = objective_owned.clone();
+            join_set.spawn(async move {
+                let run = fetcher.fetch_latest_run(&repo_id).await.map_err(|e| {
+                    MultiRepoError::AggregationError {
+                        objective: objective.clone(),
+                        detail: e.to_string(),
+                    }
+                })?;
+                Ok::<(usize, Option<CiRunRecord>), MultiRepoError>((idx, run))
+            });
+        }
 
-        let results = futures::future::join_all(futures).await;
+        let mut ordered_runs: Vec<Option<Option<CiRunRecord>>> = vec![None; repo_ids.len()];
+        while let Some(joined) = join_set.join_next().await {
+            let result = joined.map_err(|e| MultiRepoError::AggregationError {
+                objective: objective_owned.clone(),
+                detail: format!("ci fetch task join error: {e}"),
+            })?;
+            let (idx, run) = result?;
+            ordered_runs[idx] = Some(run);
+        }
 
         let mut repo_health = Vec::new();
-        for (repo_id, result) in repo_ids.iter().zip(results) {
-            let run = result?;
+        for (repo_id, run_slot) in repo_ids.iter().zip(ordered_runs) {
+            let run = run_slot.ok_or_else(|| MultiRepoError::AggregationError {
+                objective: objective_owned.clone(),
+                detail: format!("missing ci fetch result for repo '{repo_id}'"),
+            })?;
             let status = match &run {
                 None => RepoHealthStatus::Unknown,
                 Some(r) => Self::classify(r),
@@ -189,30 +199,14 @@ impl CiAggregator {
     }
 }
 
-// ── futures dependency ───────────────────────────────────────────────────────
-// aivcs-core doesn't have `futures` in its workspace deps but we only need
-// `join_all`. We pull it from tokio's built-in join_all via a small shim.
-mod futures {
-    pub mod future {
-        pub async fn join_all<F, T, E>(futs: Vec<F>) -> Vec<std::result::Result<T, E>>
-        where
-            F: std::future::Future<Output = std::result::Result<T, E>>,
-        {
-            let mut results = Vec::with_capacity(futs.len());
-            for f in futs {
-                results.push(f.await);
-            }
-            results
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use oxidized_state::{CiRunRecord, CiRunStatus};
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
+    use tokio::time::{sleep, Duration};
 
     /// Stub fetcher backed by an in-memory map of repo_id → CiRunRecord.
     struct MockFetcher {
@@ -326,5 +320,65 @@ mod tests {
         assert_eq!(report.healthy_count(), 1);
         assert_eq!(report.degraded_count(), 1);
         assert_eq!(report.down_count(), 1);
+    }
+
+    struct SlowFetcher {
+        run: CiRunRecord,
+        in_flight: AtomicUsize,
+        max_in_flight: AtomicUsize,
+    }
+
+    impl SlowFetcher {
+        fn new(run: CiRunRecord) -> Arc<Self> {
+            Arc::new(Self {
+                run,
+                in_flight: AtomicUsize::new(0),
+                max_in_flight: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl CiRunFetcher for SlowFetcher {
+        async fn fetch_latest_run(&self, _repo_id: &str) -> MultiRepoResult<Option<CiRunRecord>> {
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            loop {
+                let current_max = self.max_in_flight.load(Ordering::SeqCst);
+                if now <= current_max {
+                    break;
+                }
+                if self
+                    .max_in_flight
+                    .compare_exchange(current_max, now, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+                {
+                    break;
+                }
+            }
+            sleep(Duration::from_millis(20)).await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            Ok(Some(self.run.clone()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_aggregate_fetches_repos_concurrently() {
+        let fetcher = SlowFetcher::new(succeeded_run("snap-concurrent"));
+        let agg = CiAggregator::new(fetcher.clone());
+
+        let repos = vec![
+            "org/a".to_string(),
+            "org/b".to_string(),
+            "org/c".to_string(),
+            "org/d".to_string(),
+        ];
+        let report = agg.aggregate("concurrency", &repos).await.unwrap();
+
+        assert_eq!(report.repo_health.len(), 4);
+        assert!(
+            fetcher.max_in_flight.load(Ordering::SeqCst) > 1,
+            "expected concurrent fetches, max_in_flight={}",
+            fetcher.max_in_flight.load(Ordering::SeqCst)
+        );
     }
 }

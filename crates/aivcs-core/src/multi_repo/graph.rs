@@ -176,11 +176,13 @@ impl RepoDependencyGraph {
             in_degree.entry(id.as_str()).or_default();
         }
 
-        let mut queue: VecDeque<&str> = in_degree
+        let mut roots: Vec<&str> = in_degree
             .iter()
             .filter(|(_, &deg)| deg == 0)
             .map(|(&id, _)| id)
             .collect();
+        roots.sort_unstable();
+        let mut queue: VecDeque<&str> = roots.into_iter().collect();
 
         let mut sorted = Vec::new();
 
@@ -296,11 +298,14 @@ impl RepoDependencyGraph {
             }
         }
 
-        let mut level_queue: VecDeque<(String, usize)> = in_degree
+        let mut level_roots: Vec<String> = in_degree
             .iter()
             .filter(|(_, &deg)| deg == 0)
-            .map(|(id, _)| (id.clone(), 0usize))
+            .map(|(id, _)| id.clone())
             .collect();
+        level_roots.sort_unstable();
+        let mut level_queue: VecDeque<(String, usize)> =
+            level_roots.into_iter().map(|id| (id, 0usize)).collect();
 
         let mut node_level: HashMap<String, usize> = HashMap::new();
         let mut sorted_ids: Vec<String> = Vec::new();
@@ -520,5 +525,45 @@ mod tests {
         let a_idx = ids.iter().position(|&x| x == "A").unwrap();
         let d_idx = ids.iter().position(|&x| x == "D").unwrap();
         assert!(a_idx < d_idx);
+    }
+
+    #[test]
+    fn test_topological_order_is_deterministic_for_independent_roots() {
+        let mut g = RepoDependencyGraph::new();
+        g.add_node(node("B"));
+        g.add_node(node("A"));
+        g.add_node(node("C"));
+        g.add_dependency("A", "C").unwrap();
+        g.add_dependency("B", "C").unwrap();
+
+        let first: Vec<String> = g
+            .topological_order()
+            .unwrap()
+            .into_iter()
+            .map(|n| n.repo_id)
+            .collect();
+        let second: Vec<String> = g
+            .topological_order()
+            .unwrap()
+            .into_iter()
+            .map(|n| n.repo_id)
+            .collect();
+
+        assert_eq!(first, second);
+        assert_eq!(first, vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn test_execution_plan_is_deterministic_for_independent_roots() {
+        let mut g = RepoDependencyGraph::new();
+        g.add_node(node("repo-b"));
+        g.add_node(node("repo-a"));
+        g.add_node(node("repo-c"));
+        g.add_dependency("repo-a", "repo-c").unwrap();
+        g.add_dependency("repo-b", "repo-c").unwrap();
+
+        let plan = g.to_execution_plan("deterministic").unwrap();
+        let ids: Vec<String> = plan.steps.into_iter().map(|s| s.repo.repo_id).collect();
+        assert_eq!(ids, vec!["repo-a", "repo-b", "repo-c"]);
     }
 }
