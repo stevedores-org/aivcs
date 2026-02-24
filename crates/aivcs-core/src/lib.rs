@@ -100,8 +100,8 @@ pub use role_orchestration::router::{
 
 pub use sandbox::{
     evaluate_tool_request, execute_with_controls, CircuitBreaker, PolicyVerdict, SandboxConfig,
-    SandboxError, SandboxResult, ToolCapability, ToolExecutionResult, ToolPolicyRule,
-    ToolPolicySet, ToolRequest,
+    SandboxError, SandboxResult, ToolCapability as SandboxToolCapability, ToolExecutionResult,
+    ToolPolicyRule, ToolPolicySet, ToolRequest,
 };
 
 pub use metrics::METRICS;
