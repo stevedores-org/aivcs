@@ -67,9 +67,17 @@ pub fn validate_handoff_sequence(
     proposed_sequence: &[AgentRole],
     templates: &[RoleTemplate],
 ) -> RoleResult<()> {
+    let is_parallel = |r: &AgentRole| matches!(r, AgentRole::Reviewer | AgentRole::Tester);
+
     for window in proposed_sequence.windows(2) {
         let from = &window[0];
         let to = &window[1];
+
+        // Reviewer/Tester are sibling-parallel in the standard flow and do not
+        // hand off to each other directly.
+        if is_parallel(from) && is_parallel(to) {
+            continue;
+        }
 
         let template = templates.iter().find(|t| &t.role == to).ok_or_else(|| {
             RoleError::UnauthorizedHandoff {
@@ -166,8 +174,14 @@ mod tests {
 
     #[test]
     fn test_standard_sequence_passes_validation() {
-        // Planner → Coder is valid
-        let seq = vec![AgentRole::Planner, AgentRole::Coder];
+        // Standard route includes Reviewer + Tester sibling-parallel pair.
+        let seq = vec![
+            AgentRole::Planner,
+            AgentRole::Coder,
+            AgentRole::Reviewer,
+            AgentRole::Tester,
+            AgentRole::Fixer,
+        ];
         assert!(validate_handoff_sequence(&seq, &templates()).is_ok());
     }
 
@@ -238,5 +252,18 @@ mod tests {
         let plan = build_execution_plan("solo", vec![AgentRole::Planner], &templates()).unwrap();
         assert_eq!(plan.steps.len(), 1);
         assert!(!plan.steps[0].parallelizable);
+    }
+
+    #[test]
+    fn test_validate_handoff_sequence_skips_parallel_sibling_edge() {
+        // Coder -> Reviewer and Tester -> Fixer are validated; Reviewer -> Tester
+        // sibling edge is intentionally skipped.
+        let seq = vec![
+            AgentRole::Coder,
+            AgentRole::Reviewer,
+            AgentRole::Tester,
+            AgentRole::Fixer,
+        ];
+        assert!(validate_handoff_sequence(&seq, &templates()).is_ok());
     }
 }
