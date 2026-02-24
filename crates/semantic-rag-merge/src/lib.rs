@@ -131,7 +131,6 @@ pub async fn resolve_conflict_state(
     let score_b = conflict_score(&conflict.memory_b);
     let total = score_a + score_b;
 
-<<<<<<< HEAD
     let (winner, _loser_score, label) = if score_a >= score_b {
         (&conflict.memory_a, score_b, "A")
     } else {
@@ -174,53 +173,9 @@ pub async fn resolve_conflict_state(
     } else {
         format!("Chose branch {label}: {}", reasons.join(", "))
     };
-=======
-    let (winner, _loser_score, label) = if score_a >= score_b {
-        (&conflict.memory_a, score_b, "A")
-    } else {
-        (&conflict.memory_b, score_a, "B")
-    };
-
-    // Confidence: how decisive is the margin?
-    // - Equal scores → 0.5 (coin-flip)
-    // - One signal dominant → ~0.7
-    // - All signals agree → ~0.85
-    let confidence = if total == 0.0 {
-        0.5
-    } else {
-        let margin = (score_a - score_b).abs() / total;
-        // Map margin [0, 1] → confidence [0.5, 0.85]
-        0.5 + margin * 0.35
-    };
-
-    let mut reasons = Vec::new();
-    let a_len = conflict.memory_a.content.len();
-    let b_len = conflict.memory_b.content.len();
-    if a_len != b_len {
-        reasons.push(format!("content length: A={} B={} chars", a_len, b_len));
-    }
-    if conflict.memory_a.created_at != conflict.memory_b.created_at {
-        reasons.push(format!(
-            "recency: A={} B={}",
-            conflict.memory_a.created_at.format("%Y-%m-%dT%H:%M:%S"),
-            conflict.memory_b.created_at.format("%Y-%m-%dT%H:%M:%S"),
-        ));
-    }
-    let meta_a = metadata_field_count(&conflict.memory_a.metadata);
-    let meta_b = metadata_field_count(&conflict.memory_b.metadata);
-    if meta_a != meta_b {
-        reasons.push(format!("metadata fields: A={meta_a} B={meta_b}"));
-    }
-
-    let reasoning = if reasons.is_empty() {
-        format!("Chose branch {label}: identical signals, defaulting to A")
-    } else {
-        format!("Chose branch {label}: {}", reasons.join(", "))
-    };
->>>>>>> 8a4a88c (fix(semantic-rag-merge): multi-signal conflict resolution heuristic)
 
     Ok(AutoResolvedValue {
-        value: serde_json::Value::String(winner.content.clone()),
+        value: winner.content.clone(),
         favored_branch: Some(label.to_string()),
         reasoning,
         confidence: (confidence * 100.0).round() / 100.0,
