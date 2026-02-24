@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use oxidized_state::storage_traits::{ContentDigest, RunEvent, RunLedger, RunMetadata, RunSummary};
+use oxidized_state::storage_traits::{ContentDigest, RunLedger, RunMetadata, RunSummary};
 use serde::{Deserialize, Serialize};
 
 use crate::multi_repo::error::{MultiRepoError, MultiRepoResult};
@@ -117,20 +117,27 @@ impl BackportExecutor {
         let mut outcomes = Vec::new();
         let mut seq: u64 = 1;
 
+        let run_id_uuid = uuid::Uuid::parse_str(&recorder.run_id().0)
+            .map_err(|e| MultiRepoError::Storage(format!("invalid run_id uuid: {}", e)))?;
+
         for task in tasks {
+            let commit_sha = task.commit_sha.clone();
+            let target_branch = task.target_branch.clone();
+
             // Record ToolCalled event.
-            let call_event = RunEvent {
+            let call_event = crate::domain::run::Event::new(
+                run_id_uuid,
                 seq,
-                kind: "ToolCalled".to_string(),
-                payload: serde_json::json!({
-                    "tool_name": "cherry_pick",
-                    "commit_sha": task.commit_sha,
-                    "target_branch": task.target_branch,
+                crate::domain::run::EventKind::ToolCalled {
+                    tool_name: "cherry_pick".to_string(),
+                },
+                serde_json::json!({
+                    "commit_sha": commit_sha,
+                    "target_branch": target_branch,
                 }),
-                timestamp: chrono::Utc::now(),
-            };
-            self.ledger
-                .append_event(recorder.run_id(), call_event)
+            );
+            recorder
+                .record(&call_event)
                 .await
                 .map_err(|e| MultiRepoError::Storage(e.to_string()))?;
             seq += 1;
@@ -154,22 +161,26 @@ impl BackportExecutor {
             };
 
             // Record ToolReturned / ToolFailed.
-            let result_event = RunEvent {
+            let result_event = crate::domain::run::Event::new(
+                run_id_uuid,
                 seq,
-                kind: if success {
-                    "ToolReturned".to_string()
+                if success {
+                    crate::domain::run::EventKind::ToolReturned {
+                        tool_name: "cherry_pick".to_string(),
+                    }
                 } else {
-                    "ToolFailed".to_string()
+                    crate::domain::run::EventKind::ToolFailed {
+                        tool_name: "cherry_pick".to_string(),
+                    }
                 },
-                payload: serde_json::json!({
-                    "commit_sha": task.commit_sha,
+                serde_json::json!({
+                    "commit_sha": commit_sha,
                     "applied_sha": applied_sha,
                     "conflict_files": conflict_files,
                 }),
-                timestamp: chrono::Utc::now(),
-            };
-            self.ledger
-                .append_event(recorder.run_id(), result_event)
+            );
+            recorder
+                .record(&result_event)
                 .await
                 .map_err(|e| MultiRepoError::Storage(e.to_string()))?;
             seq += 1;
@@ -311,15 +322,33 @@ mod tests {
         let tasks = exec.resolve_tasks(&p, &["abc123".to_string()]);
 
         let outcomes = exec
-            .execute(tasks, &p, "run-000", |_sha, _branch| {
-                (true, vec![], Some("new_sha".to_string()))
-            })
+            .execute(
+                tasks,
+                &p,
+                "00000000-0000-0000-0000-000000000000",
+                |_sha, _branch| (true, vec![], Some("new_sha".to_string())),
+            )
             .await
             .unwrap();
 
         assert_eq!(outcomes.len(), 1);
         assert!(outcomes[0].success);
         assert_eq!(outcomes[0].applied_commit_sha.as_deref(), Some("new_sha"));
+
+        // Verify event shape in ledger (Regression check for standardization)
+        let runs = ledger.list_runs(None).await.unwrap();
+        let run_id = &runs[0].run_id;
+        let events = ledger.get_events(run_id).await.unwrap();
+
+        // 1. ToolCalled
+        assert_eq!(events[0].kind, "tool_called");
+        assert_eq!(events[0].payload["tool_name"], "cherry_pick");
+        assert_eq!(events[0].payload["commit_sha"], "abc123");
+
+        // 2. ToolReturned
+        assert_eq!(events[1].kind, "tool_returned");
+        assert_eq!(events[1].payload["tool_name"], "cherry_pick");
+        assert_eq!(events[1].payload["applied_sha"], "new_sha");
     }
 
     #[tokio::test]
@@ -336,19 +365,31 @@ mod tests {
         let tasks = exec.resolve_tasks(&p, &commits);
 
         let outcomes = exec
-            .execute(tasks, &p, "run-001", |sha, _branch| {
-                if sha == "sha1" {
-                    (false, vec!["conflict.rs".to_string()], None)
-                } else {
-                    (true, vec![], Some("ok".to_string()))
-                }
-            })
+            .execute(
+                tasks,
+                &p,
+                "00000000-0000-0000-0000-000000000001",
+                |sha, _branch| {
+                    if sha == "sha1" {
+                        (false, vec!["conflict.rs".to_string()], None)
+                    } else {
+                        (true, vec![], Some("ok".to_string()))
+                    }
+                },
+            )
             .await
             .unwrap();
 
         // Stopped after the first failure.
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].success);
+
+        // Verify ToolFailed kind is recorded correctly
+        let runs = ledger.list_runs(None).await.unwrap();
+        let run_id = &runs[0].run_id;
+        let events = ledger.get_events(run_id).await.unwrap();
+        assert_eq!(events[1].kind, "tool_failed");
+        assert_eq!(events[1].payload["tool_name"], "cherry_pick");
     }
 
     #[test]

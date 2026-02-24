@@ -5,17 +5,15 @@
 //! configurable compaction policies.
 
 pub mod context;
+pub mod decision;
 pub mod error;
 pub mod index;
-pub mod learning;
-pub mod provenance;
 pub mod rationale;
 pub mod retention;
 
 pub use context::{assemble_context, ContextBudget, ContextItem, ContextWindow};
+pub use decision::{DecisionRecorder, DecisionRecorderConfig};
 pub use error::{MemoryError, MemoryResult};
 pub use index::{IndexQuery, IndexResult, MemoryEntry, MemoryEntryKind, MemoryIndex};
-pub use learning::{boost_risky_decisions, query_decision_history, DecisionHistory};
-pub use provenance::{finalize_run_outcome, ingest_rationale, ProvenanceRecord, ProvenanceStore};
 pub use rationale::{DecisionRationale, RationaleEntry, RationaleOutcome};
 pub use retention::{compact_index, CompactionPolicy, CompactionResult};

@@ -1,0 +1,19 @@
+# lci — Local CI configuration for aivcs
+# See tools/lci/README.md for usage.
+
+[stages]
+# Stages to run by default (in order). Options: fmt, clippy, test, check, build
+default = ["fmt", "clippy"]
+
+[test]
+# Crates excluded from workspace tests (empty = test all crates)
+exclude = []
+
+[env]
+# Environment variables set during CI stages.
+
+[performance]
+# Use sccache for cached Rust compilation if available
+sccache = true
+# Parallel cargo jobs (0 = auto-detect)
+jobs = 0

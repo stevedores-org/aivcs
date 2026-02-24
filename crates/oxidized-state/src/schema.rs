@@ -91,18 +91,6 @@ impl CommitId {
         Self::new(None, &state_hash, None)
     }
 
-    /// Create a new CommitId from a JSON value, ensuring canonical key ordering.
-    pub fn from_json(value: &serde_json::Value) -> Self {
-        let bytes = if let Some(obj) = value.as_object() {
-            // Force BTreeMap sorting even if preserve_order is enabled
-            let sorted: std::collections::BTreeMap<_, _> = obj.iter().collect();
-            serde_json::to_vec(&sorted).unwrap_or_else(|_| serde_json::to_vec(value).unwrap())
-        } else {
-            serde_json::to_vec(value).unwrap()
-        };
-        Self::from_state(&bytes)
-    }
-
     /// Create a full composite CommitId (Phase 2+)
     pub fn new(logic_hash: Option<&str>, state_hash: &str, env_hash: Option<&str>) -> Self {
         let mut hasher = Sha256::new();
@@ -381,16 +369,6 @@ impl GraphEdge {
             created_at: Utc::now(),
         }
     }
-
-    /// Create a fork edge
-    pub fn fork(child_id: &str, parent_id: &str) -> Self {
-        GraphEdge {
-            child_id: child_id.to_string(),
-            parent_id: parent_id.to_string(),
-            edge_type: EdgeType::Fork,
-            created_at: Utc::now(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -566,6 +544,184 @@ impl ReleaseRecordSchema {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Decision and Memory Provenance Records — Decision Learning and Lineage
+// ---------------------------------------------------------------------------
+
+/// Decision record - captures agent decisions with rationale and outcomes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionRecord {
+    /// SurrealDB record ID
+    pub id: Option<surrealdb::sql::Thing>,
+    /// Unique decision ID (UUID string)
+    pub decision_id: String,
+    /// Associated commit ID
+    pub commit_id: String,
+    /// Task/context this decision was about
+    pub task: String,
+    /// What was decided/action taken
+    pub action: String,
+    /// Why this decision was made
+    pub rationale: String,
+    /// Alternative options considered (JSON array)
+    pub alternatives: serde_json::Value,
+    /// Confidence level (0.0-1.0)
+    pub confidence: f32,
+    /// Decision outcome
+    pub outcome: Option<String>, // JSON serialized DecisionOutcome enum
+    /// Decision timestamp
+    #[serde(with = "surreal_datetime")]
+    pub timestamp: DateTime<Utc>,
+    /// When outcome was recorded (if any)
+    #[serde(default, with = "surreal_datetime_opt")]
+    pub outcome_at: Option<DateTime<Utc>>,
+}
+
+impl DecisionRecord {
+    /// Create a new decision record
+    pub fn new(
+        decision_id: String,
+        commit_id: String,
+        task: String,
+        action: String,
+        rationale: String,
+        confidence: f32,
+    ) -> Self {
+        DecisionRecord {
+            id: None,
+            decision_id,
+            commit_id,
+            task,
+            action,
+            rationale,
+            alternatives: serde_json::json!([]),
+            confidence,
+            outcome: None,
+            timestamp: Utc::now(),
+            outcome_at: None,
+        }
+    }
+
+    /// Add alternatives to consider
+    pub fn with_alternatives(mut self, alternatives: Vec<String>) -> Self {
+        self.alternatives = serde_json::json!(alternatives);
+        self
+    }
+
+    /// Record the decision outcome
+    pub fn with_outcome(mut self, outcome: String) -> Self {
+        self.outcome = Some(outcome);
+        self.outcome_at = Some(Utc::now());
+        self
+    }
+}
+
+/// Provenance source for memory records
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProvenanceSourceType {
+    /// From a run execution trace
+    RunTrace,
+    /// From a state snapshot
+    StateSnapshot,
+    /// From user annotation
+    UserAnnotation,
+    /// Derived from another memory
+    MemoryDerivation,
+}
+
+/// Memory provenance record - tracks lineage of memories
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryProvenanceRecord {
+    /// SurrealDB record ID
+    pub id: Option<surrealdb::sql::Thing>,
+    /// The memory ID this provenance describes
+    pub memory_id: String,
+    /// Source type (JSON serialized ProvenanceSourceType)
+    pub source_type: String,
+    /// Source details (JSON: run_id, event_idx, commit_id, user_id, parent_id, etc.)
+    pub source_data: serde_json::Value,
+    /// Parent memory ID if derived
+    pub derived_from: Option<String>,
+    /// Created timestamp
+    #[serde(with = "surreal_datetime")]
+    pub created_at: DateTime<Utc>,
+    /// When this provenance became invalid/stale
+    #[serde(default, with = "surreal_datetime_opt")]
+    pub invalidated_at: Option<DateTime<Utc>>,
+}
+
+impl MemoryProvenanceRecord {
+    /// Create provenance for a run trace source
+    pub fn from_run_trace(memory_id: String, run_id: String, event_idx: usize) -> Self {
+        MemoryProvenanceRecord {
+            id: None,
+            memory_id,
+            source_type: ProvenanceSourceType::RunTrace.to_string(),
+            source_data: serde_json::json!({ "run_id": run_id, "event_idx": event_idx }),
+            derived_from: None,
+            created_at: Utc::now(),
+            invalidated_at: None,
+        }
+    }
+
+    /// Create provenance for a state snapshot source
+    pub fn from_snapshot(memory_id: String, commit_id: String) -> Self {
+        MemoryProvenanceRecord {
+            id: None,
+            memory_id,
+            source_type: ProvenanceSourceType::StateSnapshot.to_string(),
+            source_data: serde_json::json!({ "commit_id": commit_id }),
+            derived_from: None,
+            created_at: Utc::now(),
+            invalidated_at: None,
+        }
+    }
+
+    /// Create provenance for user annotation
+    pub fn from_user_annotation(memory_id: String, user_id: String) -> Self {
+        MemoryProvenanceRecord {
+            id: None,
+            memory_id,
+            source_type: ProvenanceSourceType::UserAnnotation.to_string(),
+            source_data: serde_json::json!({ "user_id": user_id }),
+            derived_from: None,
+            created_at: Utc::now(),
+            invalidated_at: None,
+        }
+    }
+
+    /// Create provenance for derived memory
+    pub fn from_derivation(memory_id: String, parent_id: String, derivation: String) -> Self {
+        MemoryProvenanceRecord {
+            id: None,
+            memory_id,
+            source_type: ProvenanceSourceType::MemoryDerivation.to_string(),
+            source_data: serde_json::json!({ "derivation": derivation }),
+            derived_from: Some(parent_id),
+            created_at: Utc::now(),
+            invalidated_at: None,
+        }
+    }
+
+    /// Mark this provenance as invalidated
+    pub fn invalidate(mut self) -> Self {
+        self.invalidated_at = Some(Utc::now());
+        self
+    }
+}
+
+impl core::fmt::Display for ProvenanceSourceType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ProvenanceSourceType::RunTrace => write!(f, "run_trace"),
+            ProvenanceSourceType::StateSnapshot => write!(f, "state_snapshot"),
+            ProvenanceSourceType::UserAnnotation => write!(f, "user_annotation"),
+            ProvenanceSourceType::MemoryDerivation => write!(f, "memory_derivation"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,5 +868,140 @@ mod tests {
 
         assert_eq!(release.name, "my-agent");
         assert_eq!(release.version_label, Some("v1.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_decision_record_new() {
+        let decision = DecisionRecord::new(
+            "dec-123".to_string(),
+            "commit-abc".to_string(),
+            "task-optimize".to_string(),
+            "use_parallel".to_string(),
+            "Improves throughput".to_string(),
+            0.85,
+        );
+
+        assert_eq!(decision.decision_id, "dec-123");
+        assert_eq!(decision.commit_id, "commit-abc");
+        assert_eq!(decision.task, "task-optimize");
+        assert_eq!(decision.action, "use_parallel");
+        assert_eq!(decision.confidence, 0.85);
+        assert!(decision.outcome.is_none());
+    }
+
+    #[test]
+    fn test_decision_record_with_alternatives() {
+        let decision = DecisionRecord::new(
+            "dec-456".to_string(),
+            "commit-def".to_string(),
+            "task-retry".to_string(),
+            "exponential_backoff".to_string(),
+            "Reduces thundering herd".to_string(),
+            0.75,
+        )
+        .with_alternatives(vec!["linear_backoff".to_string(), "no_retry".to_string()]);
+
+        let alts: Vec<String> = serde_json::from_value(decision.alternatives).unwrap();
+        assert_eq!(alts.len(), 2);
+        assert!(alts.contains(&"linear_backoff".to_string()));
+    }
+
+    #[test]
+    fn test_decision_record_with_outcome() {
+        let outcome_json = serde_json::json!({
+            "status": "success",
+            "benefit": 1.23,
+            "duration_ms": 5000
+        });
+        let decision = DecisionRecord::new(
+            "dec-789".to_string(),
+            "commit-ghi".to_string(),
+            "task-cache".to_string(),
+            "redis_cache".to_string(),
+            "Faster lookups".to_string(),
+            0.9,
+        )
+        .with_outcome(outcome_json.to_string());
+
+        assert!(decision.outcome.is_some());
+        assert!(decision.outcome_at.is_some());
+    }
+
+    #[test]
+    fn test_memory_provenance_from_run_trace() {
+        let prov = MemoryProvenanceRecord::from_run_trace(
+            "mem-123".to_string(),
+            "run-456".to_string(),
+            42,
+        );
+
+        assert_eq!(prov.memory_id, "mem-123");
+        assert_eq!(prov.source_type, ProvenanceSourceType::RunTrace.to_string());
+        assert!(prov.derived_from.is_none());
+        assert!(prov.invalidated_at.is_none());
+
+        let source_data: serde_json::Value = prov.source_data;
+        assert_eq!(source_data["run_id"], "run-456");
+        assert_eq!(source_data["event_idx"], 42);
+    }
+
+    #[test]
+    fn test_memory_provenance_from_snapshot() {
+        let prov =
+            MemoryProvenanceRecord::from_snapshot("mem-789".to_string(), "commit-abc".to_string());
+
+        assert_eq!(prov.memory_id, "mem-789");
+        assert_eq!(
+            prov.source_type,
+            ProvenanceSourceType::StateSnapshot.to_string()
+        );
+        assert_eq!(prov.source_data["commit_id"], "commit-abc");
+    }
+
+    #[test]
+    fn test_memory_provenance_from_derivation() {
+        let prov = MemoryProvenanceRecord::from_derivation(
+            "mem-new".to_string(),
+            "mem-parent".to_string(),
+            "summarize".to_string(),
+        );
+
+        assert_eq!(prov.memory_id, "mem-new");
+        assert_eq!(prov.derived_from, Some("mem-parent".to_string()));
+        assert_eq!(
+            prov.source_type,
+            ProvenanceSourceType::MemoryDerivation.to_string()
+        );
+        assert_eq!(prov.source_data["derivation"], "summarize");
+    }
+
+    #[test]
+    fn test_memory_provenance_invalidation() {
+        let prov = MemoryProvenanceRecord::from_user_annotation(
+            "mem-123".to_string(),
+            "user-456".to_string(),
+        );
+
+        assert!(prov.invalidated_at.is_none());
+
+        let invalidated = prov.invalidate();
+        assert!(invalidated.invalidated_at.is_some());
+    }
+
+    #[test]
+    fn test_provenance_source_type_display() {
+        assert_eq!(ProvenanceSourceType::RunTrace.to_string(), "run_trace");
+        assert_eq!(
+            ProvenanceSourceType::StateSnapshot.to_string(),
+            "state_snapshot"
+        );
+        assert_eq!(
+            ProvenanceSourceType::UserAnnotation.to_string(),
+            "user_annotation"
+        );
+        assert_eq!(
+            ProvenanceSourceType::MemoryDerivation.to_string(),
+            "memory_derivation"
+        );
     }
 }

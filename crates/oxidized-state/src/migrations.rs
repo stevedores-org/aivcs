@@ -33,6 +33,10 @@ pub async fn init_schema(db: &Surreal<Any>) -> Result<()> {
     // CI tables
     init_ci_tables(db).await?;
 
+    // Memory and Decision tables (EPIC5)
+    init_decisions_table(db).await?;
+    init_memory_provenances_table(db).await?;
+
     info!("AIVCS schema initialization complete");
     Ok(())
 }
@@ -225,7 +229,7 @@ async fn init_snapshots_table(db: &Surreal<Any>) -> Result<()> {
     let sql = r#"
         DEFINE TABLE snapshots SCHEMAFULL;
         DEFINE FIELD commit_id ON snapshots TYPE string;
-        DEFINE FIELD state ON snapshots FLEXIBLE;
+        DEFINE FIELD state ON snapshots FLEXIBLE TYPE object;
         DEFINE FIELD size_bytes ON snapshots TYPE int;
         DEFINE FIELD created_at ON snapshots TYPE datetime;
         DEFINE INDEX idx_snapshot_commit ON snapshots FIELDS commit_id UNIQUE;
@@ -345,6 +349,88 @@ async fn init_ci_tables(db: &Surreal<Any>) -> Result<()> {
 
     db.query(sql).await?;
     info!("✓ CI tables initialized");
+    Ok(())
+}
+
+/// Initialize `decisions` table (EPIC5)
+///
+/// Schema:
+/// ```text
+/// TABLE decisions {
+///   decision_id:    STRING (primary key)
+///   commit_id:      STRING (indexed)
+///   task:           STRING
+///   action:         STRING
+///   rationale:      STRING
+///   alternatives:   ARRAY<STRING>
+///   confidence:     FLOAT (0.0-1.0)
+///   outcome:        STRING? (JSON serialized outcome)
+///   timestamp:      DATETIME (indexed)
+///   outcome_at:     DATETIME?
+/// }
+/// ```
+async fn init_decisions_table(db: &Surreal<Any>) -> Result<()> {
+    debug!("Initializing decisions table");
+
+    let sql = r#"
+        DEFINE TABLE decisions SCHEMAFULL;
+        DEFINE FIELD decision_id ON decisions TYPE string;
+        DEFINE FIELD commit_id ON decisions TYPE string;
+        DEFINE FIELD task ON decisions TYPE string;
+        DEFINE FIELD action ON decisions TYPE string;
+        DEFINE FIELD rationale ON decisions TYPE string;
+        DEFINE FIELD alternatives ON decisions TYPE array;
+        DEFINE FIELD confidence ON decisions TYPE float;
+        DEFINE FIELD outcome ON decisions TYPE option<string>;
+        DEFINE FIELD timestamp ON decisions TYPE datetime;
+        DEFINE FIELD outcome_at ON decisions TYPE option<datetime>;
+
+        DEFINE INDEX idx_decision_id ON decisions FIELDS decision_id UNIQUE;
+        DEFINE INDEX idx_decision_commit ON decisions FIELDS commit_id;
+        DEFINE INDEX idx_decision_task ON decisions FIELDS task;
+        DEFINE INDEX idx_decision_timestamp ON decisions FIELDS timestamp;
+        DEFINE INDEX idx_decision_commit_task ON decisions FIELDS commit_id, task;
+    "#;
+
+    db.query(sql).await?;
+    info!("✓ decisions table initialized");
+    Ok(())
+}
+
+/// Initialize `memory_provenances` table (EPIC5)
+///
+/// Schema:
+/// ```text
+/// TABLE memory_provenances {
+///   memory_id:       STRING (indexed)
+///   source_type:     STRING (run_trace | state_snapshot | user_annotation | memory_derivation)
+///   source_data:     OBJECT (variant-specific fields)
+///   derived_from:    STRING? (parent memory_id)
+///   created_at:      DATETIME (indexed)
+///   invalidated_at:  DATETIME?
+/// }
+/// ```
+async fn init_memory_provenances_table(db: &Surreal<Any>) -> Result<()> {
+    debug!("Initializing memory_provenances table");
+
+    let sql = r#"
+        DEFINE TABLE memory_provenances SCHEMAFULL;
+        DEFINE FIELD memory_id ON memory_provenances TYPE string;
+        DEFINE FIELD source_type ON memory_provenances TYPE string;
+        DEFINE FIELD source_data ON memory_provenances FLEXIBLE TYPE object;
+        DEFINE FIELD derived_from ON memory_provenances TYPE option<string>;
+        DEFINE FIELD created_at ON memory_provenances TYPE datetime;
+        DEFINE FIELD invalidated_at ON memory_provenances TYPE option<datetime>;
+
+        DEFINE INDEX idx_provenance_memory_id ON memory_provenances FIELDS memory_id;
+        DEFINE INDEX idx_provenance_created_at ON memory_provenances FIELDS created_at;
+        DEFINE INDEX idx_provenance_derived_from ON memory_provenances FIELDS derived_from;
+        DEFINE INDEX idx_provenance_source_type ON memory_provenances FIELDS source_type;
+        DEFINE INDEX idx_provenance_invalidated ON memory_provenances FIELDS invalidated_at;
+    "#;
+
+    db.query(sql).await?;
+    info!("✓ memory_provenances table initialized");
     Ok(())
 }
 
