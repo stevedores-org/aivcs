@@ -41,6 +41,12 @@ impl ToolCapability {
     }
 }
 
+impl std::fmt::Display for ToolCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_policy_key())
+    }
+}
+
 /// Minimal JSON schema: required top-level fields.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JsonFieldSchema {

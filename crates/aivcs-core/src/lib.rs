@@ -23,6 +23,7 @@ pub mod release_registry;
 pub mod replay;
 pub mod reporting;
 pub mod role_orchestration;
+pub mod sandbox;
 pub mod self_healing;
 pub mod telemetry;
 pub mod tooling;
@@ -119,6 +120,11 @@ pub use self_healing::{
     classify_failure, execute_recovery_loop, read_recovery_artifact, write_recovery_artifact,
     FailureClass, FailureSignal, RecoveryAction, RecoveryAttemptResult, RecoveryDecision,
     RecoveryLog, RecoveryOutcome, RecoveryPolicy,
+};
+
+pub use sandbox::{
+    evaluate_tool_request, execute_with_controls, CircuitBreaker, PolicyVerdict, SandboxConfig,
+    SandboxError, SandboxResult, ToolExecutionResult, ToolPolicyRule, ToolPolicySet, ToolRequest,
 };
 
 pub use metrics::METRICS;
