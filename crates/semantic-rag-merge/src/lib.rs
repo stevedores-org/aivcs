@@ -211,9 +211,20 @@ pub async fn semantic_merge(
     message: &str,
     author: &str,
 ) -> Result<MergeResult> {
-    // Create the merge commit ID
-    let state_data = format!("merge:{}:{}", commit_a, commit_b);
-    let merge_commit_id = CommitId::from_state(state_data.as_bytes());
+    // Create a merged state record
+    // In a real agent, this might involve merging domain-specific fields.
+    // For the VCS core, we ensure a valid snapshot exists for the merge commit.
+    let state = serde_json::json!({
+        "type": "merge",
+        "parents": [commit_a, commit_b],
+        "message": message,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
+
+    let merge_commit_id = CommitId::from_json(&state);
+
+    // Save merged snapshot to ensure trace/restore works
+    handle.save_snapshot(&merge_commit_id, state).await?;
 
     // Synthesize memories
     let merged_memories =
@@ -233,12 +244,12 @@ pub async fn semantic_merge(
     );
     handle.save_commit(&commit).await?;
 
-    // Save graph edges for both parents
+    // Save graph edges for both parents with correct EdgeType::Merge
     handle
-        .save_commit_graph_edge(&merge_commit_id.hash, commit_a)
+        .save_commit_graph_edge_merge(&merge_commit_id.hash, commit_a)
         .await?;
     handle
-        .save_commit_graph_edge(&merge_commit_id.hash, commit_b)
+        .save_commit_graph_edge_merge(&merge_commit_id.hash, commit_b)
         .await?;
 
     // Get delta for summary

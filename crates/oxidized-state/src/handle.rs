@@ -382,9 +382,35 @@ impl SurrealHandle {
         Ok(())
     }
 
-    /// Get parent commit ID for a given commit
+    /// Save a merge graph edge
     #[instrument(skip(self))]
-    pub async fn get_parent(&self, child_id: &str) -> Result<Option<String>> {
+    pub async fn save_commit_graph_edge_merge(&self, child_id: &str, parent_id: &str) -> Result<()> {
+        debug!("Saving merge graph edge: {} -> {}", parent_id, child_id);
+
+        let edge = GraphEdge::merge(child_id, parent_id);
+
+        let _created: Option<GraphEdge> = self.db.create("graph_edges").content(edge).await?;
+
+        info!("Merge graph edge saved: {} -> {}", parent_id, child_id);
+        Ok(())
+    }
+
+    /// Save a fork graph edge
+    #[instrument(skip(self))]
+    pub async fn save_commit_graph_edge_fork(&self, child_id: &str, parent_id: &str) -> Result<()> {
+        debug!("Saving fork graph edge: {} -> {}", parent_id, child_id);
+
+        let edge = GraphEdge::fork(child_id, parent_id);
+
+        let _created: Option<GraphEdge> = self.db.create("graph_edges").content(edge).await?;
+
+        info!("Fork graph edge saved: {} -> {}", parent_id, child_id);
+        Ok(())
+    }
+
+    /// Get all parent commit IDs for a given commit
+    #[instrument(skip(self))]
+    pub async fn get_parents(&self, child_id: &str) -> Result<Vec<String>> {
         let id_owned = child_id.to_string();
 
         let mut result = self
@@ -399,7 +425,13 @@ impl SurrealHandle {
         }
 
         let parents: Vec<ParentResult> = result.take(0)?;
-        Ok(parents.into_iter().next().map(|p| p.parent_id))
+        Ok(parents.into_iter().map(|p| p.parent_id).collect())
+    }
+
+    /// Get first parent commit ID for a given commit
+    pub async fn get_parent(&self, child_id: &str) -> Result<Option<String>> {
+        let parents = self.get_parents(child_id).await?;
+        Ok(parents.into_iter().next())
     }
 
     /// Get all children of a commit (for branch visualization)
