@@ -899,10 +899,7 @@ mod tests {
             "Reduces thundering herd".to_string(),
             0.75,
         )
-        .with_alternatives(vec![
-            "linear_backoff".to_string(),
-            "no_retry".to_string(),
-        ]);
+        .with_alternatives(vec!["linear_backoff".to_string(), "no_retry".to_string()]);
 
         let alts: Vec<String> = serde_json::from_value(decision.alternatives).unwrap();
         assert_eq!(alts.len(), 2);
@@ -950,10 +947,8 @@ mod tests {
 
     #[test]
     fn test_memory_provenance_from_snapshot() {
-        let prov = MemoryProvenanceRecord::from_snapshot(
-            "mem-789".to_string(),
-            "commit-abc".to_string(),
-        );
+        let prov =
+            MemoryProvenanceRecord::from_snapshot("mem-789".to_string(), "commit-abc".to_string());
 
         assert_eq!(prov.memory_id, "mem-789");
         assert_eq!(
@@ -973,7 +968,10 @@ mod tests {
 
         assert_eq!(prov.memory_id, "mem-new");
         assert_eq!(prov.derived_from, Some("mem-parent".to_string()));
-        assert_eq!(prov.source_type, ProvenanceSourceType::MemoryDerivation.to_string());
+        assert_eq!(
+            prov.source_type,
+            ProvenanceSourceType::MemoryDerivation.to_string()
+        );
         assert_eq!(prov.source_data["derivation"], "summarize");
     }
 
@@ -993,8 +991,14 @@ mod tests {
     #[test]
     fn test_provenance_source_type_display() {
         assert_eq!(ProvenanceSourceType::RunTrace.to_string(), "run_trace");
-        assert_eq!(ProvenanceSourceType::StateSnapshot.to_string(), "state_snapshot");
-        assert_eq!(ProvenanceSourceType::UserAnnotation.to_string(), "user_annotation");
+        assert_eq!(
+            ProvenanceSourceType::StateSnapshot.to_string(),
+            "state_snapshot"
+        );
+        assert_eq!(
+            ProvenanceSourceType::UserAnnotation.to_string(),
+            "user_annotation"
+        );
         assert_eq!(
             ProvenanceSourceType::MemoryDerivation.to_string(),
             "memory_derivation"

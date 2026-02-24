@@ -66,7 +66,7 @@ impl DecisionRecorder {
         }
 
         // Validate confidence is in range [0.0, 1.0]
-        if confidence < 0.0 || confidence > 1.0 {
+        if !(0.0..=1.0).contains(&confidence) {
             return Err(AivcsError::StorageError(
                 "confidence must be between 0.0 and 1.0".to_string(),
             ));
@@ -108,7 +108,9 @@ impl DecisionRecorder {
             .get_decision(decision_id)
             .await
             .map_err(|e| AivcsError::StorageError(format!("Failed to get decision: {}", e)))?
-            .ok_or_else(|| AivcsError::StorageError(format!("Decision not found: {}", decision_id)))?;
+            .ok_or_else(|| {
+                AivcsError::StorageError(format!("Decision not found: {}", decision_id))
+            })?;
 
         // Note: In a real implementation (Phase 2), we would update the record with outcome.
         // For Phase 1, we just verify the decision exists.
@@ -117,10 +119,7 @@ impl DecisionRecorder {
     }
 
     /// Record memory provenance for a memory
-    pub async fn record_provenance(
-        &self,
-        provenance: MemoryProvenanceRecord,
-    ) -> Result<String> {
+    pub async fn record_provenance(&self, provenance: MemoryProvenanceRecord) -> Result<String> {
         if !self.config.enabled {
             return Ok("provenance_recording_disabled".to_string());
         }
@@ -131,15 +130,17 @@ impl DecisionRecorder {
         self.handle
             .save_provenance(&provenance)
             .await
-            .map_err(|e| {
-                AivcsError::StorageError(format!("Failed to record provenance: {}", e))
-            })?;
+            .map_err(|e| AivcsError::StorageError(format!("Failed to record provenance: {}", e)))?;
 
         Ok(memory_id)
     }
 
     /// Get decision history for a task
-    pub async fn get_decision_history(&self, task: &str, limit: usize) -> Result<Vec<DecisionRecord>> {
+    pub async fn get_decision_history(
+        &self,
+        task: &str,
+        limit: usize,
+    ) -> Result<Vec<DecisionRecord>> {
         if !self.config.enabled {
             return Ok(vec![]);
         }
@@ -204,8 +205,8 @@ mod tests {
     #[test]
     fn test_confidence_validation() {
         // Confidence should be in [0.0, 1.0]
-        assert!(0.0 <= 0.5 && 0.5 <= 1.0);
-        assert!(0.0 <= 0.0 && 0.0 <= 1.0);
-        assert!(0.0 <= 1.0 && 1.0 <= 1.0);
+        assert!((0.0..=1.0).contains(&0.5));
+        assert!((0.0..=1.0).contains(&0.0));
+        assert!((0.0..=1.0).contains(&1.0));
     }
 }

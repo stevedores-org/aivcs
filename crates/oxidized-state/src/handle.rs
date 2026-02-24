@@ -11,8 +11,8 @@
 use crate::ci::{CiPipelineSpec, CiRunRecord, CiSnapshot};
 use crate::error::StateError;
 use crate::schema::{
-    AgentRecord, BranchRecord, CommitId, CommitRecord, DecisionRecord, GraphEdge, MemoryProvenanceRecord,
-    MemoryRecord, SnapshotRecord,
+    AgentRecord, BranchRecord, CommitId, CommitRecord, DecisionRecord, GraphEdge,
+    MemoryProvenanceRecord, MemoryRecord, SnapshotRecord,
 };
 use crate::storage_traits::{ContentDigest, ReleaseMetadata, ReleaseRecord, StorageResult};
 use crate::Result;
@@ -888,12 +888,18 @@ impl SurrealHandle {
 
     /// Get decision history for a task
     #[instrument(skip(self))]
-    pub async fn get_decision_history(&self, task: &str, limit: usize) -> Result<Vec<DecisionRecord>> {
+    pub async fn get_decision_history(
+        &self,
+        task: &str,
+        limit: usize,
+    ) -> Result<Vec<DecisionRecord>> {
         let task_owned = task.to_string();
 
         let mut result = self
             .db
-            .query("SELECT * FROM decisions WHERE task = $task ORDER BY timestamp DESC LIMIT $limit")
+            .query(
+                "SELECT * FROM decisions WHERE task = $task ORDER BY timestamp DESC LIMIT $limit",
+            )
             .bind(("task", task_owned))
             .bind(("limit", limit as i64))
             .await?;
@@ -904,13 +910,19 @@ impl SurrealHandle {
 
     /// Save a memory provenance record
     #[instrument(skip(self, record))]
-    pub async fn save_provenance(&self, record: &MemoryProvenanceRecord) -> Result<MemoryProvenanceRecord> {
+    pub async fn save_provenance(
+        &self,
+        record: &MemoryProvenanceRecord,
+    ) -> Result<MemoryProvenanceRecord> {
         debug!("Saving memory provenance");
 
         let record_owned = record.clone();
 
-        let created: Option<MemoryProvenanceRecord> =
-            self.db.create("memory_provenances").content(record_owned).await?;
+        let created: Option<MemoryProvenanceRecord> = self
+            .db
+            .create("memory_provenances")
+            .content(record_owned)
+            .await?;
 
         created.ok_or_else(|| StateError::Transaction("Failed to save provenance".to_string()))
     }
