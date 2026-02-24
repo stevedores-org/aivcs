@@ -94,10 +94,10 @@ impl GraphRunRecorder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use crate::domain::run::{Event, EventKind};
     use oxidized_state::SurrealRunLedger;
     use serde_json::json;
+    use std::sync::Arc;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -110,7 +110,9 @@ mod tests {
             tags: json!({}),
         };
 
-        let recorder = GraphRunRecorder::start(ledger.clone(), &spec_digest, metadata).await.unwrap();
+        let recorder = GraphRunRecorder::start(ledger.clone(), &spec_digest, metadata)
+            .await
+            .unwrap();
         let run_id = recorder.run_id().clone();
 
         let event = Event::new(
@@ -131,6 +133,13 @@ mod tests {
         assert_eq!(recorded_event.kind, "tool_called");
 
         // This is where the bug is: tool_name should be in the payload if we want diff to work
-        assert_eq!(recorded_event.payload.get("tool_name").and_then(|v| v.as_str()), Some("my_tool"), "tool_name missing from recorded payload");
+        assert_eq!(
+            recorded_event
+                .payload
+                .get("tool_name")
+                .and_then(|v| v.as_str()),
+            Some("my_tool"),
+            "tool_name missing from recorded payload"
+        );
     }
 }
