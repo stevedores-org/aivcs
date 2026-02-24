@@ -11,6 +11,7 @@ pub mod domain;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod memory;
 pub mod metrics;
 pub mod obs;
 pub mod orchestration;
@@ -107,6 +108,12 @@ pub use role_orchestration::merge::{merge_parallel_outputs, MergedRoleOutput, Ro
 pub use role_orchestration::roles::HandoffToken;
 pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
+};
+
+pub use memory::{
+    assemble_context, compact_index, CompactionPolicy, CompactionResult, ContextBudget,
+    ContextItem, ContextWindow, DecisionRationale, IndexQuery, IndexResult, MemoryEntry,
+    MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, RationaleEntry, RationaleOutcome,
 };
 
 pub use metrics::METRICS;

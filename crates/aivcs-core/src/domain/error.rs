@@ -46,6 +46,9 @@ pub enum AivcsError {
     #[error("validation error: {0}")]
     Validation(#[from] ValidationError),
 
+    #[error("memory error: {0}")]
+    Memory(String),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }
