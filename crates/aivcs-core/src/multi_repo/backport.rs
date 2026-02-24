@@ -121,6 +121,10 @@ impl BackportExecutor {
             .map_err(|e| MultiRepoError::Storage(format!("invalid run_id uuid: {}", e)))?;
 
         for task in tasks {
+            // Clone task fields used across payload creation, executor call, and outcome.
+            let commit_sha = task.commit_sha.clone();
+            let target_branch = task.target_branch.clone();
+
             // Record ToolCalled event.
             let call_event = crate::domain::run::Event::new(
                 run_id_uuid,
@@ -129,8 +133,8 @@ impl BackportExecutor {
                     tool_name: "cherry_pick".to_string(),
                 },
                 serde_json::json!({
-                    "commit_sha": task.commit_sha,
-                    "target_branch": task.target_branch,
+                    "commit_sha": commit_sha,
+                    "target_branch": target_branch,
                 }),
             );
             recorder
