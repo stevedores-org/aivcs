@@ -236,9 +236,7 @@ pub async fn semantic_merge(
         synthesize_memory(handle, commit_a, commit_b, &merge_commit_id.hash).await?;
 
     // 5. Persist merged snapshot
-    handle
-        .save_snapshot(&merge_commit_id, merged_state)
-        .await?;
+    handle.save_snapshot(&merge_commit_id, merged_state).await?;
 
     // 6. Save merged memories
     for mem in &merged_memories {
@@ -350,8 +348,10 @@ mod tests {
         // Create commit IDs and snapshots (now required by semantic_merge)
         let state_a = serde_json::json!({"branch": "a"});
         let state_b = serde_json::json!({"branch": "b"});
-        let commit_id_a = oxidized_state::CommitId::from_state(serde_json::to_vec(&state_a).unwrap().as_slice());
-        let commit_id_b = oxidized_state::CommitId::from_state(serde_json::to_vec(&state_b).unwrap().as_slice());
+        let commit_id_a =
+            oxidized_state::CommitId::from_state(serde_json::to_vec(&state_a).unwrap().as_slice());
+        let commit_id_b =
+            oxidized_state::CommitId::from_state(serde_json::to_vec(&state_b).unwrap().as_slice());
 
         handle.save_snapshot(&commit_id_a, state_a).await.unwrap();
         handle.save_snapshot(&commit_id_b, state_b).await.unwrap();
