@@ -44,8 +44,8 @@ impl ContentDigest {
     }
 
     /// Short form (first 12 hex chars).
-    pub fn short(&self) -> &str {
-        &self.0[..12.min(self.0.len())]
+    pub fn short(&self) -> String {
+        self.0.chars().take(12).collect()
     }
 }
 

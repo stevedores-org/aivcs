@@ -1,6 +1,6 @@
 use oxidized_state::RunEvent;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 /// A single tool call extracted from a `RunEvent` stream.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,12 +74,48 @@ fn extract_tool_calls(events: &[RunEvent]) -> Vec<ToolCall> {
         .collect()
 }
 
-fn group_by_name(calls: Vec<ToolCall>) -> HashMap<String, Vec<ToolCall>> {
-    let mut map: HashMap<String, Vec<ToolCall>> = HashMap::new();
-    for call in calls {
-        map.entry(call.tool_name.clone()).or_default().push(call);
+// ---------------------------------------------------------------------------
+// Alignment (LCS)
+// ---------------------------------------------------------------------------
+
+fn lcs_alignment(calls_a: &[ToolCall], calls_b: &[ToolCall]) -> Vec<(usize, usize)> {
+    let m = calls_a.len();
+    let n = calls_b.len();
+
+    if m == 0 || n == 0 {
+        return Vec::new();
     }
-    map
+
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+
+    for i in 1..=m {
+        for j in 1..=n {
+            if calls_a[i - 1].tool_name == calls_b[j - 1].tool_name {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = dp[i][j - 1].max(dp[i - 1][j]);
+            }
+        }
+    }
+
+    let mut alignment = Vec::new();
+    let mut i = m;
+    let mut j = n;
+
+    while i > 0 && j > 0 {
+        if calls_a[i - 1].tool_name == calls_b[j - 1].tool_name {
+            alignment.push((i - 1, j - 1));
+            i -= 1;
+            j -= 1;
+        } else if dp[i][j - 1] > dp[i - 1][j] {
+            j -= 1;
+        } else {
+            i -= 1;
+        }
+    }
+
+    alignment.reverse();
+    alignment
 }
 
 // ---------------------------------------------------------------------------
@@ -131,96 +167,62 @@ fn param_delta(a: &Value, b: &Value) -> Vec<ParamDelta> {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Diff two ordered `RunEvent` sequences, producing a `ToolCallDiff` that
-/// captures added, removed, reordered, and param-changed tool calls.
+/// Diff two ordered `RunEvent` sequences, producing a `ToolCallDiff`.
 ///
-/// Events with `kind == "tool_called"` that lack a valid `payload.tool_name`
-/// string are silently skipped. Reorder detection uses the relative position
-/// of each tool call within the extracted tool-call stream (not the global
-/// run-level `seq`), so inserting or removing non-tool events between runs
-/// does not cause false positives.
+/// Uses Longest Common Subsequence (LCS) alignment on tool names to detect
+/// added, removed, and reordered tool calls accurately.
 pub fn diff_tool_calls(a: &[RunEvent], b: &[RunEvent]) -> ToolCallDiff {
     let calls_a = extract_tool_calls(a);
     let calls_b = extract_tool_calls(b);
 
-    // Build a map from tool_name to relative position within the full
-    // tool-call stream (across all names). This is the basis for reorder
-    // detection — it is independent of the global run-event seq.
-    let position_a: HashMap<u64, usize> = calls_a
-        .iter()
-        .enumerate()
-        .map(|(i, c)| (c.seq, i))
-        .collect();
-    let position_b: HashMap<u64, usize> = calls_b
-        .iter()
-        .enumerate()
-        .map(|(i, c)| (c.seq, i))
-        .collect();
+    let alignment = lcs_alignment(&calls_a, &calls_b);
 
-    let group_a = group_by_name(calls_a);
-    let group_b = group_by_name(calls_b);
+    let mut aligned_a = HashSet::new();
+    let mut aligned_b = HashSet::new();
+    for (i_a, i_b) in &alignment {
+        aligned_a.insert(*i_a);
+        aligned_b.insert(*i_b);
+    }
 
     let mut changes = Vec::new();
 
-    let mut all_names: Vec<&String> = group_a.keys().chain(group_b.keys()).collect();
-    all_names.sort();
-    all_names.dedup();
+    // 1. Removed calls (in A but not aligned in B)
+    for (i, call) in calls_a.iter().enumerate() {
+        if !aligned_a.contains(&i) {
+            changes.push(ToolCallChange::Removed(call.clone()));
+        }
+    }
 
-    for name in all_names {
-        let empty = Vec::new();
-        let list_a = group_a.get(name).unwrap_or(&empty);
-        let list_b = group_b.get(name).unwrap_or(&empty);
+    // 2. Aligned calls: check for param changes and reordering
+    for (i_a, i_b) in alignment {
+        let ca = &calls_a[i_a];
+        let cb = &calls_b[i_b];
 
-        match (list_a.is_empty(), list_b.is_empty()) {
-            (true, false) => {
-                for call in list_b {
-                    changes.push(ToolCallChange::Added(call.clone()));
-                }
-            }
-            (false, true) => {
-                for call in list_a {
-                    changes.push(ToolCallChange::Removed(call.clone()));
-                }
-            }
-            _ => {
-                let paired = list_a.len().min(list_b.len());
+        // Check param changes
+        let deltas = param_delta(&ca.params, &cb.params);
+        if !deltas.is_empty() {
+            changes.push(ToolCallChange::ParamChanged {
+                tool_name: ca.tool_name.clone(),
+                seq_a: ca.seq,
+                seq_b: cb.seq,
+                deltas,
+            });
+        }
 
-                for i in 0..paired {
-                    let ca = &list_a[i];
-                    let cb = &list_b[i];
+        // Check reorder: if relative positions in the aligned sequences differ
+        if i_a != i_b {
+            changes.push(ToolCallChange::Reordered {
+                call: cb.clone(),
+                from_index: i_a,
+                to_index: i_b,
+            });
+        }
+    }
 
-                    // Check param changes
-                    let deltas = param_delta(&ca.params, &cb.params);
-                    if !deltas.is_empty() {
-                        changes.push(ToolCallChange::ParamChanged {
-                            tool_name: name.clone(),
-                            seq_a: ca.seq,
-                            seq_b: cb.seq,
-                            deltas,
-                        });
-                    }
-
-                    // Check reorder by relative position in the tool-call stream
-                    let idx_a = position_a.get(&ca.seq).copied().unwrap_or(0);
-                    let idx_b = position_b.get(&cb.seq).copied().unwrap_or(0);
-                    if idx_a != idx_b {
-                        changes.push(ToolCallChange::Reordered {
-                            call: cb.clone(),
-                            from_index: idx_a,
-                            to_index: idx_b,
-                        });
-                    }
-                }
-
-                // Extra in A → Removed
-                for call in list_a.iter().skip(paired) {
-                    changes.push(ToolCallChange::Removed(call.clone()));
-                }
-                // Extra in B → Added
-                for call in list_b.iter().skip(paired) {
-                    changes.push(ToolCallChange::Added(call.clone()));
-                }
-            }
+    // 3. Added calls (in B but not aligned in A)
+    for (i, call) in calls_b.iter().enumerate() {
+        if !aligned_b.contains(&i) {
+            changes.push(ToolCallChange::Added(call.clone()));
         }
     }
 
