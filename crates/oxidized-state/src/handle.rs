@@ -384,7 +384,11 @@ impl SurrealHandle {
 
     /// Save a merge graph edge
     #[instrument(skip(self))]
-    pub async fn save_commit_graph_edge_merge(&self, child_id: &str, parent_id: &str) -> Result<()> {
+    pub async fn save_commit_graph_edge_merge(
+        &self,
+        child_id: &str,
+        parent_id: &str,
+    ) -> Result<()> {
         debug!("Saving merge graph edge: {} -> {}", parent_id, child_id);
 
         let edge = GraphEdge::merge(child_id, parent_id);

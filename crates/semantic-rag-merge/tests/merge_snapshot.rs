@@ -1,4 +1,4 @@
-use oxidized_state::{SurrealHandle, CommitId, CommitRecord, BranchRecord};
+use oxidized_state::{BranchRecord, CommitId, CommitRecord, SurrealHandle};
 use semantic_rag_merge::semantic_merge;
 
 #[tokio::test]
@@ -11,7 +11,10 @@ async fn test_merge_creates_snapshot() {
     handle.save_snapshot(&init_id, initial_state).await.unwrap();
     let init_commit = CommitRecord::new(init_id.clone(), vec![], "Initial", "test");
     handle.save_commit(&init_commit).await.unwrap();
-    handle.save_branch(&BranchRecord::new("main", &init_id.hash, true)).await.unwrap();
+    handle
+        .save_branch(&BranchRecord::new("main", &init_id.hash, true))
+        .await
+        .unwrap();
 
     // 2. Create branch A
     let state_a = serde_json::json!({"step": 1, "branch": "A"});
@@ -28,15 +31,17 @@ async fn test_merge_creates_snapshot() {
     handle.save_commit(&commit_b).await.unwrap();
 
     // 4. Merge A and B
-    let merge_result = semantic_merge(
-        &handle,
-        &id_a.hash,
-        &id_b.hash,
-        "Merge A and B",
-        "test"
-    ).await.unwrap();
+    let merge_result = semantic_merge(&handle, &id_a.hash, &id_b.hash, "Merge A and B", "test")
+        .await
+        .unwrap();
 
     // 5. Try to load snapshot of merge commit
-    let snapshot = handle.load_snapshot(&merge_result.merge_commit_id.hash).await;
-    assert!(snapshot.is_ok(), "Snapshot should be created for merge commit. Error: {:?}", snapshot.err());
+    let snapshot = handle
+        .load_snapshot(&merge_result.merge_commit_id.hash)
+        .await;
+    assert!(
+        snapshot.is_ok(),
+        "Snapshot should be created for merge commit. Error: {:?}",
+        snapshot.err()
+    );
 }

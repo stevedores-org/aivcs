@@ -1,4 +1,4 @@
-use oxidized_state::{SurrealHandle, CommitId, CommitRecord};
+use oxidized_state::{CommitId, CommitRecord, SurrealHandle};
 
 #[tokio::test]
 async fn test_duplicate_snapshot_fails() {
@@ -15,5 +15,9 @@ async fn test_duplicate_snapshot_fails() {
     let commit2 = CommitRecord::new(commit_id.clone(), vec![], "Second", "test");
     let result = handle.save_commit(&commit2).await;
 
-    assert!(result.is_err(), "Second commit with same CommitId should fail due to UNIQUE constraint. Got: {:?}", result.ok());
+    assert!(
+        result.is_err(),
+        "Second commit with same CommitId should fail due to UNIQUE constraint. Got: {:?}",
+        result.ok()
+    );
 }
