@@ -91,6 +91,18 @@ impl CommitId {
         Self::new(None, &state_hash, None)
     }
 
+    /// Create a new CommitId from a JSON value, ensuring canonical key ordering.
+    pub fn from_json(value: &serde_json::Value) -> Self {
+        let bytes = if let Some(obj) = value.as_object() {
+            // Force BTreeMap sorting even if preserve_order is enabled
+            let sorted: std::collections::BTreeMap<_, _> = obj.iter().collect();
+            serde_json::to_vec(&sorted).unwrap_or_else(|_| serde_json::to_vec(value).unwrap())
+        } else {
+            serde_json::to_vec(value).unwrap()
+        };
+        Self::from_state(&bytes)
+    }
+
     /// Create a full composite CommitId (Phase 2+)
     pub fn new(logic_hash: Option<&str>, state_hash: &str, env_hash: Option<&str>) -> Self {
         let mut hasher = Sha256::new();
@@ -369,6 +381,16 @@ impl GraphEdge {
             created_at: Utc::now(),
         }
     }
+
+    /// Create a fork edge
+    pub fn fork(child_id: &str, parent_id: &str) -> Self {
+        GraphEdge {
+            child_id: child_id.to_string(),
+            parent_id: parent_id.to_string(),
+            edge_type: EdgeType::Fork,
+            created_at: Utc::now(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +412,7 @@ pub struct RunRecord {
     pub agent_name: String,
     /// Arbitrary tags (JSON)
     pub tags: serde_json::Value,
-    /// Run status: "running" | "completed" | "failed"
+    /// Run status: "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED"
     pub status: String,
     /// Total events recorded
     pub total_events: u64,
@@ -424,7 +446,7 @@ impl RunRecord {
             git_sha,
             agent_name,
             tags,
-            status: "running".to_string(),
+            status: "RUNNING".to_string(),
             total_events: 0,
             final_state_digest: None,
             duration_ms: 0,
@@ -441,7 +463,7 @@ impl RunRecord {
         final_state_digest: Option<String>,
         duration_ms: u64,
     ) -> Self {
-        self.status = "completed".to_string();
+        self.status = "COMPLETED".to_string();
         self.total_events = total_events;
         self.final_state_digest = final_state_digest;
         self.duration_ms = duration_ms;
@@ -452,7 +474,7 @@ impl RunRecord {
 
     /// Mark run as failed
     pub fn fail(mut self, total_events: u64, duration_ms: u64) -> Self {
-        self.status = "failed".to_string();
+        self.status = "FAILED".to_string();
         self.total_events = total_events;
         self.duration_ms = duration_ms;
         self.success = false;
@@ -462,7 +484,7 @@ impl RunRecord {
 
     /// Mark run as cancelled
     pub fn cancel(mut self, total_events: u64, duration_ms: u64) -> Self {
-        self.status = "cancelled".to_string();
+        self.status = "CANCELLED".to_string();
         self.total_events = total_events;
         self.duration_ms = duration_ms;
         self.success = false;
@@ -480,7 +502,7 @@ pub struct RunEventRecord {
     pub run_id: String,
     /// Monotonic sequence number within run (1-indexed)
     pub seq: u64,
-    /// Event kind (e.g. "GraphStarted", "NodeEntered", "ToolCalled")
+    /// Event kind (e.g. "graph_started", "node_entered", "tool_called")
     pub kind: String,
     /// Event payload (JSON)
     pub payload: serde_json::Value,
@@ -508,8 +530,8 @@ impl RunEventRecord {
 pub struct ReleaseRecordSchema {
     /// SurrealDB record ID
     pub id: Option<surrealdb::sql::Thing>,
-    /// Agent name
-    pub agent_name: String,
+    /// Release/Agent name
+    pub name: String,
     /// Spec digest being released
     pub spec_digest: String,
     /// Version label (e.g. "v1.2.3")
@@ -526,7 +548,7 @@ pub struct ReleaseRecordSchema {
 impl ReleaseRecordSchema {
     /// Create a new release record
     pub fn new(
-        agent_name: String,
+        name: String,
         spec_digest: String,
         version_label: Option<String>,
         promoted_by: String,
@@ -534,7 +556,7 @@ impl ReleaseRecordSchema {
     ) -> Self {
         ReleaseRecordSchema {
             id: None,
-            agent_name,
+            name,
             spec_digest,
             version_label,
             promoted_by,
@@ -625,7 +647,7 @@ mod tests {
         );
 
         assert_eq!(run.run_id, "run-123");
-        assert_eq!(run.status, "running");
+        assert_eq!(run.status, "RUNNING");
         assert_eq!(run.total_events, 0);
         assert!(!run.success);
     }
@@ -641,7 +663,7 @@ mod tests {
         )
         .complete(5, Some("state-digest-xyz".to_string()), 1000);
 
-        assert_eq!(run.status, "completed");
+        assert_eq!(run.status, "COMPLETED");
         assert_eq!(run.total_events, 5);
         assert!(run.success);
         assert!(run.completed_at.is_some());
@@ -658,7 +680,7 @@ mod tests {
         )
         .fail(2, 500);
 
-        assert_eq!(run.status, "failed");
+        assert_eq!(run.status, "FAILED");
         assert_eq!(run.total_events, 2);
         assert!(!run.success);
         assert!(run.completed_at.is_some());
@@ -669,13 +691,13 @@ mod tests {
         let event = RunEventRecord::new(
             "run-123".to_string(),
             1,
-            "GraphStarted".to_string(),
+            "graph_started".to_string(),
             serde_json::json!({"graph_id": "g1"}),
         );
 
         assert_eq!(event.run_id, "run-123");
         assert_eq!(event.seq, 1);
-        assert_eq!(event.kind, "GraphStarted");
+        assert_eq!(event.kind, "graph_started");
     }
 
     #[test]
@@ -688,7 +710,7 @@ mod tests {
             Some("Initial release".to_string()),
         );
 
-        assert_eq!(release.agent_name, "my-agent");
+        assert_eq!(release.name, "my-agent");
         assert_eq!(release.version_label, Some("v1.0.0".to_string()));
     }
 }

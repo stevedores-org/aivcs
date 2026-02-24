@@ -8,10 +8,13 @@ pub mod deploy;
 pub mod deploy_runner;
 pub mod diff;
 pub mod domain;
+pub mod enterprise;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod hitl_controls;
 pub mod memory;
+pub mod memory_context;
 pub mod metrics;
 pub mod multi_repo;
 pub mod obs;
@@ -80,9 +83,11 @@ pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
 pub use planning_autonomy::{
-    compute_progress, decompose_goal_to_dag, evaluate_replan, schedule_next_ready_tasks, EpicPlan,
-    ExecutionDag, GoalPlan, PlanTask, PlanTaskStatus, PlanningError, ProgressReport,
-    ReplanDecision, ReplanPolicy, ReplanReason, SchedulerConstraints, TaskPlan,
+    compute_progress, decompose_goal_to_dag, evaluate_replan, evaluate_replan_with_controls,
+    schedule_next_ready_tasks, ControlledReplanDecision, EpicPlan, ExecutionDag, GoalPlan,
+    PlanTask, PlanTaskStatus, PlannerRuntimeState, PlanningError, ProgressReport, RecoveryControls,
+    ReplanDecision, ReplanPolicy, ReplanReason, ReplanSuppressionReason, SchedulerConstraints,
+    TaskPlan,
 };
 
 pub use diff::node_paths::{
@@ -119,9 +124,10 @@ pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
 };
 pub use self_healing::{
-    classify_failure, execute_recovery_loop, read_recovery_artifact, write_recovery_artifact,
-    FailureClass, FailureSignal, RecoveryAction, RecoveryAttemptResult, RecoveryDecision,
-    RecoveryLog, RecoveryOutcome, RecoveryPolicy,
+    check_regression, classify_failure, execute_recovery_loop, read_recovery_artifact,
+    recovery_log_to_memory_fields, write_recovery_artifact, FailureClass, FailureSignal,
+    RecoveryAction, RecoveryAttemptResult, RecoveryDecision, RecoveryLog, RecoveryOutcome,
+    RecoveryPolicy, RegressionCheck, RegressionRecommendation,
 };
 
 pub use sandbox::{
@@ -130,17 +136,35 @@ pub use sandbox::{
 };
 
 pub use memory::{
-    assemble_context, compact_index, CompactionPolicy, CompactionResult, ContextBudget,
-    ContextItem, ContextWindow, DecisionRationale, IndexQuery, IndexResult, MemoryEntry,
-    MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, RationaleEntry, RationaleOutcome,
+    assemble_context, boost_risky_decisions, compact_index, finalize_run_outcome, ingest_rationale,
+    query_decision_history, CompactionPolicy, CompactionResult, ContextBudget, ContextItem,
+    ContextWindow, DecisionHistory, DecisionRationale, IndexQuery, IndexResult, MemoryEntry,
+    MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, ProvenanceRecord, ProvenanceStore,
+    RationaleEntry, RationaleOutcome,
 };
 
+pub use enterprise::{
+    verify_audit_export, write_audit_export, AuditEvent, AuditExportReceipt, AuditLog,
+    AuditOutcome, AuthzDecision, CostBudget, CostCharge, CostTracker, Permission, Principal,
+    RbacPolicy, RedactionResult, RedactionRule, Role, SecretRef, SecretsPolicy, SliMeasurement,
+    Slo, SloStatus, SloTracker, TenantId,
+};
+pub use memory_context::{
+    estimate_tokens, read_memory_context_artifact, write_memory_context_artifact, AssembledContext,
+    CompactionPolicy as MemoryContextCompactionPolicy,
+    CompactionResult as MemoryContextCompactionResult, CompactionStrategy, ContextAssembler,
+    ContextSegment, DecisionImportance, DecisionRationale as MemoryContextDecisionRationale,
+    MatchStrategy, MemoryContextArtifact, MemoryEntry as MemoryContextEntry, MemoryHit,
+    MemoryIndex as MemoryContextIndex, MemoryQuery, RationaleLedger,
+};
 pub use metrics::METRICS;
 pub use multi_repo::{
-    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CiAggregator, CiHealthReport,
-    CiRunFetcher, MultiRepoError, MultiRepoResult, ReleaseSequencer, RepoDependencyGraph,
-    RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoNode, RepoReleaseStatus, RepoReleaser,
-    RepoStep, SequenceItem, SequenceOutcome, SequencePlan,
+    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CIHealthView, CiAggregator,
+    CiHealthReport, CiRunFetcher, CrossRepoGraph, MultiRepoError, MultiRepoExecutionPlan,
+    MultiRepoOrchestrator, MultiRepoResult, ReleaseProvenance, ReleaseSequencer, RepoCIStatus,
+    RepoDependency, RepoDependencyGraph, RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoId,
+    RepoNode, RepoReleaseStatus, RepoReleaser, RepoStep, SequenceItem, SequenceOutcome,
+    SequencePlan,
 };
 pub use obs::{
     emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
@@ -151,6 +175,13 @@ pub use tooling::{
     JsonFieldSchema, PolicyAction, PolicyMatrix, SchemaStage, ToolAdapter, ToolCallStatus,
     ToolCapability, ToolExecutionConfig, ToolExecutionError, ToolExecutionReport, ToolExecutor,
     ToolInvocation, ToolRegistry, ToolSpec, ToolTelemetry,
+};
+
+pub use hitl_controls::{
+    apply_intervention, evaluate_checkpoint, read_hitl_artifact, submit_vote, write_hitl_artifact,
+    ApprovalCheckpoint, ApprovalPolicy, ApprovalRule, ApprovalVote, CheckpointStatus,
+    DecisionSummary, ExplainabilitySummary, HitlArtifact, HitlError, HitlResult, Intervention,
+    InterventionAction, RiskTier, VoteDecision,
 };
 
 /// AIVCS version

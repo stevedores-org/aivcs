@@ -62,7 +62,7 @@ impl<L: RunLedger> LedgerHandler<L> {
         Self {
             ledger,
             run_id: RwLock::new(None),
-            seq: AtomicU64::new(0),
+            seq: AtomicU64::new(1),
             spec_digest,
             metadata,
             saw_error: AtomicBool::new(false),
@@ -99,25 +99,25 @@ fn map_event(event: &Event) -> (String, serde_json::Value) {
                 graph_name,
                 entry_point,
             } => (
-                "GraphStarted".into(),
+                "graph_started".into(),
                 json!({ "graph_name": graph_name, "entry_point": entry_point }),
             ),
             GraphEvent::Completed {
                 iterations,
                 duration_ms,
             } => (
-                "GraphCompleted".into(),
+                "graph_completed".into(),
                 json!({ "iterations": iterations, "duration_ms": duration_ms }),
             ),
-            GraphEvent::Error { error } => ("GraphFailed".into(), json!({ "error": error })),
+            GraphEvent::Error { error } => ("graph_failed".into(), json!({ "error": error })),
             GraphEvent::Interrupted { reason, node_id } => (
-                "GraphInterrupted".into(),
+                "graph_interrupted".into(),
                 json!({ "reason": reason, "node_id": node_id }),
             ),
         },
         EventKind::Node(n) => match n {
             NodeEvent::Entered { node_id, iteration } => (
-                "NodeEntered".into(),
+                "node_entered".into(),
                 json!({ "node_id": node_id, "iteration": iteration }),
             ),
             NodeEvent::Exited {
@@ -125,11 +125,11 @@ fn map_event(event: &Event) -> (String, serde_json::Value) {
                 next_node,
                 duration_ms,
             } => (
-                "NodeExited".into(),
+                "node_exited".into(),
                 json!({ "node_id": node_id, "next_node": next_node, "duration_ms": duration_ms }),
             ),
             NodeEvent::Error { node_id, error } => (
-                "NodeFailed".into(),
+                "node_failed".into(),
                 json!({ "node_id": node_id, "error": error }),
             ),
             NodeEvent::Retrying {
@@ -137,7 +137,7 @@ fn map_event(event: &Event) -> (String, serde_json::Value) {
                 attempt,
                 delay_ms,
             } => (
-                "NodeRetrying".into(),
+                "node_retrying".into(),
                 json!({ "node_id": node_id, "attempt": attempt, "delay_ms": delay_ms }),
             ),
         },
@@ -146,18 +146,18 @@ fn map_event(event: &Event) -> (String, serde_json::Value) {
                 checkpoint_id,
                 node_id,
             } => (
-                "CheckpointSaved".into(),
+                "checkpoint_saved".into(),
                 json!({ "checkpoint_id": checkpoint_id, "node_id": node_id }),
             ),
             CheckpointEvent::Restored {
                 checkpoint_id,
                 node_id,
             } => (
-                "CheckpointRestored".into(),
+                "checkpoint_restored".into(),
                 json!({ "checkpoint_id": checkpoint_id, "node_id": node_id }),
             ),
             CheckpointEvent::Deleted { checkpoint_id } => (
-                "CheckpointDeleted".into(),
+                "checkpoint_deleted".into(),
                 json!({ "checkpoint_id": checkpoint_id }),
             ),
         },
@@ -166,14 +166,14 @@ fn map_event(event: &Event) -> (String, serde_json::Value) {
                 node_id,
                 keys_changed,
             } => (
-                "StateUpdated".into(),
+                "state_updated".into(),
                 json!({ "node_id": node_id, "keys_changed": keys_changed }),
             ),
             StateEvent::MessageAdded {
                 role,
                 content_length,
             } => (
-                "MessageAdded".into(),
+                "message_added".into(),
                 json!({ "role": role, "content_length": content_length }),
             ),
         },
@@ -245,7 +245,7 @@ impl<L: RunLedger + 'static> EventHandler for LedgerHandler<L> {
             }
         };
 
-        let total_events = self.seq.load(Ordering::SeqCst);
+        let total_events = self.seq.load(Ordering::SeqCst) - 1;
         let duration_ms = self
             .start_time
             .read()
@@ -314,33 +314,33 @@ mod tests {
         let cases = vec![
             (
                 Event::graph_started("t", Some("g".into()), "entry".into()),
-                "GraphStarted",
+                "graph_started",
             ),
             (
                 Event::graph_completed("t", 5, Duration::from_millis(100)),
-                "GraphCompleted",
+                "graph_completed",
             ),
-            (Event::graph_error("t", "boom".into()), "GraphFailed"),
-            (Event::node_entered("t", "n".into(), 1), "NodeEntered"),
+            (Event::graph_error("t", "boom".into()), "graph_failed"),
+            (Event::node_entered("t", "n".into(), 1), "node_entered"),
             (
                 Event::node_exited("t", "n".into(), Some("m".into()), Duration::from_millis(50)),
-                "NodeExited",
+                "node_exited",
             ),
             (
                 Event::node_error("t", "n".into(), "fail".into()),
-                "NodeFailed",
+                "node_failed",
             ),
             (
                 Event::checkpoint_saved("t", "cp1".into(), "n".into()),
-                "CheckpointSaved",
+                "checkpoint_saved",
             ),
             (
                 Event::checkpoint_restored("t", "cp1".into(), "n".into()),
-                "CheckpointRestored",
+                "checkpoint_restored",
             ),
             (
                 Event::state_updated("t", "n".into(), vec!["key".into()]),
-                "StateUpdated",
+                "state_updated",
             ),
         ];
 
@@ -361,7 +361,8 @@ mod tests {
         // Feed an event
         let event = Event::graph_started("t", Some("g".into()), "entry".into());
         handler.handle(&event).await;
-        assert_eq!(handler.seq(), 1);
+        // After 1 event, the next seq is 2
+        assert_eq!(handler.seq(), 2);
 
         handler.on_stop().await;
 

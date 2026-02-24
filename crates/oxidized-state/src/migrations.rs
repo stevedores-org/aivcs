@@ -47,7 +47,7 @@ pub async fn init_schema(db: &Surreal<Any>) -> Result<()> {
 ///   git_sha:             STRING? (optional, indexed)
 ///   agent_name:          STRING (indexed)
 ///   tags:                OBJECT
-///   status:              STRING (enum: running | completed | failed)
+///   status:              STRING (enum: RUNNING | COMPLETED | FAILED | CANCELLED)
 ///   total_events:        INT
 ///   final_state_digest:  STRING?
 ///   duration_ms:         INT
@@ -59,8 +59,8 @@ pub async fn init_schema(db: &Surreal<Any>) -> Result<()> {
 ///
 /// Constraints:
 /// - `run_id` is unique (prevents duplicate runs)
-/// - `status` must be one of: "running", "completed", "failed"
-/// - `status` transitions: running → completed | failed (enforced via app logic)
+/// - `status` must be one of: "RUNNING", "COMPLETED", "FAILED", "CANCELLED"
+/// - `status` transitions: RUNNING → COMPLETED | FAILED | CANCELLED (enforced via app logic)
 /// - Completed runs are immutable (enforced via app logic)
 async fn init_runs_table(db: &Surreal<Any>) -> Result<()> {
     debug!("Initializing runs table");
@@ -175,7 +175,6 @@ async fn init_releases_table(db: &Surreal<Any>) -> Result<()> {
     let sql = r#"
         DEFINE TABLE releases SCHEMAFULL;
         DEFINE FIELD name ON releases TYPE string;
-        DEFINE FIELD agent_name ON releases TYPE option<string>;
         DEFINE FIELD spec_digest ON releases TYPE string;
         DEFINE FIELD metadata ON releases FLEXIBLE TYPE object;
         DEFINE FIELD version_label ON releases TYPE option<string>;
@@ -184,9 +183,7 @@ async fn init_releases_table(db: &Surreal<Any>) -> Result<()> {
         DEFINE FIELD created_at ON releases TYPE datetime;
 
         DEFINE INDEX idx_release_name ON releases FIELDS name;
-        DEFINE INDEX idx_release_agent_name ON releases FIELDS agent_name;
         DEFINE INDEX idx_release_name_created_at ON releases FIELDS name, created_at;
-        DEFINE INDEX idx_agent_name_created_at ON releases FIELDS agent_name, created_at;
         DEFINE INDEX idx_spec_digest ON releases FIELDS spec_digest;
     "#;
 
@@ -228,7 +225,7 @@ async fn init_snapshots_table(db: &Surreal<Any>) -> Result<()> {
     let sql = r#"
         DEFINE TABLE snapshots SCHEMAFULL;
         DEFINE FIELD commit_id ON snapshots TYPE string;
-        DEFINE FIELD state ON snapshots FLEXIBLE TYPE object;
+        DEFINE FIELD state ON snapshots FLEXIBLE;
         DEFINE FIELD size_bytes ON snapshots TYPE int;
         DEFINE FIELD created_at ON snapshots TYPE datetime;
         DEFINE INDEX idx_snapshot_commit ON snapshots FIELDS commit_id UNIQUE;

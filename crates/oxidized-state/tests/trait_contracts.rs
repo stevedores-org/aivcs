@@ -174,15 +174,15 @@ async fn ledger_append_and_get_events_ordered() {
 
     // Append out of order
     ledger
-        .append_event(&run_id, sample_event(2, "NodeExited"))
+        .append_event(&run_id, sample_event(2, "node_exited"))
         .await
         .unwrap();
     ledger
-        .append_event(&run_id, sample_event(1, "NodeEntered"))
+        .append_event(&run_id, sample_event(1, "node_entered"))
         .await
         .unwrap();
     ledger
-        .append_event(&run_id, sample_event(3, "GraphCompleted"))
+        .append_event(&run_id, sample_event(3, "graph_completed"))
         .await
         .unwrap();
 
@@ -509,15 +509,15 @@ mod surreal_ledger_tests {
         let run_id = ledger.create_run(&spec, sample_metadata()).await.unwrap();
 
         ledger
-            .append_event(&run_id, sample_event(2, "NodeExited"))
+            .append_event(&run_id, sample_event(2, "node_exited"))
             .await
             .unwrap();
         ledger
-            .append_event(&run_id, sample_event(1, "NodeEntered"))
+            .append_event(&run_id, sample_event(1, "node_entered"))
             .await
             .unwrap();
         ledger
-            .append_event(&run_id, sample_event(3, "GraphCompleted"))
+            .append_event(&run_id, sample_event(3, "graph_completed"))
             .await
             .unwrap();
 

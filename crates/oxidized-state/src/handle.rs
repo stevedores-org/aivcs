@@ -137,6 +137,9 @@ struct DbReleaseRecord {
     name: String,
     spec_digest: ContentDigest,
     metadata: ReleaseMetadata,
+    version_label: Option<String>,
+    promoted_by: String,
+    notes: Option<String>,
     created_at: SurrealDatetime,
 }
 
@@ -382,9 +385,39 @@ impl SurrealHandle {
         Ok(())
     }
 
-    /// Get parent commit ID for a given commit
+    /// Save a merge graph edge
     #[instrument(skip(self))]
-    pub async fn get_parent(&self, child_id: &str) -> Result<Option<String>> {
+    pub async fn save_commit_graph_edge_merge(
+        &self,
+        child_id: &str,
+        parent_id: &str,
+    ) -> Result<()> {
+        debug!("Saving merge graph edge: {} -> {}", parent_id, child_id);
+
+        let edge = GraphEdge::merge(child_id, parent_id);
+
+        let _created: Option<GraphEdge> = self.db.create("graph_edges").content(edge).await?;
+
+        info!("Merge graph edge saved: {} -> {}", parent_id, child_id);
+        Ok(())
+    }
+
+    /// Save a fork graph edge
+    #[instrument(skip(self))]
+    pub async fn save_commit_graph_edge_fork(&self, child_id: &str, parent_id: &str) -> Result<()> {
+        debug!("Saving fork graph edge: {} -> {}", parent_id, child_id);
+
+        let edge = GraphEdge::fork(child_id, parent_id);
+
+        let _created: Option<GraphEdge> = self.db.create("graph_edges").content(edge).await?;
+
+        info!("Fork graph edge saved: {} -> {}", parent_id, child_id);
+        Ok(())
+    }
+
+    /// Get all parent commit IDs for a given commit
+    #[instrument(skip(self))]
+    pub async fn get_parents(&self, child_id: &str) -> Result<Vec<String>> {
         let id_owned = child_id.to_string();
 
         let mut result = self
@@ -399,7 +432,13 @@ impl SurrealHandle {
         }
 
         let parents: Vec<ParentResult> = result.take(0)?;
-        Ok(parents.into_iter().next().map(|p| p.parent_id))
+        Ok(parents.into_iter().map(|p| p.parent_id).collect())
+    }
+
+    /// Get first parent commit ID for a given commit
+    pub async fn get_parent(&self, child_id: &str) -> Result<Option<String>> {
+        let parents = self.get_parents(child_id).await?;
+        Ok(parents.into_iter().next())
     }
 
     /// Get all children of a commit (for branch visualization)
@@ -599,6 +638,9 @@ impl SurrealHandle {
         let record = DbReleaseRecord {
             name: name.to_string(),
             spec_digest: spec_digest.clone(),
+            version_label: metadata.version_label.clone(),
+            promoted_by: metadata.promoted_by.clone(),
+            notes: metadata.notes.clone(),
             metadata,
             created_at: SurrealDatetime::from(Utc::now()),
         };
@@ -1135,5 +1177,59 @@ mod tests {
             .unwrap();
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].run_id, saved_run.run_id);
+    }
+
+    #[tokio::test]
+    async fn test_release_fields_roundtrip_in_surreal() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        let metadata = ReleaseMetadata {
+            version_label: Some("v1.2.3".to_string()),
+            promoted_by: "test-user".to_string(),
+            notes: Some("Release notes here".to_string()),
+        };
+        let digest = ContentDigest::from_bytes(b"spec-data");
+
+        // Promote release
+        let release = handle
+            .release_promote("test-agent", &digest, metadata.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(release.name, "test-agent");
+        assert_eq!(release.metadata.version_label, Some("v1.2.3".to_string()));
+
+        // Check raw DB record to ensure top-level fields are set (since table is SCHEMAFULL)
+        let mut result = handle
+            .db
+            .query("SELECT name, version_label, promoted_by, notes FROM releases WHERE name = 'test-agent'")
+            .await
+            .unwrap();
+
+        #[derive(serde::Deserialize)]
+        struct RawRelease {
+            name: String,
+            version_label: Option<String>,
+            promoted_by: String,
+            notes: Option<String>,
+        }
+
+        let rows: Vec<RawRelease> = result.take(0).unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+
+        assert_eq!(row.version_label, Some("v1.2.3".to_string()));
+        assert_eq!(row.promoted_by, "test-user");
+        assert_eq!(row.notes, Some("Release notes here".to_string()));
+        assert_eq!(row.name, "test-agent");
+
+        // Verify history roundtrip
+        let history = handle.release_history("test-agent").await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(
+            history[0].metadata.version_label,
+            Some("v1.2.3".to_string())
+        );
+        assert_eq!(history[0].metadata.promoted_by, "test-user");
     }
 }

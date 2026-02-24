@@ -63,7 +63,7 @@ impl Run {
 }
 
 /// Classification of an event in a run.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventKind {
     /// Graph execution started.
@@ -102,6 +102,17 @@ pub enum EventKind {
     /// Checkpoint marker in execution.
     #[serde(rename = "checkpoint")]
     Checkpoint { label: String },
+
+    /// A decision was made and rationale recorded.
+    #[serde(rename = "decision_made")]
+    DecisionMade {
+        decision_id: String,
+        confidence: f64,
+    },
+
+    /// Outcome of a previously recorded decision.
+    #[serde(rename = "decision_outcome")]
+    DecisionOutcome { decision_id: String, success: bool },
 }
 
 /// A single event in a run's execution trace.
@@ -173,7 +184,7 @@ mod tests {
     #[test]
     fn test_event_serde_roundtrip_graph_started() {
         let run_id = Uuid::new_v4();
-        let event = Event::new(run_id, 0, EventKind::GraphStarted, serde_json::json!({}));
+        let event = Event::new(run_id, 1, EventKind::GraphStarted, serde_json::json!({}));
 
         let json = serde_json::to_string(&event).expect("serialize");
         let deserialized: Event = serde_json::from_str(&json).expect("deserialize");

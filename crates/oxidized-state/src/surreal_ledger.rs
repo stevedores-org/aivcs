@@ -147,14 +147,14 @@ impl SurrealRunLedger {
             })
     }
 
-    /// Fetch a run row and verify it is in "running" state.
+    /// Fetch a run row and verify it is in "RUNNING" state.
     async fn fetch_running(&self, rid: &str) -> StorageResult<DbRun> {
         let row = self.fetch_run(rid).await?;
-        if row.status != "running" {
+        if row.status != "RUNNING" {
             return Err(StorageError::InvalidRunState {
                 run_id: rid.to_string(),
                 status: row.status,
-                expected: "Running".to_string(),
+                expected: "RUNNING".to_string(),
             });
         }
         Ok(row)
@@ -163,10 +163,10 @@ impl SurrealRunLedger {
     /// Convert a `schema::RunRecord` (DB row) into a `storage_traits::RunRecord`.
     fn db_run_to_record(row: DbRun) -> StorageResult<RunRecord> {
         let status = match row.status.as_str() {
-            "running" => RunStatus::Running,
-            "completed" => RunStatus::Completed,
-            "failed" => RunStatus::Failed,
-            "cancelled" => RunStatus::Cancelled,
+            "RUNNING" => RunStatus::Running,
+            "COMPLETED" => RunStatus::Completed,
+            "FAILED" => RunStatus::Failed,
+            "CANCELLED" => RunStatus::Cancelled,
             other => {
                 return Err(StorageError::Backend(format!(
                     "unknown run status: {other}"
@@ -270,7 +270,7 @@ impl RunLedger for SurrealRunLedger {
         let rid_owned = run_id.0.clone();
 
         self.db
-            .query("UPDATE runs CONTENT $row WHERE run_id = $rid")
+            .query("UPDATE runs MERGE $row WHERE run_id = $rid")
             .bind(("row", updated))
             .bind(("rid", rid_owned))
             .await
@@ -286,7 +286,7 @@ impl RunLedger for SurrealRunLedger {
         let rid_owned = run_id.0.clone();
 
         self.db
-            .query("UPDATE runs CONTENT $row WHERE run_id = $rid")
+            .query("UPDATE runs MERGE $row WHERE run_id = $rid")
             .bind(("row", updated))
             .bind(("rid", rid_owned))
             .await
@@ -302,7 +302,7 @@ impl RunLedger for SurrealRunLedger {
         let rid_owned = run_id.0.clone();
 
         self.db
-            .query("UPDATE runs CONTENT $row WHERE run_id = $rid")
+            .query("UPDATE runs MERGE $row WHERE run_id = $rid")
             .bind(("row", updated))
             .bind(("rid", rid_owned))
             .await

@@ -31,7 +31,7 @@ fn test_run_record_serialization() {
 
     let json = serde_json::to_string(&run).expect("Failed to serialize");
     assert!(json.contains("run-123"));
-    assert!(json.contains("running"));
+    assert!(json.contains("RUNNING"));
     assert!(json.contains("\"success\":false"));
 }
 
@@ -41,14 +41,14 @@ fn test_run_event_record_serialization() {
     let event = RunEventRecord::new(
         "run-123".to_string(),
         1,
-        "NodeEntered".to_string(),
+        "node_entered".to_string(),
         json!({"node_id": "n1"}),
     );
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");
     assert!(json.contains("run-123"));
     assert!(json.contains("\"seq\":1"));
-    assert!(json.contains("NodeEntered"));
+    assert!(json.contains("node_entered"));
 }
 
 #[test]
@@ -79,15 +79,15 @@ fn test_run_record_state_transitions() {
         json!({}),
     );
 
-    // Start in "running" state
-    assert_eq!(run.status, "running");
+    // Start in "RUNNING" state
+    assert_eq!(run.status, "RUNNING");
     assert_eq!(run.total_events, 0);
     assert!(!run.success);
     assert!(run.completed_at.is_none());
 
     // Complete the run
     run = run.complete(10, Some("final-digest".to_string()), 5000);
-    assert_eq!(run.status, "completed");
+    assert_eq!(run.status, "COMPLETED");
     assert_eq!(run.total_events, 10);
     assert!(run.success);
     assert!(run.completed_at.is_some());
@@ -106,12 +106,12 @@ fn test_run_record_fail_transition() {
         json!({}),
     );
 
-    // Start in "running" state
-    assert_eq!(run.status, "running");
+    // Start in "RUNNING" state
+    assert_eq!(run.status, "RUNNING");
 
     // Fail the run
     run = run.fail(3, 1500);
-    assert_eq!(run.status, "failed");
+    assert_eq!(run.status, "FAILED");
     assert_eq!(run.total_events, 3);
     assert!(!run.success);
     assert!(run.completed_at.is_some());

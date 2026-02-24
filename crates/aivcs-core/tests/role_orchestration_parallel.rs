@@ -1,6 +1,7 @@
 //! Parallel role execution isolation tests.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use aivcs_core::role_orchestration::{
@@ -8,11 +9,82 @@ use aivcs_core::role_orchestration::{
     executor::{execute_roles_parallel, token_from_result, ParallelRoleConfig},
     roles::{AgentRole, RoleOutput},
 };
+use async_trait::async_trait;
 use oxidized_state::fakes::MemoryRunLedger;
-use oxidized_state::storage_traits::{ContentDigest, RunLedger, RunStatus};
+use oxidized_state::storage_traits::{
+    ContentDigest, RunEvent, RunId, RunLedger, RunMetadata, RunRecord, RunStatus, RunSummary,
+};
+use oxidized_state::StorageError;
 
 fn spec() -> ContentDigest {
     ContentDigest::from_bytes(b"test-spec")
+}
+
+struct FlakyCreateRunLedger {
+    inner: MemoryRunLedger,
+    fail_first_n: AtomicUsize,
+}
+
+impl FlakyCreateRunLedger {
+    fn new(fail_first_n: usize) -> Self {
+        Self {
+            inner: MemoryRunLedger::new(),
+            fail_first_n: AtomicUsize::new(fail_first_n),
+        }
+    }
+}
+
+#[async_trait]
+impl RunLedger for FlakyCreateRunLedger {
+    async fn create_run(
+        &self,
+        spec_digest: &ContentDigest,
+        metadata: RunMetadata,
+    ) -> Result<RunId, StorageError> {
+        let remaining = self.fail_first_n.load(Ordering::SeqCst);
+        if remaining > 0
+            && self
+                .fail_first_n
+                .compare_exchange(remaining, remaining - 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        {
+            return Err(StorageError::Backend(
+                "injected create_run failure".to_string(),
+            ));
+        }
+        self.inner.create_run(spec_digest, metadata).await
+    }
+
+    async fn append_event(&self, run_id: &RunId, event: RunEvent) -> Result<(), StorageError> {
+        self.inner.append_event(run_id, event).await
+    }
+
+    async fn complete_run(&self, run_id: &RunId, summary: RunSummary) -> Result<(), StorageError> {
+        self.inner.complete_run(run_id, summary).await
+    }
+
+    async fn fail_run(&self, run_id: &RunId, summary: RunSummary) -> Result<(), StorageError> {
+        self.inner.fail_run(run_id, summary).await
+    }
+
+    async fn cancel_run(&self, run_id: &RunId, summary: RunSummary) -> Result<(), StorageError> {
+        self.inner.cancel_run(run_id, summary).await
+    }
+
+    async fn get_run(&self, run_id: &RunId) -> Result<RunRecord, StorageError> {
+        self.inner.get_run(run_id).await
+    }
+
+    async fn get_events(&self, run_id: &RunId) -> Result<Vec<RunEvent>, StorageError> {
+        self.inner.get_events(run_id).await
+    }
+
+    async fn list_runs(
+        &self,
+        spec_digest: Option<&ContentDigest>,
+    ) -> Result<Vec<RunRecord>, StorageError> {
+        self.inner.list_runs(spec_digest).await
+    }
 }
 
 /// Stub executor: always succeeds with a canned output per role.
@@ -176,4 +248,26 @@ async fn test_fail_fast_stops_remaining_tasks() {
 
     // All failed → ParallelExecutionFailed
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_create_run_failure_is_reported_as_role_failure_result() {
+    let ledger: Arc<dyn RunLedger> = Arc::new(FlakyCreateRunLedger::new(1));
+
+    let results = execute_roles_parallel(
+        ledger,
+        "parent-run-6",
+        vec![AgentRole::Reviewer, AgentRole::Tester],
+        &spec(),
+        ParallelRoleConfig {
+            max_concurrent: 1,
+            fail_fast: false,
+        },
+        ok_executor,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results.iter().filter(|r| !r.success).count(), 1);
 }

@@ -7,6 +7,10 @@ on:
       - develop
       - main
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   ATTIC_SERVER: https://nix-cache.stevedores.org
   ATTIC_CACHE: aivcs
