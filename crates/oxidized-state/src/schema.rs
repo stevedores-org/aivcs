@@ -484,16 +484,6 @@ impl RunRecord {
 
     /// Mark run as cancelled
     pub fn cancel(mut self, total_events: u64, duration_ms: u64) -> Self {
-        self.status = "CANCELLED".to_string();
-        self.total_events = total_events;
-        self.duration_ms = duration_ms;
-        self.success = false;
-        self.completed_at = Some(Utc::now());
-        self
-    }
-
-    /// Mark run as cancelled
-    pub fn cancel(mut self, total_events: u64, duration_ms: u64) -> Self {
         self.status = "cancelled".to_string();
         self.total_events = total_events;
         self.duration_ms = duration_ms;
