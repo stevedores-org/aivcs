@@ -112,7 +112,14 @@ pub async fn diff_memory_vectors(
     })
 }
 
-/// Resolve a state conflict using LLM Arbiter
+/// Resolve a state conflict using multi-signal heuristic scoring.
+///
+/// Scores each branch across: content length, recency, and metadata
+/// richness. The branch with the higher total score wins. Confidence
+/// is derived from how decisively one branch outscores the other.
+///
+/// # Future: Replace with LLM-based chain-of-thought arbiter when
+/// an LLM endpoint is available, using trace_a/trace_b for context.
 ///
 /// # TDD: test_arbiter_resolves_value_conflict_based_on_CoT
 pub async fn resolve_conflict_state(
@@ -120,30 +127,80 @@ pub async fn resolve_conflict_state(
     _trace_b: &[serde_json::Value],
     conflict: &MemoryConflict,
 ) -> Result<AutoResolvedValue> {
-    // TODO: Implement LLM-based conflict resolution
-    // For now, use a simple heuristic: prefer the longer content
+    let score_a = conflict_score(&conflict.memory_a);
+    let score_b = conflict_score(&conflict.memory_b);
+    let total = score_a + score_b;
 
-    let (value, favored, reasoning) =
-        if conflict.memory_a.content.len() >= conflict.memory_b.content.len() {
-            (
-                conflict.memory_a.content.clone(),
-                Some("A".to_string()),
-                "Chose branch A: more detailed content".to_string(),
-            )
-        } else {
-            (
-                conflict.memory_b.content.clone(),
-                Some("B".to_string()),
-                "Chose branch B: more detailed content".to_string(),
-            )
-        };
+    let (winner, _loser_score, label) = if score_a >= score_b {
+        (&conflict.memory_a, score_b, "A")
+    } else {
+        (&conflict.memory_b, score_a, "B")
+    };
+
+    // Confidence: how decisive is the margin?
+    // - Equal scores → 0.5 (coin-flip)
+    // - One signal dominant → ~0.7
+    // - All signals agree → ~0.85
+    let confidence = if total == 0.0 {
+        0.5
+    } else {
+        let margin = (score_a - score_b).abs() / total;
+        // Map margin [0, 1] → confidence [0.5, 0.85]
+        0.5 + margin * 0.35
+    };
+
+    let mut reasons = Vec::new();
+    let a_len = conflict.memory_a.content.len();
+    let b_len = conflict.memory_b.content.len();
+    if a_len != b_len {
+        reasons.push(format!("content length: A={} B={} chars", a_len, b_len));
+    }
+    if conflict.memory_a.created_at != conflict.memory_b.created_at {
+        reasons.push(format!(
+            "recency: A={} B={}",
+            conflict.memory_a.created_at.format("%Y-%m-%dT%H:%M:%S"),
+            conflict.memory_b.created_at.format("%Y-%m-%dT%H:%M:%S"),
+        ));
+    }
+    let meta_a = metadata_field_count(&conflict.memory_a.metadata);
+    let meta_b = metadata_field_count(&conflict.memory_b.metadata);
+    if meta_a != meta_b {
+        reasons.push(format!("metadata fields: A={meta_a} B={meta_b}"));
+    }
+
+    let reasoning = if reasons.is_empty() {
+        format!("Chose branch {label}: identical signals, defaulting to A")
+    } else {
+        format!("Chose branch {label}: {}", reasons.join(", "))
+    };
 
     Ok(AutoResolvedValue {
-        value,
-        favored_branch: favored,
+        value: winner.content.clone(),
+        favored_branch: Some(label.to_string()),
         reasoning,
-        confidence: 0.6, // Low confidence for heuristic resolution
+        confidence: (confidence * 100.0).round() / 100.0,
     })
+}
+
+/// Score a memory record for conflict resolution.
+///
+/// Higher score = stronger candidate. Signals:
+/// 1. Content length (more detail is generally better)
+/// 2. Recency (newer memories reflect latest state)
+/// 3. Metadata richness (more context is better)
+fn conflict_score(record: &MemoryRecord) -> f32 {
+    let length_score = (record.content.len() as f32).ln().max(0.0);
+    let recency_score = record.created_at.timestamp() as f32 / 1_000_000_000.0;
+    let meta_score = metadata_field_count(&record.metadata) as f32;
+    length_score + recency_score + meta_score
+}
+
+/// Count the number of fields in a JSON metadata value.
+fn metadata_field_count(meta: &serde_json::Value) -> usize {
+    match meta {
+        serde_json::Value::Object(map) => map.len(),
+        _ => 0,
+    }
 }
 
 /// Synthesize two memory stores into one
