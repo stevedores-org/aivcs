@@ -57,7 +57,7 @@ impl CiGate {
                         "Tool '{}' returned non-zero exit code: {}",
                         tool_name, exit_code
                     ));
-                    tools_failed.insert(tool_name.clone());
+                    tools_failed.insert(tool_name);
                 }
             } else if event.kind == "tool_failed" {
                 let tool_name = event.payload["tool_name"]
