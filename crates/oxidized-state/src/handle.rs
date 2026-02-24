@@ -239,7 +239,7 @@ impl SurrealHandle {
     ///
     /// If SURREALDB_ENDPOINT is set, connects to cloud.
     /// If SURREALDB_URL is set, connects to that URL.
-    /// Otherwise, falls back to in-memory.
+    /// Otherwise, falls back to local persistence in `.aivcs/db` using SurrealKV.
     #[instrument(skip_all)]
     pub async fn setup_from_env() -> Result<Self> {
         if let Ok(config) = CloudConfig::from_env() {
@@ -283,109 +283,7 @@ impl SurrealHandle {
 
     /// Initialize the database schema
     async fn init_schema(&self) -> Result<()> {
-        debug!("Initializing AIVCS schema");
-
-        // Define tables with schema
-        let schema = r#"
-            -- Commits table (Document Layer)
-            DEFINE TABLE commits SCHEMAFULL;
-            DEFINE FIELD commit_id ON commits TYPE object;
-            DEFINE FIELD commit_id.hash ON commits TYPE string;
-            DEFINE FIELD commit_id.logic_hash ON commits TYPE option<string>;
-            DEFINE FIELD commit_id.state_hash ON commits TYPE string;
-            DEFINE FIELD commit_id.env_hash ON commits TYPE option<string>;
-            DEFINE FIELD parent_ids ON commits TYPE array<string>;
-            DEFINE FIELD message ON commits TYPE string;
-            DEFINE FIELD author ON commits TYPE string;
-            DEFINE FIELD created_at ON commits TYPE datetime;
-            DEFINE FIELD branch ON commits TYPE option<string>;
-            DEFINE INDEX idx_commit_hash ON commits FIELDS commit_id.hash UNIQUE;
-
-            -- Snapshots table (State Data)
-            DEFINE TABLE snapshots SCHEMAFULL;
-            DEFINE FIELD commit_id ON snapshots TYPE string;
-            DEFINE FIELD state ON snapshots FLEXIBLE TYPE object;
-            DEFINE FIELD size_bytes ON snapshots TYPE int;
-            DEFINE FIELD created_at ON snapshots TYPE datetime;
-            DEFINE INDEX idx_snapshot_commit ON snapshots FIELDS commit_id UNIQUE;
-
-            -- Branches table
-            DEFINE TABLE branches SCHEMAFULL;
-            DEFINE FIELD name ON branches TYPE string;
-            DEFINE FIELD head_commit_id ON branches TYPE string;
-            DEFINE FIELD is_default ON branches TYPE bool;
-            DEFINE FIELD created_at ON branches TYPE datetime;
-            DEFINE FIELD updated_at ON branches TYPE datetime;
-            DEFINE INDEX idx_branch_name ON branches FIELDS name UNIQUE;
-
-            -- Agents table
-            DEFINE TABLE agents SCHEMAFULL;
-            DEFINE FIELD agent_id ON agents TYPE string;
-            DEFINE FIELD name ON agents TYPE string;
-            DEFINE FIELD agent_type ON agents TYPE string;
-            DEFINE FIELD config ON agents FLEXIBLE TYPE object;
-            DEFINE FIELD created_at ON agents TYPE datetime;
-            DEFINE INDEX idx_agent_id ON agents FIELDS agent_id UNIQUE;
-
-            -- Memories table (for RAG)
-            DEFINE TABLE memories SCHEMAFULL;
-            DEFINE FIELD commit_id ON memories TYPE string;
-            DEFINE FIELD key ON memories TYPE string;
-            DEFINE FIELD content ON memories TYPE string;
-            DEFINE FIELD embedding ON memories TYPE option<array>;
-            DEFINE FIELD metadata ON memories FLEXIBLE TYPE object;
-            DEFINE FIELD created_at ON memories TYPE datetime;
-            DEFINE INDEX idx_memory_commit ON memories FIELDS commit_id;
-
-            -- Graph edges table (for commit relationships)
-            DEFINE TABLE graph_edges SCHEMAFULL;
-            DEFINE FIELD child_id ON graph_edges TYPE string;
-            DEFINE FIELD parent_id ON graph_edges TYPE string;
-            DEFINE FIELD edge_type ON graph_edges TYPE string;
-            DEFINE FIELD created_at ON graph_edges TYPE datetime;
-            DEFINE INDEX idx_edge_child ON graph_edges FIELDS child_id;
-            DEFINE INDEX idx_edge_parent ON graph_edges FIELDS parent_id;
-
-            -- Releases table (agent release registry)
-            DEFINE TABLE releases SCHEMAFULL;
-            DEFINE FIELD name ON releases TYPE string;
-            DEFINE FIELD spec_digest ON releases TYPE string;
-            DEFINE FIELD metadata ON releases FLEXIBLE TYPE object;
-            DEFINE FIELD created_at ON releases TYPE datetime;
-            DEFINE INDEX idx_release_name ON releases FIELDS name;
-            DEFINE INDEX idx_release_name_created_at ON releases FIELDS name, created_at;
-
-            -- CI snapshot table (content-addressed by digest)
-            DEFINE TABLE ci_snapshots SCHEMAFULL;
-            DEFINE FIELD digest ON ci_snapshots TYPE string;
-            DEFINE FIELD snapshot_json ON ci_snapshots TYPE string;
-            DEFINE INDEX idx_ci_snapshot_digest ON ci_snapshots FIELDS digest UNIQUE;
-
-            -- CI pipeline table (content-addressed by digest)
-            DEFINE TABLE ci_pipelines SCHEMAFULL;
-            DEFINE FIELD digest ON ci_pipelines TYPE string;
-            DEFINE FIELD pipeline_json ON ci_pipelines TYPE string;
-            DEFINE INDEX idx_ci_pipeline_digest ON ci_pipelines FIELDS digest UNIQUE;
-
-            -- CI run table (linked by run_id and digests)
-            DEFINE TABLE ci_runs SCHEMAFULL;
-            DEFINE FIELD run_id ON ci_runs TYPE string;
-            DEFINE FIELD snapshot_digest ON ci_runs TYPE string;
-            DEFINE FIELD pipeline_digest ON ci_runs TYPE string;
-            DEFINE FIELD status ON ci_runs TYPE string;
-            DEFINE FIELD run_json ON ci_runs TYPE string;
-            DEFINE FIELD started_at ON ci_runs TYPE option<string>;
-            DEFINE FIELD finished_at ON ci_runs TYPE option<string>;
-            DEFINE INDEX idx_ci_run_id ON ci_runs FIELDS run_id UNIQUE;
-            DEFINE INDEX idx_ci_run_snapshot ON ci_runs FIELDS snapshot_digest;
-        "#;
-
-        self.db
-            .query(schema)
-            .await
-            .map_err(|e| StateError::SchemaSetup(e.to_string()))?;
-
-        debug!("Schema initialized successfully");
+        crate::migrations::init_schema(&self.db).await?;
         Ok(())
     }
 

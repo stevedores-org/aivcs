@@ -157,6 +157,7 @@ pub enum RunStatus {
     Running,
     Completed,
     Failed,
+    Cancelled,
 }
 
 /// Full run record
@@ -194,6 +195,9 @@ pub trait RunLedger: Send + Sync {
 
     /// Mark a run as failed with a summary.
     async fn fail_run(&self, run_id: &RunId, summary: RunSummary) -> StorageResult<()>;
+
+    /// Mark a run as cancelled.
+    async fn cancel_run(&self, run_id: &RunId, summary: RunSummary) -> StorageResult<()>;
 
     /// Retrieve a run record by ID.
     async fn get_run(&self, run_id: &RunId) -> StorageResult<RunRecord>;

@@ -167,6 +167,26 @@ impl RunLedger for MemoryRunLedger {
         Ok(())
     }
 
+    async fn cancel_run(&self, run_id: &RunId, summary: RunSummary) -> StorageResult<()> {
+        let mut runs = self.runs.lock().unwrap();
+        let state = runs
+            .get_mut(&run_id.0)
+            .ok_or_else(|| StorageError::RunNotFound {
+                run_id: run_id.0.clone(),
+            })?;
+        if state.record.status != RunStatus::Running {
+            return Err(StorageError::InvalidRunState {
+                run_id: run_id.0.clone(),
+                status: format!("{:?}", state.record.status),
+                expected: "Running".to_string(),
+            });
+        }
+        state.record.status = RunStatus::Cancelled;
+        state.record.summary = Some(summary);
+        state.record.completed_at = Some(Utc::now());
+        Ok(())
+    }
+
     async fn get_run(&self, run_id: &RunId) -> StorageResult<RunRecord> {
         let runs = self.runs.lock().unwrap();
         runs.get(&run_id.0)
