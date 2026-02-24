@@ -5,6 +5,7 @@
 //! configurable compaction policies.
 
 pub mod context;
+pub mod decision;
 pub mod error;
 pub mod index;
 pub mod learning;
@@ -13,6 +14,7 @@ pub mod rationale;
 pub mod retention;
 
 pub use context::{assemble_context, ContextBudget, ContextItem, ContextWindow};
+pub use decision::{DecisionRecorder, DecisionRecorderConfig};
 pub use error::{MemoryError, MemoryResult};
 pub use index::{IndexQuery, IndexResult, MemoryEntry, MemoryEntryKind, MemoryIndex};
 pub use learning::{boost_risky_decisions, query_decision_history, DecisionHistory};

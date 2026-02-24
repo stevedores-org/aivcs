@@ -11,7 +11,8 @@
 use crate::ci::{CiPipelineSpec, CiRunRecord, CiSnapshot};
 use crate::error::StateError;
 use crate::schema::{
-    AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord, SnapshotRecord,
+    AgentRecord, BranchRecord, CommitId, CommitRecord, DecisionRecord, GraphEdge, MemoryProvenanceRecord,
+    MemoryRecord, SnapshotRecord,
 };
 use crate::storage_traits::{ContentDigest, ReleaseMetadata, ReleaseRecord, StorageResult};
 use crate::Result;
@@ -853,6 +854,80 @@ impl SurrealHandle {
             .map(|r| serde_json::from_str::<CiRunRecord>(&r.run_json))
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
+    }
+
+    // ========== Decision and Provenance Operations (EPIC5) ==========
+
+    /// Save a decision record
+    #[instrument(skip(self, record))]
+    pub async fn save_decision(&self, record: &DecisionRecord) -> Result<DecisionRecord> {
+        debug!("Saving decision");
+
+        let record_owned = record.clone();
+
+        let created: Option<DecisionRecord> =
+            self.db.create("decisions").content(record_owned).await?;
+
+        created.ok_or_else(|| StateError::Transaction("Failed to save decision".to_string()))
+    }
+
+    /// Get decision by decision ID
+    #[instrument(skip(self))]
+    pub async fn get_decision(&self, decision_id: &str) -> Result<Option<DecisionRecord>> {
+        let id_owned = decision_id.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT * FROM decisions WHERE decision_id = $id")
+            .bind(("id", id_owned))
+            .await?;
+
+        let decisions: Vec<DecisionRecord> = result.take(0)?;
+        Ok(decisions.into_iter().next())
+    }
+
+    /// Get decision history for a task
+    #[instrument(skip(self))]
+    pub async fn get_decision_history(&self, task: &str, limit: usize) -> Result<Vec<DecisionRecord>> {
+        let task_owned = task.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT * FROM decisions WHERE task = $task ORDER BY timestamp DESC LIMIT $limit")
+            .bind(("task", task_owned))
+            .bind(("limit", limit as i64))
+            .await?;
+
+        let decisions: Vec<DecisionRecord> = result.take(0)?;
+        Ok(decisions)
+    }
+
+    /// Save a memory provenance record
+    #[instrument(skip(self, record))]
+    pub async fn save_provenance(&self, record: &MemoryProvenanceRecord) -> Result<MemoryProvenanceRecord> {
+        debug!("Saving memory provenance");
+
+        let record_owned = record.clone();
+
+        let created: Option<MemoryProvenanceRecord> =
+            self.db.create("memory_provenances").content(record_owned).await?;
+
+        created.ok_or_else(|| StateError::Transaction("Failed to save provenance".to_string()))
+    }
+
+    /// Get provenance records for a memory
+    #[instrument(skip(self))]
+    pub async fn get_provenance(&self, memory_id: &str) -> Result<Vec<MemoryProvenanceRecord>> {
+        let memory_id_owned = memory_id.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT * FROM memory_provenances WHERE memory_id = $memory_id")
+            .bind(("memory_id", memory_id_owned))
+            .await?;
+
+        let provenances: Vec<MemoryProvenanceRecord> = result.take(0)?;
+        Ok(provenances)
     }
 
     // ========== History Operations ==========

@@ -44,8 +44,11 @@ pub use event_adapter::{subscribe_ledger_to_bus, LedgerHandler};
 
 pub use git::{capture_head_sha, is_git_repo};
 
+pub use memory::{DecisionRecorder, DecisionRecorderConfig};
+
 pub use oxidized_state::{
-    BranchRecord, CommitId, CommitRecord, MemoryRecord, SnapshotRecord, SurrealHandle,
+    BranchRecord, CommitId, CommitRecord, DecisionRecord, MemoryProvenanceRecord, MemoryRecord,
+    ProvenanceSourceType, SnapshotRecord, SurrealHandle,
 };
 
 pub use nix_env_manager::{
