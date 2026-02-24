@@ -130,6 +130,34 @@ fn merge_equal_value_does_not_change_later_priority_outcome() {
 }
 
 #[test]
+fn merge_equal_value_preserves_original_owner_for_priority_tie_breaking() {
+    let fixer_first = RoleOutput {
+        role: AgentRole::Fixer,
+        step: 1,
+        values: BTreeMap::from([("code_patch".to_string(), "same".to_string())]),
+    };
+    let coder_equal = RoleOutput {
+        role: AgentRole::Coder,
+        step: 2,
+        values: BTreeMap::from([("code_patch".to_string(), "same".to_string())]),
+    };
+    let reviewer_conflict = RoleOutput {
+        role: AgentRole::Reviewer,
+        step: 3,
+        values: BTreeMap::from([("code_patch".to_string(), "review".to_string())]),
+    };
+
+    let merged = merge_role_outputs(
+        &[fixer_first, coder_equal, reviewer_conflict],
+        MergeConflictStrategy::PreferRolePriority,
+    );
+
+    // Fixer owns the key from the first write and should remain owner on equal writes.
+    assert_eq!(merged.values.get("code_patch"), Some(&"same".to_string()));
+    assert_eq!(merged.conflicts.len(), 1);
+}
+
+#[test]
 fn parallel_role_plan_rejects_duplicate_role() {
     let result = validate_parallel_roles(&[AgentRole::Coder, AgentRole::Coder]);
     assert_eq!(
