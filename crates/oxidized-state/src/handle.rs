@@ -886,6 +886,32 @@ impl SurrealHandle {
         Ok(decisions.into_iter().next())
     }
 
+    /// Update decision outcome by decision ID
+    #[instrument(skip(self))]
+    pub async fn update_decision_outcome(
+        &self,
+        decision_id: &str,
+        outcome_json: String,
+    ) -> Result<DecisionRecord> {
+        let id_owned = decision_id.to_string();
+        let now = SurrealDatetime::from(Utc::now());
+
+        let mut result = self
+            .db
+            .query(
+                "UPDATE decisions SET outcome = $outcome, outcome_at = $outcome_at WHERE decision_id = $id RETURN AFTER",
+            )
+            .bind(("id", id_owned))
+            .bind(("outcome", outcome_json))
+            .bind(("outcome_at", now))
+            .await?;
+
+        let decisions: Vec<DecisionRecord> = result.take(0)?;
+        decisions.into_iter().next().ok_or_else(|| {
+            StateError::Transaction("Decision not found for update".to_string()).into()
+        })
+    }
+
     /// Get decision history for a task
     #[instrument(skip(self))]
     pub async fn get_decision_history(
@@ -1044,6 +1070,35 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Cannot delete the default branch"));
+    }
+
+    #[tokio::test]
+    async fn test_update_decision_outcome_persists_fields() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        let decision = DecisionRecord::new(
+            "dec-outcome-1".to_string(),
+            "commit-123".to_string(),
+            "task-123".to_string(),
+            "action-123".to_string(),
+            "because".to_string(),
+            0.9,
+        );
+        handle.save_decision(&decision).await.unwrap();
+
+        let updated = handle
+            .update_decision_outcome(
+                "dec-outcome-1",
+                r#"{"status":"success","duration_ms":123}"#.to_string(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            updated.outcome,
+            Some(r#"{"status":"success","duration_ms":123}"#.to_string())
+        );
+        assert!(updated.outcome_at.is_some());
     }
 
     #[tokio::test]
