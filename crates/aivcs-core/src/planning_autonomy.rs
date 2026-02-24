@@ -183,6 +183,61 @@ pub struct ReplanDecision {
     pub reasons: Vec<ReplanReason>,
 }
 
+/// Long-run controls that bound autonomous replanning behavior.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoveryControls {
+    /// Minimum time between successful replan actions.
+    pub replan_cooldown_hours: i64,
+    /// Hard cap on replans allowed in the active execution window.
+    pub max_replans_per_window: u32,
+    /// Safety circuit: stop autonomous replans after repeated failed attempts.
+    pub max_consecutive_failed_replans: u32,
+}
+
+impl Default for RecoveryControls {
+    fn default() -> Self {
+        Self {
+            replan_cooldown_hours: 2,
+            max_replans_per_window: 4,
+            max_consecutive_failed_replans: 2,
+        }
+    }
+}
+
+/// Runtime state used to enforce [`RecoveryControls`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PlannerRuntimeState {
+    pub last_replan_at: Option<DateTime<Utc>>,
+    pub replans_in_window: u32,
+    pub consecutive_failed_replans: u32,
+}
+
+/// Why a replan candidate was suppressed by recovery controls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum ReplanSuppressionReason {
+    CooldownActive {
+        hours_since_last: i64,
+        required_hours: i64,
+    },
+    WindowLimitReached {
+        observed: u32,
+        limit: u32,
+    },
+    ConsecutiveFailuresExceeded {
+        observed: u32,
+        limit: u32,
+    },
+}
+
+/// Final replan decision after applying trigger policy and recovery controls.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ControlledReplanDecision {
+    pub should_replan: bool,
+    pub reasons: Vec<ReplanReason>,
+    pub suppressed_by: Option<ReplanSuppressionReason>,
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PlanningError {
     #[error("task '{task_id}' has missing dependency '{missing_dependency}'")]
@@ -354,5 +409,65 @@ pub fn evaluate_replan(
     ReplanDecision {
         should_replan: !reasons.is_empty(),
         reasons,
+    }
+}
+
+/// Evaluate replan triggers and then enforce bounded recovery controls.
+pub fn evaluate_replan_with_controls(
+    dag: &ExecutionDag,
+    policy: &ReplanPolicy,
+    controls: &RecoveryControls,
+    runtime: &PlannerRuntimeState,
+    now: DateTime<Utc>,
+) -> ControlledReplanDecision {
+    let base = evaluate_replan(dag, policy, now);
+    if !base.should_replan {
+        return ControlledReplanDecision {
+            should_replan: false,
+            reasons: base.reasons,
+            suppressed_by: None,
+        };
+    }
+
+    if runtime.replans_in_window >= controls.max_replans_per_window {
+        return ControlledReplanDecision {
+            should_replan: false,
+            reasons: base.reasons,
+            suppressed_by: Some(ReplanSuppressionReason::WindowLimitReached {
+                observed: runtime.replans_in_window,
+                limit: controls.max_replans_per_window,
+            }),
+        };
+    }
+
+    if runtime.consecutive_failed_replans >= controls.max_consecutive_failed_replans {
+        return ControlledReplanDecision {
+            should_replan: false,
+            reasons: base.reasons,
+            suppressed_by: Some(ReplanSuppressionReason::ConsecutiveFailuresExceeded {
+                observed: runtime.consecutive_failed_replans,
+                limit: controls.max_consecutive_failed_replans,
+            }),
+        };
+    }
+
+    if let Some(last) = runtime.last_replan_at {
+        let hours_since = (now - last).num_hours();
+        if hours_since < controls.replan_cooldown_hours {
+            return ControlledReplanDecision {
+                should_replan: false,
+                reasons: base.reasons,
+                suppressed_by: Some(ReplanSuppressionReason::CooldownActive {
+                    hours_since_last: hours_since,
+                    required_hours: controls.replan_cooldown_hours,
+                }),
+            };
+        }
+    }
+
+    ControlledReplanDecision {
+        should_replan: true,
+        reasons: base.reasons,
+        suppressed_by: None,
     }
 }
