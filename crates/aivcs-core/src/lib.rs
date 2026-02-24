@@ -97,7 +97,7 @@ pub use role_orchestration::executor::{
     execute_roles_parallel, token_from_result, ParallelRoleConfig, RoleRunResult,
 };
 pub use role_orchestration::merge::{merge_parallel_outputs, MergedRoleOutput, RoleConflict};
-pub use role_orchestration::roles::{AgentRole, HandoffToken, RoleOutput, RoleTemplate};
+pub use role_orchestration::roles::HandoffToken;
 pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
 };
