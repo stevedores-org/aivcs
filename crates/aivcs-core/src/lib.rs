@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod obs;
 pub mod orchestration;
 pub mod parallel;
+pub mod planning_autonomy;
 pub mod publish_gate;
 pub mod quality_guardrails;
 pub mod recording;
@@ -23,6 +24,7 @@ pub mod replay;
 pub mod reporting;
 pub mod role_orchestration;
 pub mod sandbox;
+pub mod self_healing;
 pub mod telemetry;
 pub mod tooling;
 pub mod trace_artifact;
@@ -75,6 +77,11 @@ pub use orchestration::{
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
+pub use planning_autonomy::{
+    compute_progress, decompose_goal_to_dag, evaluate_replan, schedule_next_ready_tasks, EpicPlan,
+    ExecutionDag, GoalPlan, PlanTask, PlanTaskStatus, PlanningError, ProgressReport,
+    ReplanDecision, ReplanPolicy, ReplanReason, SchedulerConstraints, TaskPlan,
+};
 
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
@@ -108,6 +115,11 @@ pub use role_orchestration::merge::{merge_parallel_outputs, MergedRoleOutput, Ro
 pub use role_orchestration::roles::HandoffToken;
 pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
+};
+pub use self_healing::{
+    classify_failure, execute_recovery_loop, read_recovery_artifact, write_recovery_artifact,
+    FailureClass, FailureSignal, RecoveryAction, RecoveryAttemptResult, RecoveryDecision,
+    RecoveryLog, RecoveryOutcome, RecoveryPolicy,
 };
 
 pub use sandbox::{
