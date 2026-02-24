@@ -19,6 +19,7 @@ pub mod recording;
 pub mod release_registry;
 pub mod replay;
 pub mod reporting;
+pub mod role_orchestration;
 pub mod telemetry;
 pub mod trace_artifact;
 
@@ -84,6 +85,16 @@ pub use reporting::{
 
 pub use trace_artifact::{
     read_trace_artifact, write_trace_artifact, RetentionPolicy, RunTraceArtifact,
+};
+
+pub use role_orchestration::error::{RoleError, RoleResult};
+pub use role_orchestration::executor::{
+    execute_roles_parallel, token_from_result, ParallelRoleConfig, RoleRunResult,
+};
+pub use role_orchestration::merge::{merge_parallel_outputs, MergedRoleOutput, RoleConflict};
+pub use role_orchestration::roles::{AgentRole, HandoffToken, RoleOutput, RoleTemplate};
+pub use role_orchestration::router::{
+    build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
 };
 
 pub use metrics::METRICS;
