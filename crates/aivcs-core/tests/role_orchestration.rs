@@ -132,7 +132,10 @@ fn merge_equal_value_does_not_change_later_priority_outcome() {
 #[test]
 fn parallel_role_plan_rejects_duplicate_role() {
     let result = validate_parallel_roles(&[AgentRole::Coder, AgentRole::Coder]);
-    assert_eq!(result, Err(ParallelPlanError::DuplicateRole(AgentRole::Coder)));
+    assert_eq!(
+        result,
+        Err(ParallelPlanError::DuplicateRole(AgentRole::Coder))
+    );
 }
 
 #[test]

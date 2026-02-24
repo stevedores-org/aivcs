@@ -46,11 +46,6 @@ pub use semantic_rag_merge::{
 
 pub use cas::fs::FsCasStore;
 pub use cas::{CasError, CasStore, Digest};
-pub use orchestration::{
-    default_role_templates, deterministic_role_order, merge_role_outputs, validate_handoff,
-    validate_parallel_roles, AgentRole, HandoffValidationError, MergeConflict,
-    MergeConflictStrategy, MergeOutcome, ParallelPlanError, RoleHandoff, RoleOutput, RoleTemplate,
-};
 pub use compat::{
     evaluate_compat, CompatRule, CompatRuleSet, CompatVerdict, CompatViolation, PromoteContext,
 };
@@ -63,6 +58,11 @@ pub use diff::lcs_diff::{
 pub use diff::state_diff::{
     diff_run_states, diff_scoped_state, extract_last_checkpoint, ScopedStateDiff, StateDelta,
     CHECKPOINT_SAVED_KIND,
+};
+pub use orchestration::{
+    default_role_templates, deterministic_role_order, merge_role_outputs, validate_handoff,
+    validate_parallel_roles, AgentRole, HandoffValidationError, MergeConflict,
+    MergeConflictStrategy, MergeOutcome, ParallelPlanError, RoleHandoff, RoleOutput, RoleTemplate,
 };
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
