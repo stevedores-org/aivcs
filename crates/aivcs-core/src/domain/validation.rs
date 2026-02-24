@@ -28,6 +28,8 @@ pub const KNOWN_EVENT_KINDS: &[&str] = &[
     "CheckpointDeleted",
     "StateUpdated",
     "MessageAdded",
+    "DecisionMade",
+    "DecisionOutcome",
 ];
 
 /// Required payload fields per structured event kind.
@@ -50,6 +52,8 @@ pub const REQUIRED_PAYLOAD_FIELDS: &[(&str, &[&str])] = &[
     ("CheckpointDeleted", &["checkpoint_id"]),
     ("StateUpdated", &["node_id"]),
     ("MessageAdded", &["role"]),
+    ("DecisionMade", &["decision_id", "confidence"]),
+    ("DecisionOutcome", &["decision_id", "success"]),
 ];
 
 /// Validate a `RunEvent`.

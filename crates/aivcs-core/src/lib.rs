@@ -130,9 +130,11 @@ pub use sandbox::{
 };
 
 pub use memory::{
-    assemble_context, compact_index, CompactionPolicy, CompactionResult, ContextBudget,
-    ContextItem, ContextWindow, DecisionRationale, IndexQuery, IndexResult, MemoryEntry,
-    MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, RationaleEntry, RationaleOutcome,
+    assemble_context, boost_risky_decisions, compact_index, finalize_run_outcome, ingest_rationale,
+    query_decision_history, CompactionPolicy, CompactionResult, ContextBudget, ContextItem,
+    ContextWindow, DecisionHistory, DecisionRationale, IndexQuery, IndexResult, MemoryEntry,
+    MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, ProvenanceRecord, ProvenanceStore,
+    RationaleEntry, RationaleOutcome,
 };
 
 pub use metrics::METRICS;
