@@ -10,6 +10,7 @@ use oxidized_state::storage_traits::{
     ContentDigest, RunEvent, RunId, RunLedger, RunStatus as StorageRunStatus,
 };
 
+use crate::diff::state_diff::CHECKPOINT_SAVED_KIND;
 use crate::domain::{AivcsError, Result};
 use crate::metrics::METRICS;
 
@@ -29,6 +30,99 @@ pub struct ReplaySummary {
     /// Used for golden equality checks: two runs with identical events
     /// will produce identical digests.
     pub replay_digest: String,
+    /// The spec digest recorded on the run at creation time.
+    pub spec_digest: ContentDigest,
+}
+
+/// A resume point extracted from the last `CheckpointSaved` event in a run.
+#[derive(Debug, Clone)]
+pub struct ResumePoint {
+    /// The checkpoint identifier from the event payload.
+    pub checkpoint_id: String,
+    /// The sequence number of the checkpoint event.
+    pub checkpoint_seq: u64,
+    /// The node identifier from the event payload.
+    pub node_id: String,
+    /// All events up to and including the checkpoint event.
+    pub events_before: Vec<RunEvent>,
+}
+
+/// Verify that the spec digest recorded for `run_id_str` matches `expected_spec`.
+///
+/// This is a pre-flight gate that must pass before calling `replay_run` when
+/// deterministic replay guarantees are required.
+///
+/// # Errors
+///
+/// - `AivcsError::StorageError` if the run does not exist.
+/// - `AivcsError::DigestMismatch` if the recorded spec digest differs from `expected_spec`.
+pub async fn verify_spec_digest(
+    ledger: &dyn RunLedger,
+    run_id_str: &str,
+    expected_spec: &ContentDigest,
+) -> Result<()> {
+    let run_id = RunId(run_id_str.to_string());
+    let record = ledger
+        .get_run(&run_id)
+        .await
+        .map_err(|e| AivcsError::StorageError(e.to_string()))?;
+
+    if record.spec_digest != *expected_spec {
+        return Err(AivcsError::DigestMismatch {
+            expected: expected_spec.as_str().to_string(),
+            actual: record.spec_digest.as_str().to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+/// Find the last `CheckpointSaved` event in `run_id_str` and return a `ResumePoint`.
+///
+/// Returns `None` if the run has no checkpoint events.
+///
+/// # Errors
+///
+/// Returns `AivcsError::StorageError` when the run does not exist.
+pub async fn find_resume_point(
+    ledger: &dyn RunLedger,
+    run_id_str: &str,
+) -> Result<Option<ResumePoint>> {
+    let run_id = RunId(run_id_str.to_string());
+    let events = ledger
+        .get_events(&run_id)
+        .await
+        .map_err(|e| AivcsError::StorageError(e.to_string()))?;
+
+    // Scan for the last CheckpointSaved event
+    let checkpoint_pos = events.iter().rposition(|e| e.kind == CHECKPOINT_SAVED_KIND);
+
+    let Some(pos) = checkpoint_pos else {
+        return Ok(None);
+    };
+
+    let cp_event = &events[pos];
+    let checkpoint_id = cp_event
+        .payload
+        .get("checkpoint_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let node_id = cp_event
+        .payload
+        .get("node_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let events_before = events[..=pos].to_vec();
+
+    Ok(Some(ResumePoint {
+        checkpoint_id,
+        checkpoint_seq: cp_event.seq,
+        node_id,
+        events_before,
+    }))
 }
 
 /// Fetch and replay all events for `run_id_str` from the ledger.
@@ -88,6 +182,7 @@ pub async fn replay_run(
         status: record.status,
         event_count: events.len(),
         replay_digest,
+        spec_digest: record.spec_digest,
     };
 
     Ok((events, summary))
@@ -303,6 +398,208 @@ mod tests {
         assert_eq!(events[0].seq, 1);
         assert_eq!(events[1].seq, 2);
         assert_eq!(events[2].seq, 3);
+    }
+
+    #[tokio::test]
+    async fn test_spec_digest_mismatch_rejected() {
+        let ledger: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
+
+        let spec_a = ContentDigest::from_bytes(b"spec_a");
+        let metadata = RunMetadata {
+            git_sha: None,
+            agent_name: "test_agent".to_string(),
+            tags: serde_json::json!({}),
+        };
+
+        let run_id = ledger
+            .create_run(&spec_a, metadata)
+            .await
+            .expect("create_run");
+
+        // Verify with correct spec should pass
+        verify_spec_digest(&*ledger, &run_id.0, &spec_a)
+            .await
+            .expect("correct spec should pass");
+
+        // Verify with different spec should fail with DigestMismatch
+        let spec_b = ContentDigest::from_bytes(b"spec_b");
+        let result = verify_spec_digest(&*ledger, &run_id.0, &spec_b).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AivcsError::DigestMismatch { expected, actual } => {
+                assert_eq!(expected, spec_b.as_str());
+                assert_eq!(actual, spec_a.as_str());
+            }
+            other => panic!("Expected DigestMismatch, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_find_resume_point_returns_latest_checkpoint() {
+        let ledger: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
+
+        let spec = ContentDigest::from_bytes(b"test_spec");
+        let metadata = RunMetadata {
+            git_sha: None,
+            agent_name: "agent".to_string(),
+            tags: serde_json::json!({}),
+        };
+
+        let run_id = ledger.create_run(&spec, metadata).await.expect("create");
+
+        let ts = chrono::Utc::now();
+
+        // First checkpoint at seq 1
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 1,
+                    kind: "CheckpointSaved".to_string(),
+                    payload: serde_json::json!({ "checkpoint_id": "cp1", "node_id": "node_a" }),
+                    timestamp: ts,
+                },
+            )
+            .await
+            .expect("append cp1");
+
+        // Some other event
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 2,
+                    kind: "NodeEntered".to_string(),
+                    payload: serde_json::json!({ "node_id": "node_b", "iteration": 1 }),
+                    timestamp: ts,
+                },
+            )
+            .await
+            .expect("append node");
+
+        // Second checkpoint at seq 3
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 3,
+                    kind: "CheckpointSaved".to_string(),
+                    payload: serde_json::json!({ "checkpoint_id": "cp2", "node_id": "node_b" }),
+                    timestamp: ts,
+                },
+            )
+            .await
+            .expect("append cp2");
+
+        let resume = find_resume_point(&*ledger, &run_id.0)
+            .await
+            .expect("find_resume_point")
+            .expect("should find a checkpoint");
+
+        assert_eq!(resume.checkpoint_id, "cp2");
+        assert_eq!(resume.node_id, "node_b");
+        assert_eq!(resume.checkpoint_seq, 3);
+        assert_eq!(resume.events_before.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_find_resume_point_no_checkpoint_returns_none() {
+        let ledger: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
+
+        let spec = ContentDigest::from_bytes(b"test_spec");
+        let metadata = RunMetadata {
+            git_sha: None,
+            agent_name: "agent".to_string(),
+            tags: serde_json::json!({}),
+        };
+
+        let run_id = ledger.create_run(&spec, metadata).await.expect("create");
+
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 1,
+                    kind: "GraphStarted".to_string(),
+                    payload: serde_json::json!({}),
+                    timestamp: chrono::Utc::now(),
+                },
+            )
+            .await
+            .expect("append");
+
+        let resume = find_resume_point(&*ledger, &run_id.0)
+            .await
+            .expect("find_resume_point");
+
+        assert!(resume.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_resume_point_events_before_includes_checkpoint() {
+        let ledger: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
+
+        let spec = ContentDigest::from_bytes(b"test_spec");
+        let metadata = RunMetadata {
+            git_sha: None,
+            agent_name: "agent".to_string(),
+            tags: serde_json::json!({}),
+        };
+
+        let run_id = ledger.create_run(&spec, metadata).await.expect("create");
+        let ts = chrono::Utc::now();
+
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 1,
+                    kind: "GraphStarted".to_string(),
+                    payload: serde_json::json!({}),
+                    timestamp: ts,
+                },
+            )
+            .await
+            .expect("append");
+
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 2,
+                    kind: "CheckpointSaved".to_string(),
+                    payload: serde_json::json!({ "checkpoint_id": "cp1", "node_id": "node_x" }),
+                    timestamp: ts,
+                },
+            )
+            .await
+            .expect("append");
+
+        // Event after checkpoint — should NOT be in events_before
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 3,
+                    kind: "NodeEntered".to_string(),
+                    payload: serde_json::json!({ "node_id": "node_y", "iteration": 1 }),
+                    timestamp: ts,
+                },
+            )
+            .await
+            .expect("append");
+
+        let resume = find_resume_point(&*ledger, &run_id.0)
+            .await
+            .expect("find")
+            .expect("some");
+
+        // events_before should include exactly events 1 and 2 (up to and including checkpoint)
+        assert_eq!(resume.events_before.len(), 2);
+        let last = resume.events_before.last().expect("last");
+        assert_eq!(last.kind, "CheckpointSaved");
+        assert_eq!(last.seq, 2);
     }
 
     #[tokio::test]
