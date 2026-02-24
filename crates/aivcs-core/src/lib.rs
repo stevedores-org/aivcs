@@ -22,6 +22,7 @@ pub mod replay;
 pub mod reporting;
 pub mod role_orchestration;
 pub mod telemetry;
+pub mod tooling;
 pub mod trace_artifact;
 
 pub use domain::{
@@ -108,6 +109,11 @@ pub use obs::{
     emit_run_started, RunSpan,
 };
 pub use telemetry::init_tracing;
+pub use tooling::{
+    JsonFieldSchema, PolicyAction, PolicyMatrix, SchemaStage, ToolAdapter, ToolCallStatus,
+    ToolCapability, ToolExecutionConfig, ToolExecutionError, ToolExecutionReport, ToolExecutor,
+    ToolInvocation, ToolRegistry, ToolSpec, ToolTelemetry,
+};
 
 /// AIVCS version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
