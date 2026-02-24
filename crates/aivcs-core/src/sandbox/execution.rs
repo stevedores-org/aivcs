@@ -104,7 +104,7 @@ where
         if breaker.is_open() {
             return Err(SandboxError::CircuitBreakerOpen {
                 consecutive_failures: breaker.failure_count(),
-                threshold: breaker.consecutive_failures.load(Ordering::Relaxed),
+                threshold: breaker.threshold,
             });
         }
 
