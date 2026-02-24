@@ -1190,7 +1190,10 @@ mod tests {
         // Verify history roundtrip
         let history = handle.release_history("test-agent").await.unwrap();
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0].metadata.version_label, Some("v1.2.3".to_string()));
+        assert_eq!(
+            history[0].metadata.version_label,
+            Some("v1.2.3".to_string())
+        );
         assert_eq!(history[0].metadata.promoted_by, "test-user");
     }
 }
