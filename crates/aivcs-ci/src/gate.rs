@@ -103,13 +103,13 @@ mod tests {
     fn test_single_successful_stage() {
         let events = vec![
             RunEvent {
-                seq: 0,
+                seq: 1,
                 kind: "tool_called".to_string(),
                 payload: json!({ "tool_name": "fmt" }),
                 timestamp: Utc::now(),
             },
             RunEvent {
-                seq: 1,
+                seq: 2,
                 kind: "tool_returned".to_string(),
                 payload: json!({ "tool_name": "fmt", "exit_code": 0 }),
                 timestamp: Utc::now(),
@@ -125,13 +125,13 @@ mod tests {
     fn test_single_failed_stage() {
         let events = vec![
             RunEvent {
-                seq: 0,
+                seq: 1,
                 kind: "tool_called".to_string(),
                 payload: json!({ "tool_name": "check" }),
                 timestamp: Utc::now(),
             },
             RunEvent {
-                seq: 1,
+                seq: 2,
                 kind: "tool_failed".to_string(),
                 payload: json!({
                     "tool_name": "check",
@@ -150,25 +150,25 @@ mod tests {
     fn test_multiple_stages_with_failure() {
         let events = vec![
             RunEvent {
-                seq: 0,
+                seq: 1,
                 kind: "tool_called".to_string(),
                 payload: json!({ "tool_name": "fmt" }),
                 timestamp: Utc::now(),
             },
             RunEvent {
-                seq: 1,
+                seq: 2,
                 kind: "tool_returned".to_string(),
                 payload: json!({ "tool_name": "fmt", "exit_code": 0 }),
                 timestamp: Utc::now(),
             },
             RunEvent {
-                seq: 2,
+                seq: 3,
                 kind: "tool_called".to_string(),
                 payload: json!({ "tool_name": "check" }),
                 timestamp: Utc::now(),
             },
             RunEvent {
-                seq: 3,
+                seq: 4,
                 kind: "tool_returned".to_string(),
                 payload: json!({ "tool_name": "check", "exit_code": 1 }),
                 timestamp: Utc::now(),
@@ -184,13 +184,13 @@ mod tests {
     fn test_non_zero_exit_code() {
         let events = vec![
             RunEvent {
-                seq: 0,
+                seq: 1,
                 kind: "tool_called".to_string(),
                 payload: json!({ "tool_name": "test" }),
                 timestamp: Utc::now(),
             },
             RunEvent {
-                seq: 1,
+                seq: 2,
                 kind: "tool_returned".to_string(),
                 payload: json!({ "tool_name": "test", "exit_code": 127 }),
                 timestamp: Utc::now(),

@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn test_event_serde_roundtrip_graph_started() {
         let run_id = Uuid::new_v4();
-        let event = Event::new(run_id, 0, EventKind::GraphStarted, serde_json::json!({}));
+        let event = Event::new(run_id, 1, EventKind::GraphStarted, serde_json::json!({}));
 
         let json = serde_json::to_string(&event).expect("serialize");
         let deserialized: Event = serde_json::from_str(&json).expect("deserialize");

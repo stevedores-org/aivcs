@@ -29,7 +29,7 @@ impl ScopedStateDiff {
 // ---------------------------------------------------------------------------
 
 /// Event kind emitted by the oxidizedgraph event adapter when a checkpoint is saved.
-pub const CHECKPOINT_SAVED_KIND: &str = "CheckpointSaved";
+pub const CHECKPOINT_SAVED_KIND: &str = "checkpoint_saved";
 
 /// Extract the payload of the last `"CheckpointSaved"` event from a run event stream.
 ///

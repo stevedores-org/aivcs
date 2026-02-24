@@ -172,25 +172,25 @@ async fn test_e2e_replay_digest_is_deterministic() {
         let events = vec![
             RunEvent {
                 seq: 1,
-                kind: "GraphStarted".to_string(),
+                kind: "graph_started".to_string(),
                 payload: serde_json::json!({ "graph_name": "e2e", "entry_point": "start" }),
                 timestamp: ts,
             },
             RunEvent {
                 seq: 2,
-                kind: "NodeEntered".to_string(),
+                kind: "node_entered".to_string(),
                 payload: serde_json::json!({ "node_id": "role_reviewer", "iteration": 1 }),
                 timestamp: ts,
             },
             RunEvent {
                 seq: 3,
-                kind: "NodeExited".to_string(),
+                kind: "node_exited".to_string(),
                 payload: serde_json::json!({ "node_id": "role_reviewer", "next_node": null, "duration_ms": 10 }),
                 timestamp: ts,
             },
             RunEvent {
                 seq: 4,
-                kind: "GraphCompleted".to_string(),
+                kind: "graph_completed".to_string(),
                 payload: serde_json::json!({ "iterations": 1, "duration_ms": 50 }),
                 timestamp: ts,
             },

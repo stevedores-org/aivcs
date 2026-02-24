@@ -130,7 +130,7 @@ pub struct RunMetadata {
 pub struct RunEvent {
     /// Monotonic sequence number within the run
     pub seq: u64,
-    /// Event kind (e.g. "GraphStarted", "NodeEntered", "ToolCalled")
+    /// Event kind (e.g. "graph_started", "node_entered", "tool_called")
     pub kind: String,
     /// Event payload
     pub payload: serde_json::Value,

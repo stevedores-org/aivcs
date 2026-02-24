@@ -41,14 +41,14 @@ fn test_run_event_record_serialization() {
     let event = RunEventRecord::new(
         "run-123".to_string(),
         1,
-        "NodeEntered".to_string(),
+        "node_entered".to_string(),
         json!({"node_id": "n1"}),
     );
 
     let json = serde_json::to_string(&event).expect("Failed to serialize");
     assert!(json.contains("run-123"));
     assert!(json.contains("\"seq\":1"));
-    assert!(json.contains("NodeEntered"));
+    assert!(json.contains("node_entered"));
 }
 
 #[test]

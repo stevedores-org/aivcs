@@ -229,7 +229,7 @@ mod tests {
     fn make_events(ts: DateTime<Utc>) -> Vec<RunEvent> {
         vec![RunEvent {
             seq: 1,
-            kind: "GraphStarted".to_string(),
+            kind: "graph_started".to_string(),
             payload: serde_json::json!({}),
             timestamp: ts,
         }]
