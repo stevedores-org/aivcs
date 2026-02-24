@@ -309,19 +309,15 @@ mod tests {
 
     #[test]
     fn test_merge_reviewer_rejected_and_tests_failed_is_conflict() {
-        let result = merge_parallel_outputs(
-            &review_token(false, false),
-            &test_token(false, vec!["t1"]),
-        )
-        .unwrap();
+        let result =
+            merge_parallel_outputs(&review_token(false, false), &test_token(false, vec!["t1"]))
+                .unwrap();
         assert!(!result.is_clean());
         assert!(result.resolved.is_none());
-        assert!(
-            result
-                .conflicts
-                .iter()
-                .any(|c| c.aspect == "review_rejected_and_tests_failed")
-        );
+        assert!(result
+            .conflicts
+            .iter()
+            .any(|c| c.aspect == "review_rejected_and_tests_failed"));
     }
 
     #[test]

@@ -1,15 +1,15 @@
 //! Parallel role execution isolation tests.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
-use async_trait::async_trait;
 use aivcs_core::role_orchestration::{
     error::{RoleError, RoleResult},
     executor::{execute_roles_parallel, token_from_result, ParallelRoleConfig},
     roles::{AgentRole, RoleOutput},
 };
+use async_trait::async_trait;
 use oxidized_state::fakes::MemoryRunLedger;
 use oxidized_state::storage_traits::{
     ContentDigest, RunEvent, RunId, RunLedger, RunMetadata, RunRecord, RunStatus, RunSummary,
@@ -48,7 +48,9 @@ impl RunLedger for FlakyCreateRunLedger {
                 .compare_exchange(remaining, remaining - 1, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
         {
-            return Err(StorageError::Backend("injected create_run failure".to_string()));
+            return Err(StorageError::Backend(
+                "injected create_run failure".to_string(),
+            ));
         }
         self.inner.create_run(spec_digest, metadata).await
     }
