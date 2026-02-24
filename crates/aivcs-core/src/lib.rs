@@ -11,6 +11,7 @@ pub mod domain;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod memory_context;
 pub mod metrics;
 pub mod obs;
 pub mod orchestration;
@@ -109,6 +110,12 @@ pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
 };
 
+pub use memory_context::{
+    estimate_tokens, read_memory_context_artifact, write_memory_context_artifact, AssembledContext,
+    CompactionPolicy, CompactionResult, CompactionStrategy, ContextAssembler, ContextSegment,
+    DecisionImportance, DecisionRationale, MatchStrategy, MemoryContextArtifact, MemoryEntry,
+    MemoryHit, MemoryIndex, MemoryQuery, RationaleLedger,
+};
 pub use metrics::METRICS;
 pub use obs::{
     emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
