@@ -385,14 +385,14 @@ impl SurrealHandle {
         Ok(())
     }
 
-    /// Get parent commit ID for a given commit
+    /// Get the primary parent commit ID for a given commit
     #[instrument(skip(self))]
     pub async fn get_parent(&self, child_id: &str) -> Result<Option<String>> {
         let id_owned = child_id.to_string();
 
         let mut result = self
             .db
-            .query("SELECT parent_id FROM graph_edges WHERE child_id = $id")
+            .query("SELECT parent_id, created_at FROM graph_edges WHERE child_id = $id ORDER BY created_at ASC LIMIT 1")
             .bind(("id", id_owned))
             .await?;
 
@@ -403,6 +403,26 @@ impl SurrealHandle {
 
         let parents: Vec<ParentResult> = result.take(0)?;
         Ok(parents.into_iter().next().map(|p| p.parent_id))
+    }
+
+    /// Get all parent commit IDs for a given commit
+    #[instrument(skip(self))]
+    pub async fn get_parents(&self, child_id: &str) -> Result<Vec<String>> {
+        let id_owned = child_id.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT parent_id, created_at FROM graph_edges WHERE child_id = $id ORDER BY created_at ASC")
+            .bind(("id", id_owned))
+            .await?;
+
+        #[derive(serde::Deserialize)]
+        struct ParentResult {
+            parent_id: String,
+        }
+
+        let parents: Vec<ParentResult> = result.take(0)?;
+        Ok(parents.into_iter().map(|p| p.parent_id).collect())
     }
 
     /// Get all children of a commit (for branch visualization)

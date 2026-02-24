@@ -270,7 +270,7 @@ impl RunLedger for SurrealRunLedger {
         let rid_owned = run_id.0.clone();
 
         self.db
-            .query("UPDATE runs CONTENT $row WHERE run_id = $rid")
+            .query("UPDATE runs MERGE $row WHERE run_id = $rid")
             .bind(("row", updated))
             .bind(("rid", rid_owned))
             .await
@@ -286,7 +286,7 @@ impl RunLedger for SurrealRunLedger {
         let rid_owned = run_id.0.clone();
 
         self.db
-            .query("UPDATE runs CONTENT $row WHERE run_id = $rid")
+            .query("UPDATE runs MERGE $row WHERE run_id = $rid")
             .bind(("row", updated))
             .bind(("rid", rid_owned))
             .await
@@ -302,7 +302,7 @@ impl RunLedger for SurrealRunLedger {
         let rid_owned = run_id.0.clone();
 
         self.db
-            .query("UPDATE runs CONTENT $row WHERE run_id = $rid")
+            .query("UPDATE runs MERGE $row WHERE run_id = $rid")
             .bind(("row", updated))
             .bind(("rid", rid_owned))
             .await
