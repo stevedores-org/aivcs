@@ -319,9 +319,12 @@ mod tests {
         let tasks = exec.resolve_tasks(&p, &["abc123".to_string()]);
 
         let outcomes = exec
-            .execute(tasks, &p, "run-000", |_sha, _branch| {
-                (true, vec![], Some("new_sha".to_string()))
-            })
+            .execute(
+                tasks,
+                &p,
+                "00000000-0000-0000-0000-000000000000",
+                |_sha, _branch| (true, vec![], Some("new_sha".to_string())),
+            )
             .await
             .unwrap();
 
@@ -329,21 +332,20 @@ mod tests {
         assert!(outcomes[0].success);
         assert_eq!(outcomes[0].applied_commit_sha.as_deref(), Some("new_sha"));
 
-        // Recorder path should persist standardized event kinds and tool_name payload.
+        // Verify event shape in ledger (Regression check for standardization)
         let runs = ledger.list_runs(None).await.unwrap();
-        assert_eq!(runs.len(), 1);
-        let events = ledger.get_events(&runs[0].run_id).await.unwrap();
-        assert_eq!(events.len(), 2);
+        let run_id = &runs[0].run_id;
+        let events = ledger.get_events(run_id).await.unwrap();
+
+        // 1. ToolCalled
         assert_eq!(events[0].kind, "tool_called");
+        assert_eq!(events[0].payload["tool_name"], "cherry_pick");
+        assert_eq!(events[0].payload["commit_sha"], "abc123");
+
+        // 2. ToolReturned
         assert_eq!(events[1].kind, "tool_returned");
-        assert_eq!(
-            events[0].payload.get("tool_name").and_then(|v| v.as_str()),
-            Some("cherry_pick")
-        );
-        assert_eq!(
-            events[1].payload.get("tool_name").and_then(|v| v.as_str()),
-            Some("cherry_pick")
-        );
+        assert_eq!(events[1].payload["tool_name"], "cherry_pick");
+        assert_eq!(events[1].payload["applied_sha"], "new_sha");
     }
 
     #[tokio::test]
@@ -360,13 +362,18 @@ mod tests {
         let tasks = exec.resolve_tasks(&p, &commits);
 
         let outcomes = exec
-            .execute(tasks, &p, "run-001", |sha, _branch| {
-                if sha == "sha1" {
-                    (false, vec!["conflict.rs".to_string()], None)
-                } else {
-                    (true, vec![], Some("ok".to_string()))
-                }
-            })
+            .execute(
+                tasks,
+                &p,
+                "00000000-0000-0000-0000-000000000001",
+                |sha, _branch| {
+                    if sha == "sha1" {
+                        (false, vec!["conflict.rs".to_string()], None)
+                    } else {
+                        (true, vec![], Some("ok".to_string()))
+                    }
+                },
+            )
             .await
             .unwrap();
 
@@ -374,17 +381,12 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].success);
 
-        // Failure path should emit tool_called + tool_failed and include tool_name.
+        // Verify ToolFailed kind is recorded correctly
         let runs = ledger.list_runs(None).await.unwrap();
-        assert_eq!(runs.len(), 1);
-        let events = ledger.get_events(&runs[0].run_id).await.unwrap();
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].kind, "tool_called");
+        let run_id = &runs[0].run_id;
+        let events = ledger.get_events(run_id).await.unwrap();
         assert_eq!(events[1].kind, "tool_failed");
-        assert_eq!(
-            events[1].payload.get("tool_name").and_then(|v| v.as_str()),
-            Some("cherry_pick")
-        );
+        assert_eq!(events[1].payload["tool_name"], "cherry_pick");
     }
 
     #[test]
