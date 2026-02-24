@@ -8,6 +8,7 @@ pub mod deploy;
 pub mod deploy_runner;
 pub mod diff;
 pub mod domain;
+pub mod enterprise;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
@@ -136,6 +137,12 @@ pub use memory::{
     MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, RationaleEntry, RationaleOutcome,
 };
 
+pub use enterprise::{
+    verify_audit_export, write_audit_export, AuditEvent, AuditExportReceipt, AuditLog,
+    AuditOutcome, AuthzDecision, CostBudget, CostCharge, CostTracker, Permission, Principal,
+    RbacPolicy, RedactionResult, RedactionRule, Role, SecretRef, SecretsPolicy, SliMeasurement,
+    Slo, SloStatus, SloTracker, TenantId,
+};
 pub use memory_context::{
     estimate_tokens, read_memory_context_artifact, write_memory_context_artifact, AssembledContext,
     CompactionPolicy as MemoryContextCompactionPolicy,
