@@ -120,9 +120,10 @@ pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
 };
 pub use self_healing::{
-    classify_failure, execute_recovery_loop, read_recovery_artifact, write_recovery_artifact,
-    FailureClass, FailureSignal, RecoveryAction, RecoveryAttemptResult, RecoveryDecision,
-    RecoveryLog, RecoveryOutcome, RecoveryPolicy,
+    check_regression, classify_failure, execute_recovery_loop, read_recovery_artifact,
+    recovery_log_to_memory_fields, write_recovery_artifact, FailureClass, FailureSignal,
+    RecoveryAction, RecoveryAttemptResult, RecoveryDecision, RecoveryLog, RecoveryOutcome,
+    RecoveryPolicy, RegressionCheck, RegressionRecommendation,
 };
 
 pub use sandbox::{
