@@ -12,6 +12,7 @@ pub mod event_adapter;
 pub mod gate;
 pub mod git;
 pub mod metrics;
+pub mod multi_repo;
 pub mod obs;
 pub mod orchestration;
 pub mod parallel;
@@ -128,6 +129,12 @@ pub use sandbox::{
 };
 
 pub use metrics::METRICS;
+pub use multi_repo::{
+    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CiAggregator, CiHealthReport,
+    CiRunFetcher, MultiRepoError, MultiRepoResult, ReleaseSequencer, RepoDependencyGraph,
+    RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoNode, RepoReleaseStatus, RepoReleaser,
+    RepoStep, SequenceItem, SequenceOutcome, SequencePlan,
+};
 pub use obs::{
     emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
     emit_run_started, RunSpan,
