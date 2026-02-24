@@ -113,8 +113,42 @@ impl CiPipeline {
             recorder.record(&called_event).await?;
             seq += 1;
 
-            // Execute stage
-            let result = CiRunner::execute_stage(&config).await?;
+            // Execute stage — catch errors so we can record a ToolFailed event
+            let result = match CiRunner::execute_stage(&config).await {
+                Ok(r) => r,
+                Err(e) => {
+                    // Stage execution itself failed (e.g. timeout, spawn error).
+                    // Record a ToolFailed event so the gate sees it.
+                    all_passed = false;
+                    let duration_ms_stage = start.elapsed().as_millis() as u64;
+                    let failed_event = Event::new(
+                        Uuid::new_v4(),
+                        seq,
+                        EventKind::ToolFailed {
+                            tool_name: tool_name.clone(),
+                        },
+                        json!({
+                            "exit_code": -1,
+                            "stdout": "",
+                            "stderr": e.to_string(),
+                            "duration_ms": duration_ms_stage,
+                            "error": format!("Stage '{}' execution error: {}", tool_name, e),
+                        }),
+                    );
+                    recorder.record(&failed_event).await?;
+                    seq += 1;
+
+                    stage_results.push(StageResult {
+                        stage_name: tool_name,
+                        exit_code: -1,
+                        stdout: String::new(),
+                        stderr: e.to_string(),
+                        duration_ms: duration_ms_stage,
+                        success: false,
+                    });
+                    continue;
+                }
+            };
 
             // Record result event
             if result.passed() {

@@ -113,6 +113,7 @@ dependencies = [
  "nix-env-manager",
  "oxidized-state",
  "oxidizedgraph",
+ "regex",
  "semantic-rag-merge",
  "serde",
  "serde_json",
