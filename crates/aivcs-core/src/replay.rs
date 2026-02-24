@@ -456,7 +456,7 @@ mod tests {
                 &run_id,
                 RunEvent {
                     seq: 1,
-                    kind: "CheckpointSaved".to_string(),
+                    kind: "checkpoint_saved".to_string(),
                     payload: serde_json::json!({ "checkpoint_id": "cp1", "node_id": "node_a" }),
                     timestamp: ts,
                 },
@@ -470,7 +470,7 @@ mod tests {
                 &run_id,
                 RunEvent {
                     seq: 2,
-                    kind: "NodeEntered".to_string(),
+                    kind: "node_entered".to_string(),
                     payload: serde_json::json!({ "node_id": "node_b", "iteration": 1 }),
                     timestamp: ts,
                 },
@@ -484,7 +484,7 @@ mod tests {
                 &run_id,
                 RunEvent {
                     seq: 3,
-                    kind: "CheckpointSaved".to_string(),
+                    kind: "checkpoint_saved".to_string(),
                     payload: serde_json::json!({ "checkpoint_id": "cp2", "node_id": "node_b" }),
                     timestamp: ts,
                 },
@@ -521,7 +521,7 @@ mod tests {
                 &run_id,
                 RunEvent {
                     seq: 1,
-                    kind: "GraphStarted".to_string(),
+                    kind: "graph_started".to_string(),
                     payload: serde_json::json!({}),
                     timestamp: chrono::Utc::now(),
                 },
@@ -555,7 +555,7 @@ mod tests {
                 &run_id,
                 RunEvent {
                     seq: 1,
-                    kind: "GraphStarted".to_string(),
+                    kind: "graph_started".to_string(),
                     payload: serde_json::json!({}),
                     timestamp: ts,
                 },
@@ -568,7 +568,7 @@ mod tests {
                 &run_id,
                 RunEvent {
                     seq: 2,
-                    kind: "CheckpointSaved".to_string(),
+                    kind: "checkpoint_saved".to_string(),
                     payload: serde_json::json!({ "checkpoint_id": "cp1", "node_id": "node_x" }),
                     timestamp: ts,
                 },
@@ -582,7 +582,7 @@ mod tests {
                 &run_id,
                 RunEvent {
                     seq: 3,
-                    kind: "NodeEntered".to_string(),
+                    kind: "node_entered".to_string(),
                     payload: serde_json::json!({ "node_id": "node_y", "iteration": 1 }),
                     timestamp: ts,
                 },
@@ -598,7 +598,7 @@ mod tests {
         // events_before should include exactly events 1 and 2 (up to and including checkpoint)
         assert_eq!(resume.events_before.len(), 2);
         let last = resume.events_before.last().expect("last");
-        assert_eq!(last.kind, "CheckpointSaved");
+        assert_eq!(last.kind, "checkpoint_saved");
         assert_eq!(last.seq, 2);
     }
 

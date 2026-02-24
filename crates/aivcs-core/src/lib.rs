@@ -12,6 +12,7 @@ pub mod event_adapter;
 pub mod gate;
 pub mod git;
 pub mod memory;
+pub mod memory_context;
 pub mod metrics;
 pub mod multi_repo;
 pub mod obs;
@@ -137,12 +138,22 @@ pub use memory::{
     RationaleEntry, RationaleOutcome,
 };
 
+pub use memory_context::{
+    estimate_tokens, read_memory_context_artifact, write_memory_context_artifact, AssembledContext,
+    CompactionPolicy as MemoryContextCompactionPolicy,
+    CompactionResult as MemoryContextCompactionResult, CompactionStrategy, ContextAssembler,
+    ContextSegment, DecisionImportance, DecisionRationale as MemoryContextDecisionRationale,
+    MatchStrategy, MemoryContextArtifact, MemoryEntry as MemoryContextEntry, MemoryHit,
+    MemoryIndex as MemoryContextIndex, MemoryQuery, RationaleLedger,
+};
 pub use metrics::METRICS;
 pub use multi_repo::{
-    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CiAggregator, CiHealthReport,
-    CiRunFetcher, MultiRepoError, MultiRepoResult, ReleaseSequencer, RepoDependencyGraph,
-    RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoNode, RepoReleaseStatus, RepoReleaser,
-    RepoStep, SequenceItem, SequenceOutcome, SequencePlan,
+    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CIHealthView, CiAggregator,
+    CiHealthReport, CiRunFetcher, CrossRepoGraph, MultiRepoError, MultiRepoExecutionPlan,
+    MultiRepoOrchestrator, MultiRepoResult, ReleaseProvenance, ReleaseSequencer, RepoCIStatus,
+    RepoDependency, RepoDependencyGraph, RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoId,
+    RepoNode, RepoReleaseStatus, RepoReleaser, RepoStep, SequenceItem, SequenceOutcome,
+    SequencePlan,
 };
 pub use obs::{
     emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,

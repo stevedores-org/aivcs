@@ -82,7 +82,7 @@ impl CiPipeline {
         info!(run_id = %run_id, "Starting CI pipeline");
 
         let mut stage_results = Vec::new();
-        let mut seq = 0u64;
+        let mut seq = 1u64;
         let mut all_passed = true;
 
         // Execute each enabled stage
@@ -156,7 +156,7 @@ impl CiPipeline {
 
         // Finalize run
         let summary = RunSummary {
-            total_events: seq,
+            total_events: seq - 1,
             final_state_digest: None,
             duration_ms,
             success: all_passed,

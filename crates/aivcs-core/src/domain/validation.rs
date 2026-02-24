@@ -12,48 +12,48 @@ use super::error::ValidationError;
 
 /// All structured event kinds produced by `map_event()` in `event_adapter.rs`.
 pub const KNOWN_EVENT_KINDS: &[&str] = &[
-    "GraphStarted",
-    "GraphCompleted",
-    "GraphFailed",
-    "GraphInterrupted",
-    "NodeEntered",
-    "NodeExited",
-    "NodeFailed",
-    "NodeRetrying",
-    "ToolCalled",
-    "ToolReturned",
-    "ToolFailed",
-    "CheckpointSaved",
-    "CheckpointRestored",
-    "CheckpointDeleted",
-    "StateUpdated",
-    "MessageAdded",
-    "DecisionMade",
-    "DecisionOutcome",
+    "graph_started",
+    "graph_completed",
+    "graph_failed",
+    "graph_interrupted",
+    "node_entered",
+    "node_exited",
+    "node_failed",
+    "node_retrying",
+    "tool_called",
+    "tool_returned",
+    "tool_failed",
+    "checkpoint_saved",
+    "checkpoint_restored",
+    "checkpoint_deleted",
+    "state_updated",
+    "message_added",
+    "decision_made",
+    "decision_outcome",
 ];
 
 /// Required payload fields per structured event kind.
 ///
 /// Kinds not listed here require no specific fields.
 pub const REQUIRED_PAYLOAD_FIELDS: &[(&str, &[&str])] = &[
-    ("GraphStarted", &["graph_name", "entry_point"]),
-    ("GraphCompleted", &["iterations", "duration_ms"]),
-    ("GraphFailed", &["error"]),
-    ("GraphInterrupted", &["reason", "node_id"]),
-    ("NodeEntered", &["node_id", "iteration"]),
-    ("NodeExited", &["node_id"]),
-    ("NodeFailed", &["node_id", "error"]),
-    ("NodeRetrying", &["node_id", "attempt"]),
-    ("ToolCalled", &["tool_name"]),
-    ("ToolReturned", &["tool_name"]),
-    ("ToolFailed", &["tool_name"]),
-    ("CheckpointSaved", &["checkpoint_id", "node_id"]),
-    ("CheckpointRestored", &["checkpoint_id", "node_id"]),
-    ("CheckpointDeleted", &["checkpoint_id"]),
-    ("StateUpdated", &["node_id"]),
-    ("MessageAdded", &["role"]),
-    ("DecisionMade", &["decision_id", "confidence"]),
-    ("DecisionOutcome", &["decision_id", "success"]),
+    ("graph_started", &["graph_name", "entry_point"]),
+    ("graph_completed", &["iterations", "duration_ms"]),
+    ("graph_failed", &["error"]),
+    ("graph_interrupted", &["reason", "node_id"]),
+    ("node_entered", &["node_id", "iteration"]),
+    ("node_exited", &["node_id"]),
+    ("node_failed", &["node_id", "error"]),
+    ("node_retrying", &["node_id", "attempt"]),
+    ("tool_called", &["tool_name"]),
+    ("tool_returned", &["tool_name"]),
+    ("tool_failed", &["tool_name"]),
+    ("checkpoint_saved", &["checkpoint_id", "node_id"]),
+    ("checkpoint_restored", &["checkpoint_id", "node_id"]),
+    ("checkpoint_deleted", &["checkpoint_id"]),
+    ("state_updated", &["node_id"]),
+    ("message_added", &["role"]),
+    ("decision_made", &["decision_id", "confidence"]),
+    ("decision_outcome", &["decision_id", "success"]),
 ];
 
 /// Validate a `RunEvent`.
@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn test_valid_node_entered_passes() {
         let event = make_event(
-            "NodeEntered",
+            "node_entered",
             serde_json::json!({ "node_id": "n1", "iteration": 1 }),
         );
         assert!(validate_run_event(&event).is_ok());
@@ -130,11 +130,11 @@ mod tests {
 
     #[test]
     fn test_node_entered_missing_node_id_fails() {
-        let event = make_event("NodeEntered", serde_json::json!({ "iteration": 1 }));
+        let event = make_event("node_entered", serde_json::json!({ "iteration": 1 }));
         let err = validate_run_event(&event).unwrap_err();
         match err {
             ValidationError::MissingPayloadField { kind, field } => {
-                assert_eq!(kind, "NodeEntered");
+                assert_eq!(kind, "node_entered");
                 assert_eq!(field, "node_id");
             }
             other => panic!("Expected MissingPayloadField, got {:?}", other),
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn test_valid_checkpoint_saved_passes() {
         let event = make_event(
-            "CheckpointSaved",
+            "checkpoint_saved",
             serde_json::json!({ "checkpoint_id": "cp1", "node_id": "n1" }),
         );
         assert!(validate_run_event(&event).is_ok());
@@ -178,13 +178,13 @@ mod tests {
     #[test]
     fn test_checkpoint_saved_missing_node_id_fails() {
         let event = make_event(
-            "CheckpointSaved",
+            "checkpoint_saved",
             serde_json::json!({ "checkpoint_id": "cp1" }),
         );
         let err = validate_run_event(&event).unwrap_err();
         match err {
             ValidationError::MissingPayloadField { kind, field } => {
-                assert_eq!(kind, "CheckpointSaved");
+                assert_eq!(kind, "checkpoint_saved");
                 assert_eq!(field, "node_id");
             }
             other => panic!("{:?}", other),
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_valid_tool_called_passes() {
-        let event = make_event("ToolCalled", serde_json::json!({ "tool_name": "search" }));
+        let event = make_event("tool_called", serde_json::json!({ "tool_name": "search" }));
         assert!(validate_run_event(&event).is_ok());
     }
 }

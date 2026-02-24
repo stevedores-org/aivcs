@@ -33,25 +33,25 @@ async fn build_seeded_run(ledger: &dyn RunLedger) -> RunId {
     let events: Vec<RunEvent> = vec![
         RunEvent {
             seq: 1,
-            kind: "GraphStarted".to_string(),
+            kind: "graph_started".to_string(),
             payload: serde_json::json!({ "graph_name": "golden_graph", "entry_point": "start" }),
             timestamp: ts,
         },
         RunEvent {
             seq: 2,
-            kind: "NodeEntered".to_string(),
+            kind: "node_entered".to_string(),
             payload: serde_json::json!({ "node_id": "node_0", "iteration": 1 }),
             timestamp: ts,
         },
         RunEvent {
             seq: 3,
-            kind: "NodeExited".to_string(),
+            kind: "node_exited".to_string(),
             payload: serde_json::json!({ "node_id": "node_0", "next_node": null, "duration_ms": 42 }),
             timestamp: ts,
         },
         RunEvent {
             seq: 4,
-            kind: "GraphCompleted".to_string(),
+            kind: "graph_completed".to_string(),
             payload: serde_json::json!({ "iterations": 1, "duration_ms": 100 }),
             timestamp: ts,
         },
@@ -83,7 +83,7 @@ async fn build_seeded_run(ledger: &dyn RunLedger) -> RunId {
 /// If this test fails, it means the event serialization format has changed.
 /// Update the constant **only** after verifying the change is intentional.
 const GOLDEN_REPLAY_DIGEST: &str =
-    "4f1d1a3b33f80618f257cf15e0806fecff3678135c64a6939a277efd2dc918f3";
+    "f5557fd15de85c61ff7507c0b97c671f8ba7471324794df16ceb54b906b0c3f8";
 
 #[tokio::test]
 async fn test_golden_digest_pin() {
@@ -132,7 +132,7 @@ async fn test_golden_digest_identical_inputs_match() {
                 &id,
                 RunEvent {
                     seq: 1,
-                    kind: "GraphStarted".to_string(),
+                    kind: "graph_started".to_string(),
                     payload: serde_json::json!({}),
                     timestamp: ts,
                 },

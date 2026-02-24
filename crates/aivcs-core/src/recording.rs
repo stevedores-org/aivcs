@@ -132,7 +132,7 @@ mod tests {
 
         assert_eq!(recorded_event.kind, "tool_called");
 
-        // This is where the bug is: tool_name should be in the payload if we want diff to work
+        // Regression check: tool_name must be persisted in payload for downstream diffing.
         assert_eq!(
             recorded_event
                 .payload
