@@ -114,13 +114,14 @@ impl CiPipeline {
             seq += 1;
 
             // Execute stage — catch errors so we can record a ToolFailed event
+            let stage_start = Instant::now();
             let result = match CiRunner::execute_stage(&config).await {
                 Ok(r) => r,
                 Err(e) => {
                     // Stage execution itself failed (e.g. timeout, spawn error).
                     // Record a ToolFailed event so the gate sees it.
                     all_passed = false;
-                    let duration_ms_stage = start.elapsed().as_millis() as u64;
+                    let duration_ms_stage = stage_start.elapsed().as_millis() as u64;
                     let failed_event = Event::new(
                         Uuid::new_v4(),
                         seq,

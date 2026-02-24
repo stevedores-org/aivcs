@@ -34,6 +34,7 @@ impl CiGate {
         // Track which tools were called and their final status
         let mut tools_called = std::collections::HashSet::new();
         let mut tools_completed = std::collections::HashSet::new();
+        let mut tools_failed = std::collections::HashSet::new();
 
         for event in events {
             if event.kind == "tool_called" {
@@ -56,6 +57,7 @@ impl CiGate {
                         "Tool '{}' returned non-zero exit code: {}",
                         tool_name, exit_code
                     ));
+                    tools_failed.insert(tool_name.clone());
                 }
             } else if event.kind == "tool_failed" {
                 let tool_name = event.payload["tool_name"]
@@ -67,14 +69,15 @@ impl CiGate {
                     .unwrap_or("Unknown error")
                     .to_string();
                 violations.push(format!("Tool '{}' failed: {}", tool_name, error));
+                tools_failed.insert(tool_name);
             }
         }
 
-        // Check for tools that were called but never completed successfully
+        // Check for tools that were called but never completed successfully.
+        // Use exact tool name matching (not substring) to avoid false positives
+        // when one tool name is a prefix of another.
         for tool in &tools_called {
-            if !tools_completed.contains(tool)
-                && !violations.iter().any(|v| v.contains(tool.as_str()))
-            {
+            if !tools_completed.contains(tool) && !tools_failed.contains(tool) {
                 violations.push(format!("Tool '{}' was called but never completed", tool));
             }
         }
@@ -204,6 +207,70 @@ mod tests {
         assert!(!verdict.passed);
         assert_eq!(verdict.violations.len(), 1);
         assert!(verdict.violations[0].contains("never completed"));
+    }
+
+    #[test]
+    fn test_tool_failed_not_flagged_as_incomplete() {
+        // A tool that has a ToolFailed event should NOT also be flagged as "never completed".
+        let events = vec![
+            RunEvent {
+                seq: 1,
+                kind: "tool_called".to_string(),
+                payload: json!({ "tool_name": "check" }),
+                timestamp: Utc::now(),
+            },
+            RunEvent {
+                seq: 2,
+                kind: "tool_failed".to_string(),
+                payload: json!({ "tool_name": "check", "error": "Build failed" }),
+                timestamp: Utc::now(),
+            },
+        ];
+
+        let verdict = CiGate::evaluate(&events);
+        assert!(!verdict.passed);
+        // Should have exactly 1 violation (the failure), NOT 2 (failure + incomplete).
+        assert_eq!(verdict.violations.len(), 1);
+        assert!(verdict.violations[0].contains("failed"));
+    }
+
+    #[test]
+    fn test_substring_tool_names_no_false_positive() {
+        // "test" failing should not suppress the "never completed" check for "integration-test".
+        let events = vec![
+            RunEvent {
+                seq: 1,
+                kind: "tool_called".to_string(),
+                payload: json!({ "tool_name": "test" }),
+                timestamp: Utc::now(),
+            },
+            RunEvent {
+                seq: 2,
+                kind: "tool_failed".to_string(),
+                payload: json!({ "tool_name": "test", "error": "tests failed" }),
+                timestamp: Utc::now(),
+            },
+            RunEvent {
+                seq: 3,
+                kind: "tool_called".to_string(),
+                payload: json!({ "tool_name": "integration-test" }),
+                timestamp: Utc::now(),
+            },
+            // integration-test was called but never completed or failed
+        ];
+
+        let verdict = CiGate::evaluate(&events);
+        assert!(!verdict.passed);
+        // Should have 2 violations: "test" failed + "integration-test" never completed.
+        assert_eq!(verdict.violations.len(), 2);
+        assert!(verdict
+            .violations
+            .iter()
+            .any(|v| v.contains("'test' failed")));
+        assert!(verdict
+            .violations
+            .iter()
+            .any(|v| v.contains("'integration-test'") && v.contains("never completed")));
     }
 
     #[test]
