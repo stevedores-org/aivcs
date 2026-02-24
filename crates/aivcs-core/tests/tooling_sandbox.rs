@@ -74,6 +74,18 @@ fn registry_with_echo_tool() -> ToolRegistry {
     reg
 }
 
+fn registry_with_read_tool() -> ToolRegistry {
+    let mut reg = ToolRegistry::default();
+    reg.register(ToolSpec {
+        name: "read_file".to_string(),
+        capability: ToolCapability::FileRead,
+        input_schema: JsonFieldSchema::required(["path"]),
+        output_schema: JsonFieldSchema::required(["ok"]),
+    })
+    .expect("register");
+    reg
+}
+
 #[tokio::test]
 async fn disallowed_operation_is_blocked_with_reason() {
     let reg = registry_with_echo_tool();
@@ -247,4 +259,55 @@ async fn circuit_breaker_opens_after_threshold() {
         2,
         "adapter should not be called once circuit is open"
     );
+}
+
+#[tokio::test]
+async fn safe_defaults_require_approval_for_high_risk_capabilities() {
+    let reg = registry_with_echo_tool();
+    let adapter = ScriptedAdapter::new(vec![Step::Return(json!({"ok": true}))]);
+    let executor =
+        ToolExecutor::new_with_safe_defaults(reg, adapter, ToolExecutionConfig::default());
+
+    let err = executor
+        .execute(ToolInvocation::new("echo", json!({"message": "hi"})), None)
+        .await
+        .expect_err("safe defaults should require approval for shell exec");
+
+    assert!(matches!(err, ToolExecutionError::ApprovalRequired { .. }));
+}
+
+#[tokio::test]
+async fn safe_defaults_allow_read_only_capabilities() {
+    let reg = registry_with_read_tool();
+    let adapter = ScriptedAdapter::new(vec![Step::Return(json!({"ok": true, "content": "x"}))]);
+    let executor =
+        ToolExecutor::new_with_safe_defaults(reg, adapter, ToolExecutionConfig::default());
+
+    let report = executor
+        .execute(
+            ToolInvocation::new("read_file", json!({"path": "/tmp/demo.txt"})),
+            Some("run-read".to_string()),
+        )
+        .await
+        .expect("read-only capability should be allowed by safe defaults");
+
+    assert_eq!(report.output["ok"], json!(true));
+}
+
+#[tokio::test]
+async fn tool_specific_allow_can_override_safe_default_capability_rule() {
+    let reg = registry_with_echo_tool();
+    let policy = PolicyMatrix::safe_defaults().with_tool_action("echo", PolicyAction::Allow);
+    let adapter = ScriptedAdapter::new(vec![Step::Return(json!({"ok": true}))]);
+    let executor = ToolExecutor::new(reg, policy, adapter, ToolExecutionConfig::default());
+
+    let report = executor
+        .execute(
+            ToolInvocation::new("echo", json!({"message": "approved tool override"})),
+            None,
+        )
+        .await
+        .expect("tool override should allow execution");
+
+    assert_eq!(report.output["ok"], json!(true));
 }

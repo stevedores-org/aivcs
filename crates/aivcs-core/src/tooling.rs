@@ -103,6 +103,15 @@ pub struct PolicyMatrix {
 }
 
 impl PolicyMatrix {
+    /// Secure baseline for high-risk operations.
+    pub fn safe_defaults() -> Self {
+        Self::default()
+            .with_capability(ToolCapability::ShellExec, PolicyAction::RequireApproval)
+            .with_capability(ToolCapability::FileWrite, PolicyAction::RequireApproval)
+            .with_capability(ToolCapability::GitWrite, PolicyAction::RequireApproval)
+            .with_capability(ToolCapability::NetworkFetch, PolicyAction::RequireApproval)
+    }
+
     pub fn with_capability(mut self, capability: ToolCapability, action: PolicyAction) -> Self {
         self.by_capability.insert(capability, action);
         self
@@ -251,6 +260,15 @@ impl<A: ToolAdapter> ToolExecutor<A> {
             config,
             failure_counts: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Convenience constructor that applies secure policy defaults.
+    pub fn new_with_safe_defaults(
+        registry: ToolRegistry,
+        adapter: A,
+        config: ToolExecutionConfig,
+    ) -> Self {
+        Self::new(registry, PolicyMatrix::safe_defaults(), adapter, config)
     }
 
     pub async fn execute(
