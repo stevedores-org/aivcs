@@ -47,8 +47,8 @@ impl NixHash {
     }
 
     /// Get short hash (first 12 characters)
-    pub fn short(&self) -> &str {
-        &self.hash[..12.min(self.hash.len())]
+    pub fn short(&self) -> String {
+        self.hash.chars().take(12).collect()
     }
 }
 

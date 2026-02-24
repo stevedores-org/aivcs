@@ -18,6 +18,8 @@ pub struct VectorStoreDelta {
     pub only_in_a: Vec<MemoryRecord>,
     /// Memories only in commit B
     pub only_in_b: Vec<MemoryRecord>,
+    /// Memories that are identical in both A and B
+    pub identical: Vec<MemoryRecord>,
     /// Memories that differ between A and B (same key, different content)
     pub conflicts: Vec<MemoryConflict>,
 }
@@ -85,8 +87,9 @@ pub async fn diff_memory_vectors(
         .cloned()
         .collect();
 
-    // Find conflicts (same key, different content)
+    // Find conflicts (same key, different content) and identical memories
     let mut conflicts = Vec::new();
+    let mut identical = Vec::new();
     for mem_a in &memories_a {
         if let Some(mem_b) = memories_b.iter().find(|m| m.key == mem_a.key) {
             if mem_a.content != mem_b.content {
@@ -95,6 +98,8 @@ pub async fn diff_memory_vectors(
                     memory_a: mem_a.clone(),
                     memory_b: mem_b.clone(),
                 });
+            } else {
+                identical.push(mem_a.clone());
             }
         }
     }
@@ -102,6 +107,7 @@ pub async fn diff_memory_vectors(
     Ok(VectorStoreDelta {
         only_in_a,
         only_in_b,
+        identical,
         conflicts,
     })
 }
@@ -162,6 +168,13 @@ pub async fn synthesize_memory(
 
     // Include all memories unique to B
     for mut mem in delta.only_in_b {
+        mem.commit_id = new_commit_id.to_string();
+        mem.id = None;
+        merged_memories.push(mem);
+    }
+
+    // Include identical memories
+    for mut mem in delta.identical {
         mem.commit_id = new_commit_id.to_string();
         mem.id = None;
         merged_memories.push(mem);

@@ -87,25 +87,39 @@ impl CommitId {
         hasher.update(state);
         let state_hash = hex::encode(hasher.finalize());
 
-        // For MVP, composite hash is just the state hash
-        CommitId {
-            hash: state_hash.clone(),
-            logic_hash: None,
-            state_hash,
-            env_hash: None,
-        }
+        // Consistent with new(None, state_hash, None)
+        Self::new(None, &state_hash, None)
     }
 
     /// Create a full composite CommitId (Phase 2+)
     pub fn new(logic_hash: Option<&str>, state_hash: &str, env_hash: Option<&str>) -> Self {
         let mut hasher = Sha256::new();
+
+        // Use markers and separators to prevent hash collisions
+        // Logic component
+        hasher.update(b"L");
         if let Some(lh) = logic_hash {
+            hasher.update(b"S");
             hasher.update(lh.as_bytes());
+        } else {
+            hasher.update(b"N");
         }
+        hasher.update(b"\0");
+
+        // State component (always present)
+        hasher.update(b"S:");
         hasher.update(state_hash.as_bytes());
+        hasher.update(b"\0");
+
+        // Environment component
+        hasher.update(b"E");
         if let Some(eh) = env_hash {
+            hasher.update(b"S");
             hasher.update(eh.as_bytes());
+        } else {
+            hasher.update(b"N");
         }
+
         let composite = hex::encode(hasher.finalize());
 
         CommitId {
@@ -117,8 +131,8 @@ impl CommitId {
     }
 
     /// Get short hash (first 8 characters)
-    pub fn short(&self) -> &str {
-        &self.hash[..8.min(self.hash.len())]
+    pub fn short(&self) -> String {
+        self.hash.chars().take(8).collect()
     }
 }
 
@@ -575,6 +589,21 @@ mod tests {
         assert!(!commit_id.hash.is_empty());
         assert_eq!(commit_id.logic_hash, Some("logic-hash".to_string()));
         assert_eq!(commit_id.env_hash, Some("env-hash".to_string()));
+    }
+
+    #[test]
+    fn test_commit_id_collision_prevention() {
+        // Test that swapping components results in different hashes
+        let id1 = CommitId::new(Some("ab"), "cd", None);
+        let id2 = CommitId::new(Some("a"), "bcd", None);
+        assert_ne!(id1.hash, id2.hash);
+
+        // Test that None vs "none" string doesn't collide if we use prefixes correctly
+        // (Wait, we use "none" for None, so if state_hash was "none" and logic_hash was None,
+        // it might collide if we don't have prefixes)
+        let id3 = CommitId::new(None, "state", None);
+        let id4 = CommitId::new(Some("none"), "state", None);
+        assert_ne!(id3.hash, id4.hash);
     }
 
     #[test]
