@@ -80,9 +80,11 @@ pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
 pub use planning_autonomy::{
-    compute_progress, decompose_goal_to_dag, evaluate_replan, schedule_next_ready_tasks, EpicPlan,
-    ExecutionDag, GoalPlan, PlanTask, PlanTaskStatus, PlanningError, ProgressReport,
-    ReplanDecision, ReplanPolicy, ReplanReason, SchedulerConstraints, TaskPlan,
+    compute_progress, decompose_goal_to_dag, evaluate_replan, evaluate_replan_with_controls,
+    schedule_next_ready_tasks, ControlledReplanDecision, EpicPlan, ExecutionDag, GoalPlan,
+    PlanTask, PlanTaskStatus, PlannerRuntimeState, PlanningError, ProgressReport, RecoveryControls,
+    ReplanDecision, ReplanPolicy, ReplanReason, ReplanSuppressionReason, SchedulerConstraints,
+    TaskPlan,
 };
 
 pub use diff::node_paths::{
