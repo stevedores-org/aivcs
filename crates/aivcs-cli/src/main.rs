@@ -1265,10 +1265,7 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
         reference.to_string()
     };
 
-    println!(
-        "Reasoning Trace for {}",
-        truncate_id(&commit_hash, 12)
-    );
+    println!("Reasoning Trace for {}", truncate_id(&commit_hash, 12));
     println!("=========================================\n");
 
     // Get commit history (limited by depth)
