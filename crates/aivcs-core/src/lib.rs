@@ -13,6 +13,7 @@ pub mod gate;
 pub mod git;
 pub mod metrics;
 pub mod obs;
+pub mod orchestration;
 pub mod parallel;
 pub mod publish_gate;
 pub mod recording;
@@ -55,6 +56,11 @@ pub use cas::{CasError, CasStore, Digest};
 
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
+};
+pub use orchestration::{
+    default_role_templates, deterministic_role_order, merge_role_outputs, validate_handoff,
+    validate_parallel_roles, AgentRole, HandoffValidationError, MergeConflict, MergeConflictStrategy,
+    MergeOutcome, ParallelPlanError, RoleHandoff, RoleOutput, RoleTemplate,
 };
 
 pub use compat::{
