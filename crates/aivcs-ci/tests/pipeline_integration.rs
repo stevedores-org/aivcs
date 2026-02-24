@@ -247,7 +247,10 @@ async fn test_pipeline_execution_error_recorded_as_tool_failed() {
     assert!(!result.success, "Pipeline should report failure");
     assert_eq!(result.stages.len(), 1, "One stage should be recorded");
     let stage = &result.stages[0];
-    assert_eq!(stage.exit_code, -1, "Execution error should use exit_code -1");
+    assert_eq!(
+        stage.exit_code, -1,
+        "Execution error should use exit_code -1"
+    );
     assert!(!stage.success, "Stage should be marked failed");
 
     let run_id = RunId(result.run_id);
