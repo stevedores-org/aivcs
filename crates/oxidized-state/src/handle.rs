@@ -907,9 +907,10 @@ impl SurrealHandle {
             .await?;
 
         let decisions: Vec<DecisionRecord> = result.take(0)?;
-        decisions.into_iter().next().ok_or_else(|| {
-            StateError::Transaction("Decision not found for update".to_string()).into()
-        })
+        decisions
+            .into_iter()
+            .next()
+            .ok_or_else(|| StateError::Transaction("Decision not found for update".to_string()))
     }
 
     /// Get decision history for a task
