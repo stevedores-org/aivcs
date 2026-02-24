@@ -3,6 +3,9 @@
 /// Errors produced by memory operations.
 #[derive(Debug, thiserror::Error)]
 pub enum MemoryError {
+    #[error("duplicate entry id: {id}")]
+    DuplicateEntry { id: String },
+
     #[error("entry not found: {id}")]
     EntryNotFound { id: String },
 

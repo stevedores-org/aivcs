@@ -60,7 +60,22 @@ pub struct ContextWindow {
 /// until the budget is exhausted. Entries that don't fit are dropped.
 pub fn assemble_context(candidates: &[MemoryEntry], budget: &ContextBudget) -> ContextWindow {
     let mut sorted: Vec<&MemoryEntry> = candidates.iter().collect();
-    sorted.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap());
+    sorted.sort_by(|a, b| {
+        let a_score = if a.relevance.is_finite() {
+            a.relevance
+        } else {
+            f64::NEG_INFINITY
+        };
+        let b_score = if b.relevance.is_finite() {
+            b.relevance
+        } else {
+            f64::NEG_INFINITY
+        };
+        b_score
+            .total_cmp(&a_score)
+            .then_with(|| b.created_at.cmp(&a.created_at))
+            .then_with(|| a.id.cmp(&b.id))
+    });
 
     let available = budget.available();
     let mut items = Vec::new();
@@ -140,5 +155,14 @@ mod tests {
         assert!(ContextBudget::new(100, 200).is_err());
         assert!(ContextBudget::new(100, 100).is_err());
         assert!(ContextBudget::new(100, 99).is_ok());
+    }
+
+    #[test]
+    fn test_nan_relevance_does_not_panic_or_win_sorting() {
+        let entries = vec![make("good", 100, 0.8), make("nan", 100, f64::NAN)];
+        let budget = ContextBudget::new(150, 0).unwrap();
+        let w = assemble_context(&entries, &budget);
+        assert_eq!(w.items.len(), 1);
+        assert_eq!(w.items[0].entry_id, "good");
     }
 }

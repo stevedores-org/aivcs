@@ -108,6 +108,9 @@ impl MemoryIndex {
 
     /// Insert an entry. Returns error if id already exists.
     pub fn insert(&mut self, entry: MemoryEntry) -> MemoryResult<()> {
+        if self.entries.contains_key(&entry.id) {
+            return Err(MemoryError::DuplicateEntry { id: entry.id });
+        }
         self.entries.insert(entry.id.clone(), entry);
         Ok(())
     }
@@ -263,5 +266,18 @@ mod tests {
         let json = serde_json::to_string(&idx).unwrap();
         let back: MemoryIndex = serde_json::from_str(&json).unwrap();
         assert_eq!(back.len(), 1);
+    }
+
+    #[test]
+    fn test_insert_duplicate_id_rejected() {
+        let mut idx = MemoryIndex::new();
+        idx.insert(make_entry("dup", MemoryEntryKind::RunTrace))
+            .unwrap();
+        let err = idx
+            .insert(make_entry("dup", MemoryEntryKind::Diff))
+            .expect_err("duplicate id should fail");
+        assert!(matches!(err, MemoryError::DuplicateEntry { .. }));
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx.get("dup").unwrap().kind, MemoryEntryKind::RunTrace);
     }
 }

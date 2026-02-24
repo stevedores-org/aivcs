@@ -82,8 +82,9 @@ pub fn compact_index(
                 .iter()
                 .map(|(id, e)| (id.clone(), e.created_at))
                 .collect();
-            // Sort oldest first
-            entries_by_age.sort_by_key(|(_, ts)| *ts);
+            // Sort oldest first, then id for deterministic tie-breaking.
+            entries_by_age
+                .sort_by(|(id_a, ts_a), (id_b, ts_b)| ts_a.cmp(ts_b).then_with(|| id_a.cmp(id_b)));
 
             let to_remove_count = index.len() - max_entries;
             for (id, _) in entries_by_age.into_iter().take(to_remove_count) {
@@ -171,5 +172,37 @@ mod tests {
         .unwrap();
         assert_eq!(r.removed_count, 2);
         assert_eq!(r.remaining_count, 3);
+    }
+
+    #[test]
+    fn test_count_trimming_deterministic_with_equal_timestamps() {
+        let now = Utc::now();
+        let mut idx = MemoryIndex::new();
+        for id in &["b", "a", "c"] {
+            idx.insert(MemoryEntry {
+                id: (*id).to_string(),
+                kind: MemoryEntryKind::RunTrace,
+                summary: format!("s {id}"),
+                content_digest: format!("d_{id}"),
+                created_at: now,
+                tags: Vec::new(),
+                token_estimate: 100,
+                relevance: 0.5,
+            })
+            .unwrap();
+        }
+
+        let r = compact_index(
+            &mut idx,
+            &CompactionPolicy {
+                max_age_days: None,
+                max_entries: Some(1),
+                min_token_threshold: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(r.removed_ids, vec!["a".to_string(), "b".to_string()]);
+        assert!(idx.get("c").is_ok());
     }
 }
