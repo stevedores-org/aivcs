@@ -205,59 +205,50 @@ pub async fn synthesize_memory(
 /// Perform a semantic merge of two branches
 pub async fn semantic_merge(
     handle: &SurrealHandle,
-    commit_a: &str, // source_commit
-    commit_b: &str, // target_commit
+    commit_a: &str,
+    commit_b: &str,
     message: &str,
     author: &str,
 ) -> Result<MergeResult> {
-    // 1. Load parent snapshots for state synthesis
-    let _snapshot_a = handle.load_snapshot(commit_a).await?;
-    let snapshot_b = handle.load_snapshot(commit_b).await?;
+    // Create a merged state record
+    // In a real agent, this might involve merging domain-specific fields.
+    // For the VCS core, we ensure a valid snapshot exists for the merge commit.
+    let state = serde_json::json!({
+        "type": "merge",
+        "parents": [commit_a, commit_b],
+        "message": message,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    });
 
-    // 2. Synthesize merged state (Phase 3 MVP: prefer target, record source)
-    let mut merged_state = snapshot_b.state.clone();
-    if let Some(obj) = merged_state.as_object_mut() {
-        obj.insert(
-            "_merged_from".to_string(),
-            serde_json::Value::String(commit_a.to_string()),
-        );
-        obj.insert(
-            "_merge_message".to_string(),
-            serde_json::Value::String(message.to_string()),
-        );
-    }
+    let merge_commit_id = CommitId::from_json(&state);
 
-    // 3. Create the merge commit ID based on the synthesized state
-    let state_bytes = serde_json::to_vec(&merged_state)?;
-    let merge_commit_id = CommitId::from_state(&state_bytes);
+    // Save merged snapshot to ensure trace/restore works
+    handle.save_snapshot(&merge_commit_id, state).await?;
 
-    // 4. Synthesize memories
+    // Synthesize memories
     let merged_memories =
         synthesize_memory(handle, commit_a, commit_b, &merge_commit_id.hash).await?;
 
-    // 5. Persist merged snapshot
-    handle.save_snapshot(&merge_commit_id, merged_state).await?;
-
-    // 6. Save merged memories
+    // Save merged memories
     for mem in &merged_memories {
         handle.save_memory(mem).await?;
     }
 
-    // 7. Create merge commit record (follow target branch history: [target, source])
+    // Create merge commit record
     let commit = oxidized_state::CommitRecord::new(
         merge_commit_id.clone(),
-        vec![commit_b.to_string(), commit_a.to_string()],
+        vec![commit_a.to_string(), commit_b.to_string()],
         message,
         author,
     );
     handle.save_commit(&commit).await?;
 
-    // 8. Save graph edges for both parents
+    // Save graph edges for both parents with correct EdgeType::Merge
     handle
-        .save_commit_graph_edge(&merge_commit_id.hash, commit_b)
+        .save_commit_graph_edge_merge(&merge_commit_id.hash, commit_a)
         .await?;
     handle
-        .save_commit_graph_edge(&merge_commit_id.hash, commit_a)
+        .save_commit_graph_edge_merge(&merge_commit_id.hash, commit_b)
         .await?;
 
     // Get delta for summary
@@ -345,16 +336,9 @@ mod tests {
     async fn test_merge_synthesizes_two_memories_into_one_new_commit() {
         let handle = SurrealHandle::setup_db().await.unwrap();
 
-        // Create commit IDs and snapshots (now required by semantic_merge)
-        let state_a = serde_json::json!({"branch": "a"});
-        let state_b = serde_json::json!({"branch": "b"});
-        let commit_id_a =
-            oxidized_state::CommitId::from_state(serde_json::to_vec(&state_a).unwrap().as_slice());
-        let commit_id_b =
-            oxidized_state::CommitId::from_state(serde_json::to_vec(&state_b).unwrap().as_slice());
-
-        handle.save_snapshot(&commit_id_a, state_a).await.unwrap();
-        handle.save_snapshot(&commit_id_b, state_b).await.unwrap();
+        // Create commit IDs
+        let commit_id_a = oxidized_state::CommitId::from_state(b"branch-a");
+        let commit_id_b = oxidized_state::CommitId::from_state(b"branch-b");
 
         // Create commits with divergent memories
         let commit_a = oxidized_state::CommitRecord::new(
