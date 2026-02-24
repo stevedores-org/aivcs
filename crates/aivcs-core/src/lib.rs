@@ -12,6 +12,7 @@ pub mod event_adapter;
 pub mod gate;
 pub mod git;
 pub mod memory;
+pub mod memory_context;
 pub mod metrics;
 pub mod multi_repo;
 pub mod obs;
@@ -135,6 +136,14 @@ pub use memory::{
     MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, RationaleEntry, RationaleOutcome,
 };
 
+pub use memory_context::{
+    estimate_tokens, read_memory_context_artifact, write_memory_context_artifact, AssembledContext,
+    CompactionPolicy as MemoryContextCompactionPolicy,
+    CompactionResult as MemoryContextCompactionResult, CompactionStrategy, ContextAssembler,
+    ContextSegment, DecisionImportance, DecisionRationale as MemoryContextDecisionRationale,
+    MatchStrategy, MemoryContextArtifact, MemoryEntry as MemoryContextEntry, MemoryHit,
+    MemoryIndex as MemoryContextIndex, MemoryQuery, RationaleLedger,
+};
 pub use metrics::METRICS;
 pub use multi_repo::{
     BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CIHealthView, CiAggregator,
