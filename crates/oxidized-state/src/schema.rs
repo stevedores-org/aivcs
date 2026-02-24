@@ -480,7 +480,7 @@ pub struct RunEventRecord {
     pub run_id: String,
     /// Monotonic sequence number within run (1-indexed)
     pub seq: u64,
-    /// Event kind (e.g. "GraphStarted", "NodeEntered", "ToolCalled")
+    /// Event kind (e.g. "graph_started", "node_entered", "tool_called")
     pub kind: String,
     /// Event payload (JSON)
     pub payload: serde_json::Value,
@@ -669,13 +669,13 @@ mod tests {
         let event = RunEventRecord::new(
             "run-123".to_string(),
             1,
-            "GraphStarted".to_string(),
+            "graph_started".to_string(),
             serde_json::json!({"graph_id": "g1"}),
         );
 
         assert_eq!(event.run_id, "run-123");
         assert_eq!(event.seq, 1);
-        assert_eq!(event.kind, "GraphStarted");
+        assert_eq!(event.kind, "graph_started");
     }
 
     #[test]

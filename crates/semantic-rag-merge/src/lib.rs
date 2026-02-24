@@ -126,13 +126,13 @@ pub async fn resolve_conflict_state(
     let (value, favored, reasoning) =
         if conflict.memory_a.content.len() >= conflict.memory_b.content.len() {
             (
-                serde_json::json!({"content": conflict.memory_a.content}),
+                serde_json::Value::String(conflict.memory_a.content.clone()),
                 Some("A".to_string()),
                 "Chose branch A: more detailed content".to_string(),
             )
         } else {
             (
-                serde_json::json!({"content": conflict.memory_b.content}),
+                serde_json::Value::String(conflict.memory_b.content.clone()),
                 Some("B".to_string()),
                 "Chose branch B: more detailed content".to_string(),
             )
@@ -186,11 +186,7 @@ pub async fn synthesize_memory(
         let merged_mem = MemoryRecord::new(
             new_commit_id,
             &conflict.key,
-            resolved
-                .value
-                .get("content")
-                .and_then(|v| v.as_str())
-                .unwrap_or(&conflict.memory_a.content),
+            resolved.value.as_str().unwrap_or(&conflict.memory_a.content),
         )
         .with_metadata(serde_json::json!({
             "merged_from": [commit_a, commit_b],
