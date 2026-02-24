@@ -22,6 +22,7 @@ pub mod release_registry;
 pub mod replay;
 pub mod reporting;
 pub mod role_orchestration;
+pub mod sandbox;
 pub mod telemetry;
 pub mod tooling;
 pub mod trace_artifact;
@@ -107,6 +108,11 @@ pub use role_orchestration::merge::{merge_parallel_outputs, MergedRoleOutput, Ro
 pub use role_orchestration::roles::HandoffToken;
 pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
+};
+
+pub use sandbox::{
+    evaluate_tool_request, execute_with_controls, CircuitBreaker, PolicyVerdict, SandboxConfig,
+    SandboxError, SandboxResult, ToolExecutionResult, ToolPolicyRule, ToolPolicySet, ToolRequest,
 };
 
 pub use metrics::METRICS;
