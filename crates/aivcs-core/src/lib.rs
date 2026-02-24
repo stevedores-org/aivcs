@@ -12,10 +12,13 @@ pub mod event_adapter;
 pub mod gate;
 pub mod git;
 pub mod memory_context;
+pub mod memory;
 pub mod metrics;
+pub mod multi_repo;
 pub mod obs;
 pub mod orchestration;
 pub mod parallel;
+pub mod planning_autonomy;
 pub mod publish_gate;
 pub mod quality_guardrails;
 pub mod recording;
@@ -23,6 +26,8 @@ pub mod release_registry;
 pub mod replay;
 pub mod reporting;
 pub mod role_orchestration;
+pub mod sandbox;
+pub mod self_healing;
 pub mod telemetry;
 pub mod tooling;
 pub mod trace_artifact;
@@ -75,6 +80,11 @@ pub use orchestration::{
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
 };
+pub use planning_autonomy::{
+    compute_progress, decompose_goal_to_dag, evaluate_replan, schedule_next_ready_tasks, EpicPlan,
+    ExecutionDag, GoalPlan, PlanTask, PlanTaskStatus, PlanningError, ProgressReport,
+    ReplanDecision, ReplanPolicy, ReplanReason, SchedulerConstraints, TaskPlan,
+};
 
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
@@ -109,14 +119,38 @@ pub use role_orchestration::roles::HandoffToken;
 pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
 };
+pub use self_healing::{
+    classify_failure, execute_recovery_loop, read_recovery_artifact, write_recovery_artifact,
+    FailureClass, FailureSignal, RecoveryAction, RecoveryAttemptResult, RecoveryDecision,
+    RecoveryLog, RecoveryOutcome, RecoveryPolicy,
+};
+
+pub use sandbox::{
+    evaluate_tool_request, execute_with_controls, CircuitBreaker, PolicyVerdict, SandboxConfig,
+    SandboxError, SandboxResult, ToolExecutionResult, ToolPolicyRule, ToolPolicySet, ToolRequest,
+};
+
+pub use memory::{
+    assemble_context, compact_index, CompactionPolicy, CompactionResult, ContextBudget,
+    ContextItem, ContextWindow, DecisionRationale, IndexQuery, IndexResult, MemoryEntry,
+    MemoryEntryKind, MemoryError, MemoryIndex, MemoryResult, RationaleEntry, RationaleOutcome,
+};
 
 pub use memory_context::{
     estimate_tokens, read_memory_context_artifact, write_memory_context_artifact, AssembledContext,
-    CompactionPolicy, CompactionResult, CompactionStrategy, ContextAssembler, ContextSegment,
-    DecisionImportance, DecisionRationale, MatchStrategy, MemoryContextArtifact, MemoryEntry,
-    MemoryHit, MemoryIndex, MemoryQuery, RationaleLedger,
+    CompactionPolicy as MemoryContextCompactionPolicy,
+    CompactionResult as MemoryContextCompactionResult, CompactionStrategy, ContextAssembler,
+    ContextSegment, DecisionImportance, DecisionRationale as MemoryContextDecisionRationale,
+    MatchStrategy, MemoryContextArtifact, MemoryEntry as MemoryContextEntry, MemoryHit,
+    MemoryIndex as MemoryContextIndex, MemoryQuery, RationaleLedger,
 };
 pub use metrics::METRICS;
+pub use multi_repo::{
+    BackportExecutor, BackportOutcome, BackportPolicy, BackportTask, CiAggregator, CiHealthReport,
+    CiRunFetcher, MultiRepoError, MultiRepoResult, ReleaseSequencer, RepoDependencyGraph,
+    RepoExecutionPlan, RepoHealth, RepoHealthStatus, RepoNode, RepoReleaseStatus, RepoReleaser,
+    RepoStep, SequenceItem, SequenceOutcome, SequencePlan,
+};
 pub use obs::{
     emit_event_appended, emit_gate_evaluated, emit_run_finalize_error, emit_run_finished,
     emit_run_started, RunSpan,
