@@ -186,7 +186,10 @@ pub async fn synthesize_memory(
         let merged_mem = MemoryRecord::new(
             new_commit_id,
             &conflict.key,
-            resolved.value.as_str().unwrap_or(&conflict.memory_a.content),
+            resolved
+                .value
+                .as_str()
+                .unwrap_or(&conflict.memory_a.content),
         )
         .with_metadata(serde_json::json!({
             "merged_from": [commit_a, commit_b],
