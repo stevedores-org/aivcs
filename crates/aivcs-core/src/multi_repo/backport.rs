@@ -328,6 +328,22 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert!(outcomes[0].success);
         assert_eq!(outcomes[0].applied_commit_sha.as_deref(), Some("new_sha"));
+
+        // Recorder path should persist standardized event kinds and tool_name payload.
+        let runs = ledger.list_runs(None).await.unwrap();
+        assert_eq!(runs.len(), 1);
+        let events = ledger.get_events(&runs[0].run_id).await.unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "tool_called");
+        assert_eq!(events[1].kind, "tool_returned");
+        assert_eq!(
+            events[0].payload.get("tool_name").and_then(|v| v.as_str()),
+            Some("cherry_pick")
+        );
+        assert_eq!(
+            events[1].payload.get("tool_name").and_then(|v| v.as_str()),
+            Some("cherry_pick")
+        );
     }
 
     #[tokio::test]
@@ -357,6 +373,18 @@ mod tests {
         // Stopped after the first failure.
         assert_eq!(outcomes.len(), 1);
         assert!(!outcomes[0].success);
+
+        // Failure path should emit tool_called + tool_failed and include tool_name.
+        let runs = ledger.list_runs(None).await.unwrap();
+        assert_eq!(runs.len(), 1);
+        let events = ledger.get_events(&runs[0].run_id).await.unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "tool_called");
+        assert_eq!(events[1].kind, "tool_failed");
+        assert_eq!(
+            events[1].payload.get("tool_name").and_then(|v| v.as_str()),
+            Some("cherry_pick")
+        );
     }
 
     #[test]
