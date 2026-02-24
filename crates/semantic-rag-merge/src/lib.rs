@@ -39,7 +39,7 @@ pub struct MemoryConflict {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoResolvedValue {
     /// The resolved value
-    pub value: serde_json::Value,
+    pub value: String,
     /// Which branch the resolution favored (if any)
     pub favored_branch: Option<String>,
     /// Reasoning for the resolution
@@ -126,13 +126,13 @@ pub async fn resolve_conflict_state(
     let (value, favored, reasoning) =
         if conflict.memory_a.content.len() >= conflict.memory_b.content.len() {
             (
-                serde_json::Value::String(conflict.memory_a.content.clone()),
+                conflict.memory_a.content.clone(),
                 Some("A".to_string()),
                 "Chose branch A: more detailed content".to_string(),
             )
         } else {
             (
-                serde_json::Value::String(conflict.memory_b.content.clone()),
+                conflict.memory_b.content.clone(),
                 Some("B".to_string()),
                 "Chose branch B: more detailed content".to_string(),
             )
@@ -183,19 +183,12 @@ pub async fn synthesize_memory(
     // Resolve conflicts
     for conflict in delta.conflicts {
         let resolved = resolve_conflict_state(&[], &[], &conflict).await?;
-        let merged_mem = MemoryRecord::new(
-            new_commit_id,
-            &conflict.key,
-            resolved
-                .value
-                .as_str()
-                .unwrap_or(&conflict.memory_a.content),
-        )
-        .with_metadata(serde_json::json!({
-            "merged_from": [commit_a, commit_b],
-            "resolution": resolved.reasoning,
-            "confidence": resolved.confidence,
-        }));
+        let merged_mem = MemoryRecord::new(new_commit_id, &conflict.key, &resolved.value)
+            .with_metadata(serde_json::json!({
+                "merged_from": [commit_a, commit_b],
+                "resolution": resolved.reasoning,
+                "confidence": resolved.confidence,
+            }));
         merged_memories.push(merged_mem);
     }
 
@@ -210,20 +203,9 @@ pub async fn semantic_merge(
     message: &str,
     author: &str,
 ) -> Result<MergeResult> {
-    // Create a merged state record
-    // In a real agent, this might involve merging domain-specific fields.
-    // For the VCS core, we ensure a valid snapshot exists for the merge commit.
-    let state = serde_json::json!({
-        "type": "merge",
-        "parents": [commit_a, commit_b],
-        "message": message,
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    });
-
-    let merge_commit_id = CommitId::from_json(&state);
-
-    // Save merged snapshot to ensure trace/restore works
-    handle.save_snapshot(&merge_commit_id, state).await?;
+    // Create the merge commit ID
+    let state_data = format!("merge:{}:{}", commit_a, commit_b);
+    let merge_commit_id = CommitId::from_state(state_data.as_bytes());
 
     // Synthesize memories
     let merged_memories =
@@ -243,12 +225,12 @@ pub async fn semantic_merge(
     );
     handle.save_commit(&commit).await?;
 
-    // Save graph edges for both parents with correct EdgeType::Merge
+    // Save graph edges for both parents
     handle
-        .save_commit_graph_edge_merge(&merge_commit_id.hash, commit_a)
+        .save_commit_graph_edge(&merge_commit_id.hash, commit_a)
         .await?;
     handle
-        .save_commit_graph_edge_merge(&merge_commit_id.hash, commit_b)
+        .save_commit_graph_edge(&merge_commit_id.hash, commit_b)
         .await?;
 
     // Get delta for summary

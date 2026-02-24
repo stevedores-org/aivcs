@@ -38,6 +38,7 @@ async fn happy_path_two_node_lifecycle() {
             2,
             EventKind::NodeEntered {
                 node_id: "n1".to_string(),
+                iteration: 1,
             },
         ),
         make_event(
@@ -45,6 +46,8 @@ async fn happy_path_two_node_lifecycle() {
             3,
             EventKind::NodeExited {
                 node_id: "n1".to_string(),
+                next_node: Some("n2".to_string()),
+                duration_ms: 10,
             },
         ),
         make_event(
@@ -52,6 +55,7 @@ async fn happy_path_two_node_lifecycle() {
             4,
             EventKind::NodeEntered {
                 node_id: "n2".to_string(),
+                iteration: 1,
             },
         ),
         make_event(
@@ -59,9 +63,18 @@ async fn happy_path_two_node_lifecycle() {
             5,
             EventKind::NodeExited {
                 node_id: "n2".to_string(),
+                next_node: None,
+                duration_ms: 20,
             },
         ),
-        make_event(run_id_uuid, 6, EventKind::GraphCompleted),
+        make_event(
+            run_id_uuid,
+            6,
+            EventKind::GraphCompleted {
+                iterations: 1,
+                duration_ms: 100,
+            },
+        ),
     ];
 
     for e in &events {
@@ -118,6 +131,7 @@ async fn failure_path_node_failed() {
             2,
             EventKind::NodeEntered {
                 node_id: "n1".to_string(),
+                iteration: 1,
             },
         ),
         make_event(
@@ -125,9 +139,16 @@ async fn failure_path_node_failed() {
             3,
             EventKind::NodeFailed {
                 node_id: "n1".to_string(),
+                error: "fail".to_string(),
             },
         ),
-        make_event(run_id_uuid, 4, EventKind::GraphFailed),
+        make_event(
+            run_id_uuid,
+            4,
+            EventKind::GraphFailed {
+                error: "graph fail".to_string(),
+            },
+        ),
     ];
 
     for e in &events {

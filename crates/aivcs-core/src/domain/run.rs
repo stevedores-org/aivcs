@@ -63,56 +63,73 @@ impl Run {
 }
 
 /// Classification of an event in a run.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventKind {
     /// Graph execution started.
     GraphStarted,
 
     /// Graph execution completed successfully.
-    GraphCompleted,
+    GraphCompleted { iterations: u32, duration_ms: u64 },
 
     /// Graph execution failed.
-    GraphFailed,
+    GraphFailed { error: String },
 
     /// Entered a graph node.
-    #[serde(rename = "node_entered")]
-    NodeEntered { node_id: String },
+    NodeEntered { node_id: String, iteration: u32 },
 
     /// Exited a graph node.
-    #[serde(rename = "node_exited")]
-    NodeExited { node_id: String },
+    NodeExited {
+        node_id: String,
+        next_node: Option<String>,
+        duration_ms: u64,
+    },
 
     /// Graph node execution failed.
-    #[serde(rename = "node_failed")]
-    NodeFailed { node_id: String },
+    NodeFailed { node_id: String, error: String },
 
     /// Tool was called.
-    #[serde(rename = "tool_called")]
     ToolCalled { tool_name: String },
 
     /// Tool returned a result.
-    #[serde(rename = "tool_returned")]
     ToolReturned { tool_name: String },
 
     /// Tool execution failed.
-    #[serde(rename = "tool_failed")]
     ToolFailed { tool_name: String },
 
     /// Checkpoint marker in execution.
-    #[serde(rename = "checkpoint")]
-    Checkpoint { label: String },
-
-    /// A decision was made and rationale recorded.
-    #[serde(rename = "decision_made")]
-    DecisionMade {
-        decision_id: String,
-        confidence: f64,
+    CheckpointSaved {
+        checkpoint_id: String,
+        node_id: String,
     },
 
-    /// Outcome of a previously recorded decision.
-    #[serde(rename = "decision_outcome")]
-    DecisionOutcome { decision_id: String, success: bool },
+    /// Checkpoint restored.
+    CheckpointRestored {
+        checkpoint_id: String,
+        node_id: String,
+    },
+
+    /// Checkpoint deleted.
+    CheckpointDeleted { checkpoint_id: String },
+
+    /// State updated in a node.
+    StateUpdated {
+        node_id: String,
+        keys_changed: Vec<String>,
+    },
+
+    /// Message added to execution context.
+    MessageAdded { role: String, content_length: usize },
+
+    /// Graph execution interrupted.
+    GraphInterrupted { reason: String, node_id: String },
+
+    /// Node execution retrying.
+    NodeRetrying {
+        node_id: String,
+        attempt: u32,
+        delay_ms: u64,
+    },
 }
 
 /// A single event in a run's execution trace.
@@ -168,14 +185,15 @@ mod tests {
     #[test]
     fn test_run_status_serde() {
         let statuses = [
-            RunStatus::Running,
-            RunStatus::Completed,
-            RunStatus::Failed,
-            RunStatus::Cancelled,
+            (RunStatus::Running, "\"RUNNING\""),
+            (RunStatus::Completed, "\"COMPLETED\""),
+            (RunStatus::Failed, "\"FAILED\""),
+            (RunStatus::Cancelled, "\"CANCELLED\""),
         ];
 
-        for status in &statuses {
+        for (status, expected_json) in &statuses {
             let json = serde_json::to_string(status).expect("serialize");
+            assert_eq!(json, *expected_json);
             let deserialized: RunStatus = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(*status, deserialized);
         }
@@ -200,6 +218,7 @@ mod tests {
             1,
             EventKind::NodeEntered {
                 node_id: "node_42".to_string(),
+                iteration: 1,
             },
             serde_json::json!({"entry_time_ms": 100}),
         );
@@ -234,8 +253,9 @@ mod tests {
         let event = Event::new(
             run_id,
             10,
-            EventKind::Checkpoint {
-                label: "phase_1_complete".to_string(),
+            EventKind::CheckpointSaved {
+                checkpoint_id: "cp123".to_string(),
+                node_id: "node_x".to_string(),
             },
             serde_json::json!({"phase": 1, "duration_ms": 5000}),
         );
