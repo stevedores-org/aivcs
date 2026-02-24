@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use oxidized_state::storage_traits::{ContentDigest, RunEvent, RunLedger, RunMetadata, RunSummary};
+use oxidized_state::storage_traits::{ContentDigest, RunLedger, RunMetadata, RunSummary};
 use serde::{Deserialize, Serialize};
 
 use crate::multi_repo::error::{MultiRepoError, MultiRepoResult};
@@ -117,20 +117,24 @@ impl BackportExecutor {
         let mut outcomes = Vec::new();
         let mut seq: u64 = 1;
 
+        let run_id_uuid = uuid::Uuid::parse_str(&recorder.run_id().0)
+            .map_err(|e| MultiRepoError::Storage(format!("invalid run_id uuid: {}", e)))?;
+
         for task in tasks {
             // Record ToolCalled event.
-            let call_event = RunEvent {
+            let call_event = crate::domain::run::Event::new(
+                run_id_uuid,
                 seq,
-                kind: "ToolCalled".to_string(),
-                payload: serde_json::json!({
-                    "tool_name": "cherry_pick",
+                crate::domain::run::EventKind::ToolCalled {
+                    tool_name: "cherry_pick".to_string(),
+                },
+                serde_json::json!({
                     "commit_sha": task.commit_sha,
                     "target_branch": task.target_branch,
                 }),
-                timestamp: chrono::Utc::now(),
-            };
-            self.ledger
-                .append_event(recorder.run_id(), call_event)
+            );
+            recorder
+                .record(&call_event)
                 .await
                 .map_err(|e| MultiRepoError::Storage(e.to_string()))?;
             seq += 1;
@@ -154,22 +158,26 @@ impl BackportExecutor {
             };
 
             // Record ToolReturned / ToolFailed.
-            let result_event = RunEvent {
+            let result_event = crate::domain::run::Event::new(
+                run_id_uuid,
                 seq,
-                kind: if success {
-                    "ToolReturned".to_string()
+                if success {
+                    crate::domain::run::EventKind::ToolReturned {
+                        tool_name: "cherry_pick".to_string(),
+                    }
                 } else {
-                    "ToolFailed".to_string()
+                    crate::domain::run::EventKind::ToolFailed {
+                        tool_name: "cherry_pick".to_string(),
+                    }
                 },
-                payload: serde_json::json!({
+                serde_json::json!({
                     "commit_sha": task.commit_sha,
                     "applied_sha": applied_sha,
                     "conflict_files": conflict_files,
                 }),
-                timestamp: chrono::Utc::now(),
-            };
-            self.ledger
-                .append_event(recorder.run_id(), result_event)
+            );
+            recorder
+                .record(&result_event)
                 .await
                 .map_err(|e| MultiRepoError::Storage(e.to_string()))?;
             seq += 1;

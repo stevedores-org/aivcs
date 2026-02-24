@@ -39,7 +39,7 @@ pub struct MemoryConflict {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutoResolvedValue {
     /// The resolved value
-    pub value: serde_json::Value,
+    pub value: String,
     /// Which branch the resolution favored (if any)
     pub favored_branch: Option<String>,
     /// Reasoning for the resolution
@@ -126,13 +126,13 @@ pub async fn resolve_conflict_state(
     let (value, favored, reasoning) =
         if conflict.memory_a.content.len() >= conflict.memory_b.content.len() {
             (
-                serde_json::Value::String(conflict.memory_a.content.clone()),
+                conflict.memory_a.content.clone(),
                 Some("A".to_string()),
                 "Chose branch A: more detailed content".to_string(),
             )
         } else {
             (
-                serde_json::Value::String(conflict.memory_b.content.clone()),
+                conflict.memory_b.content.clone(),
                 Some("B".to_string()),
                 "Chose branch B: more detailed content".to_string(),
             )
@@ -183,19 +183,12 @@ pub async fn synthesize_memory(
     // Resolve conflicts
     for conflict in delta.conflicts {
         let resolved = resolve_conflict_state(&[], &[], &conflict).await?;
-        let merged_mem = MemoryRecord::new(
-            new_commit_id,
-            &conflict.key,
-            resolved
-                .value
-                .as_str()
-                .unwrap_or(&conflict.memory_a.content),
-        )
-        .with_metadata(serde_json::json!({
-            "merged_from": [commit_a, commit_b],
-            "resolution": resolved.reasoning,
-            "confidence": resolved.confidence,
-        }));
+        let merged_mem = MemoryRecord::new(new_commit_id, &conflict.key, &resolved.value)
+            .with_metadata(serde_json::json!({
+                "merged_from": [commit_a, commit_b],
+                "resolution": resolved.reasoning,
+                "confidence": resolved.confidence,
+            }));
         merged_memories.push(merged_mem);
     }
 
