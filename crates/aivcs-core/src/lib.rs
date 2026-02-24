@@ -13,6 +13,7 @@ pub mod gate;
 pub mod git;
 pub mod metrics;
 pub mod obs;
+pub mod orchestration;
 pub mod parallel;
 pub mod publish_gate;
 pub mod recording;
@@ -50,7 +51,6 @@ pub use semantic_rag_merge::{
 
 pub use cas::fs::FsCasStore;
 pub use cas::{CasError, CasStore, Digest};
-
 pub use compat::{
     evaluate_compat, CompatRule, CompatRuleSet, CompatVerdict, CompatViolation, PromoteContext,
 };
@@ -63,6 +63,11 @@ pub use diff::lcs_diff::{
 pub use diff::state_diff::{
     diff_run_states, diff_scoped_state, extract_last_checkpoint, ScopedStateDiff, StateDelta,
     CHECKPOINT_SAVED_KIND,
+};
+pub use orchestration::{
+    default_role_templates, deterministic_role_order, merge_role_outputs, validate_handoff,
+    validate_parallel_roles, AgentRole, HandoffValidationError, MergeConflict,
+    MergeConflictStrategy, MergeOutcome, ParallelPlanError, RoleHandoff, RoleOutput, RoleTemplate,
 };
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
@@ -92,7 +97,7 @@ pub use role_orchestration::executor::{
     execute_roles_parallel, token_from_result, ParallelRoleConfig, RoleRunResult,
 };
 pub use role_orchestration::merge::{merge_parallel_outputs, MergedRoleOutput, RoleConflict};
-pub use role_orchestration::roles::{AgentRole, HandoffToken, RoleOutput, RoleTemplate};
+pub use role_orchestration::roles::HandoffToken;
 pub use role_orchestration::router::{
     build_execution_plan, validate_handoff_sequence, ExecutionPlan, RoleStep,
 };
