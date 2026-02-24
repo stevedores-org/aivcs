@@ -21,8 +21,8 @@ pub mod replay;
 pub mod reporting;
 pub mod role_orchestration;
 pub mod telemetry;
-pub mod trace_artifact;
 pub mod tooling;
+pub mod trace_artifact;
 
 pub use domain::{
     validate_run_event, AgentSpec, AgentSpecFields, AivcsError, DeterministicEvalRunner,
