@@ -164,10 +164,7 @@ fn hash_flake_lock(lock_path: &Path) -> Result<NixHash> {
     hasher.update(&normalized);
     let hash = hex::encode(hasher.finalize());
 
-    debug!(
-        "Flake.lock hash: {}",
-        hash.chars().take(12).collect::<String>()
-    );
+    debug!("Flake.lock hash: {}", &hash[..12]);
     Ok(NixHash::new(hash, HashSource::FlakeLock))
 }
 
@@ -187,10 +184,7 @@ fn hash_from_nix_metadata(flake_path: &Path) -> Result<NixHash> {
     hasher.update(&output.stdout);
     let hash = hex::encode(hasher.finalize());
 
-    debug!(
-        "Metadata hash: {}",
-        hash.chars().take(12).collect::<String>()
-    );
+    debug!("Metadata hash: {}", &hash[..12]);
     Ok(NixHash::new(hash, HashSource::Metadata))
 }
 
@@ -202,10 +196,7 @@ fn hash_flake_nix(flake_nix: &Path) -> Result<NixHash> {
     hasher.update(&content);
     let hash = hex::encode(hasher.finalize());
 
-    debug!(
-        "Flake.nix hash: {}",
-        hash.chars().take(12).collect::<String>()
-    );
+    debug!("Flake.nix hash: {}", &hash[..12]);
     Ok(NixHash::new(hash, HashSource::FlakeNix))
 }
 
@@ -215,10 +206,7 @@ fn hash_directory(dir: &Path) -> Result<NixHash> {
     hash_directory_recursive(dir, &mut hasher)?;
     let hash = hex::encode(hasher.finalize());
 
-    debug!(
-        "Directory hash: {}",
-        hash.chars().take(12).collect::<String>()
-    );
+    debug!("Directory hash: {}", &hash[..12]);
     Ok(NixHash::new(hash, HashSource::Directory))
 }
 

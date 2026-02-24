@@ -113,30 +113,12 @@ pub async fn fork_agent_parallel(
         let state = parent_snapshot.state.clone();
 
         let task = tokio::spawn(async move {
-            // To ensure unique CommitId for each fork even with identical state,
-            // we inject fork metadata into the state before hashing.
-            // This maintains the content-addressing principle (hash reflects state).
-            let fork_metadata = serde_json::json!({
-                "branch": branch_name,
-                "parent": parent_id
-            });
-
-            let fork_state = if let Some(mut obj) = state.clone().as_object_mut().cloned() {
-                obj.insert("_aivcs_fork".to_string(), fork_metadata);
-                serde_json::Value::Object(obj)
-            } else {
-                // If state is not an object, wrap it
-                serde_json::json!({
-                    "inner": state,
-                    "_aivcs_fork": fork_metadata
-                })
-            };
-
-            // Create commit ID from the actual modified state bytes using canonical JSON hashing.
-            let commit_id = CommitId::from_json(&fork_state);
+            // Create commit ID for this branch
+            let fork_data = format!("fork:{}:{}", parent_id, branch_name);
+            let commit_id = CommitId::from_state(fork_data.as_bytes());
 
             // Save forked snapshot
-            handle_clone.save_snapshot(&commit_id, fork_state).await?;
+            handle_clone.save_snapshot(&commit_id, state).await?;
 
             // Create commit record
             let commit = CommitRecord::new(
@@ -147,9 +129,9 @@ pub async fn fork_agent_parallel(
             );
             handle_clone.save_commit(&commit).await?;
 
-            // Create graph edge with EdgeType::Fork
+            // Create graph edge
             handle_clone
-                .save_commit_graph_edge_fork(&commit_id.hash, &parent_id)
+                .save_commit_graph_edge(&commit_id.hash, &parent_id)
                 .await?;
 
             // Create branch pointer

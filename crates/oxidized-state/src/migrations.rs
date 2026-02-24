@@ -225,7 +225,7 @@ async fn init_snapshots_table(db: &Surreal<Any>) -> Result<()> {
     let sql = r#"
         DEFINE TABLE snapshots SCHEMAFULL;
         DEFINE FIELD commit_id ON snapshots TYPE string;
-        DEFINE FIELD state ON snapshots FLEXIBLE;
+        DEFINE FIELD state ON snapshots FLEXIBLE TYPE object;
         DEFINE FIELD size_bytes ON snapshots TYPE int;
         DEFINE FIELD created_at ON snapshots TYPE datetime;
         DEFINE INDEX idx_snapshot_commit ON snapshots FIELDS commit_id UNIQUE;

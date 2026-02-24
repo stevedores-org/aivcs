@@ -91,18 +91,6 @@ impl CommitId {
         Self::new(None, &state_hash, None)
     }
 
-    /// Create a new CommitId from a JSON value, ensuring canonical key ordering.
-    pub fn from_json(value: &serde_json::Value) -> Self {
-        let bytes = if let Some(obj) = value.as_object() {
-            // Force BTreeMap sorting even if preserve_order is enabled
-            let sorted: std::collections::BTreeMap<_, _> = obj.iter().collect();
-            serde_json::to_vec(&sorted).unwrap_or_else(|_| serde_json::to_vec(value).unwrap())
-        } else {
-            serde_json::to_vec(value).unwrap()
-        };
-        Self::from_state(&bytes)
-    }
-
     /// Create a full composite CommitId (Phase 2+)
     pub fn new(logic_hash: Option<&str>, state_hash: &str, env_hash: Option<&str>) -> Self {
         let mut hasher = Sha256::new();
@@ -381,16 +369,6 @@ impl GraphEdge {
             created_at: Utc::now(),
         }
     }
-
-    /// Create a fork edge
-    pub fn fork(child_id: &str, parent_id: &str) -> Self {
-        GraphEdge {
-            child_id: child_id.to_string(),
-            parent_id: parent_id.to_string(),
-            edge_type: EdgeType::Fork,
-            created_at: Utc::now(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -484,7 +462,7 @@ impl RunRecord {
 
     /// Mark run as cancelled
     pub fn cancel(mut self, total_events: u64, duration_ms: u64) -> Self {
-        self.status = "cancelled".to_string();
+        self.status = "CANCELLED".to_string();
         self.total_events = total_events;
         self.duration_ms = duration_ms;
         self.success = false;
