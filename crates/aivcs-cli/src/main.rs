@@ -681,7 +681,7 @@ async fn cmd_branch_list(handle: &SurrealHandle) -> Result<()> {
             "{}{} -> {}",
             prefix,
             branch.name,
-            &branch.head_commit_id[..8.min(branch.head_commit_id.len())]
+            truncate_id(&branch.head_commit_id, 8)
         );
     }
 
@@ -704,7 +704,7 @@ async fn cmd_branch_create(handle: &SurrealHandle, name: &str, from: &str) -> Re
     println!(
         "Created branch '{}' at {}",
         name,
-        &head_commit[..8.min(head_commit.len())]
+        truncate_id(&head_commit, 8)
     );
 
     Ok(())
@@ -993,13 +993,19 @@ fn render_run_diff_text(diff: &RunDiffOutput) -> String {
     )
 }
 
-/// Truncate a string for display
+/// Truncate a string for display (with ellipsis)
 fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
+    let truncated: String = s.chars().take(max_len).collect();
+    if s.chars().count() > max_len {
+        format!("{}...", truncated)
     } else {
-        format!("{}...", &s[..max_len])
+        truncated
     }
+}
+
+/// Truncate an ID/hash for display (no ellipsis)
+fn truncate_id(s: &str, max_len: usize) -> String {
+    s.chars().take(max_len).collect()
 }
 
 // ========== Environment Commands (Phase 2) ==========
@@ -1024,7 +1030,7 @@ async fn cmd_logic_hash(path: &PathBuf) -> Result<()> {
         .context(format!("Failed to generate logic hash for {:?}", path))?;
 
     println!("Logic Hash: {}", hash);
-    println!("Short: {}", &hash[..12.min(hash.len())]);
+    println!("Short: {}", truncate_id(&hash, 12));
 
     Ok(())
 }
@@ -1057,9 +1063,9 @@ async fn cmd_is_cached(hash: &str) -> Result<()> {
     let cached = client.is_environment_cached(&nix_hash).await;
 
     if cached {
-        println!("Environment {} is CACHED", &hash[..12.min(hash.len())]);
+        println!("Environment {} is CACHED", truncate_id(hash, 12));
     } else {
-        println!("Environment {} is NOT cached", &hash[..12.min(hash.len())]);
+        println!("Environment {} is NOT cached", truncate_id(hash, 12));
     }
 
     Ok(())
@@ -1231,7 +1237,7 @@ async fn cmd_fork(handle: &SurrealHandle, parent: &str, count: u8, prefix: &str)
     println!(
         "Forking {} branches from {} with prefix '{}'",
         count,
-        &parent_commit[..8.min(parent_commit.len())],
+        truncate_id(&parent_commit, 8),
         prefix
     );
 
@@ -1261,7 +1267,7 @@ async fn cmd_trace(handle: &SurrealHandle, reference: &str, depth: usize) -> Res
 
     println!(
         "Reasoning Trace for {}",
-        &commit_hash[..12.min(commit_hash.len())]
+        truncate_id(&commit_hash, 12)
     );
     println!("=========================================\n");
 
