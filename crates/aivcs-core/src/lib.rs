@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod obs;
 pub mod orchestration;
 pub mod parallel;
+pub mod planning_autonomy;
 pub mod publish_gate;
 pub mod quality_guardrails;
 pub mod recording;
@@ -73,6 +74,11 @@ pub use orchestration::{
 };
 pub use parallel::{
     fork_agent_parallel, BranchStatus, ForkResult, ParallelConfig, ParallelManager,
+};
+pub use planning_autonomy::{
+    compute_progress, decompose_goal_to_dag, evaluate_replan, schedule_next_ready_tasks, EpicPlan,
+    ExecutionDag, GoalPlan, PlanTask, PlanTaskStatus, PlanningError, ProgressReport,
+    ReplanDecision, ReplanPolicy, ReplanReason, SchedulerConstraints, TaskPlan,
 };
 
 pub use diff::node_paths::{
