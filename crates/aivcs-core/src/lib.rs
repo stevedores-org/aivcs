@@ -12,6 +12,7 @@ pub mod enterprise;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod hitl_controls;
 pub mod memory;
 pub mod memory_context;
 pub mod metrics;
@@ -174,6 +175,13 @@ pub use tooling::{
     JsonFieldSchema, PolicyAction, PolicyMatrix, SchemaStage, ToolAdapter, ToolCallStatus,
     ToolCapability, ToolExecutionConfig, ToolExecutionError, ToolExecutionReport, ToolExecutor,
     ToolInvocation, ToolRegistry, ToolSpec, ToolTelemetry,
+};
+
+pub use hitl_controls::{
+    apply_intervention, evaluate_checkpoint, read_hitl_artifact, submit_vote, write_hitl_artifact,
+    ApprovalCheckpoint, ApprovalPolicy, ApprovalRule, ApprovalVote, CheckpointStatus,
+    DecisionSummary, ExplainabilitySummary, HitlArtifact, HitlError, HitlResult, Intervention,
+    InterventionAction, RiskTier, VoteDecision,
 };
 
 /// AIVCS version
