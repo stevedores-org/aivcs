@@ -97,8 +97,31 @@ impl SurrealRunLedger {
             return Ok(Self { db });
         }
 
-        // Fallback to in-memory
-        Self::in_memory().await
+        // Default to local persistence in .aivcs/db
+        let path = ".aivcs/db";
+        std::fs::create_dir_all(path).map_err(|e| {
+            StateError::Connection(format!(
+                "Failed to create database directory {}: {}",
+                path, e
+            ))
+        })?;
+        let url = format!("surrealkv://{}", path);
+        info!(
+            "No cloud config or SURREALDB_URL found, using local persistence: {}",
+            url
+        );
+
+        let db = surrealdb::engine::any::connect(&url)
+            .await
+            .map_err(|e| StateError::Connection(format!("Failed to connect to {}: {}", url, e)))?;
+
+        db.use_ns("aivcs")
+            .use_db("main")
+            .await
+            .map_err(|e| StateError::Connection(e.to_string()))?;
+
+        migrations::init_schema(&db).await?;
+        Ok(Self { db })
     }
 
     // -- private helpers -----------------------------------------------------
@@ -143,6 +166,7 @@ impl SurrealRunLedger {
             "running" => RunStatus::Running,
             "completed" => RunStatus::Completed,
             "failed" => RunStatus::Failed,
+            "cancelled" => RunStatus::Cancelled,
             other => {
                 return Err(StorageError::Backend(format!(
                     "unknown run status: {other}"
@@ -259,6 +283,22 @@ impl RunLedger for SurrealRunLedger {
         let row = self.fetch_running(&run_id.0).await?;
 
         let updated = row.fail(summary.total_events, summary.duration_ms);
+        let rid_owned = run_id.0.clone();
+
+        self.db
+            .query("UPDATE runs CONTENT $row WHERE run_id = $rid")
+            .bind(("row", updated))
+            .bind(("rid", rid_owned))
+            .await
+            .map_err(|e| StorageError::Backend(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn cancel_run(&self, run_id: &RunId, summary: RunSummary) -> StorageResult<()> {
+        let row = self.fetch_running(&run_id.0).await?;
+
+        let updated = row.cancel(summary.total_events, summary.duration_ms);
         let rid_owned = run_id.0.clone();
 
         self.db
