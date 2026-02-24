@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["Stevedores Org <engineering@stevedores.org>"]
 license = "Apache-2.0"
@@ -64,11 +64,11 @@ tempfile = "3.10"
 oxidizedgraph = "0.2.0"
 
 # Internal crates (use published versions for crates.io)
-aivcs-core = { version = "0.3.0", path = "crates/aivcs-core" }
-aivcs-ci = { version = "0.3.0", path = "crates/aivcs-ci" }
-oxidized-state = { version = "0.3.0", path = "crates/oxidized-state" }
-nix-env-manager = { version = "0.3.0", path = "crates/nix-env-manager" }
-semantic-rag-merge = { version = "0.3.0", path = "crates/semantic-rag-merge" }
+aivcs-core = { version = "0.3.1", path = "crates/aivcs-core" }
+aivcs-ci = { version = "0.3.1", path = "crates/aivcs-ci" }
+oxidized-state = { version = "0.3.1", path = "crates/oxidized-state" }
+nix-env-manager = { version = "0.3.1", path = "crates/nix-env-manager" }
+semantic-rag-merge = { version = "0.3.1", path = "crates/semantic-rag-merge" }
 
 [profile.release]
 opt-level = "z"
