@@ -379,7 +379,7 @@ async fn init_decisions_table(db: &Surreal<Any>) -> Result<()> {
         DEFINE FIELD task ON decisions TYPE string;
         DEFINE FIELD action ON decisions TYPE string;
         DEFINE FIELD rationale ON decisions TYPE string;
-        DEFINE FIELD alternatives ON decisions TYPE array;
+        DEFINE FIELD alternatives ON decisions TYPE array<string>;
         DEFINE FIELD confidence ON decisions TYPE float;
         DEFINE FIELD outcome ON decisions TYPE option<string>;
         DEFINE FIELD timestamp ON decisions TYPE datetime;

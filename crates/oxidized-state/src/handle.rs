@@ -376,9 +376,27 @@ impl SurrealHandle {
     /// # TDD: test_parent_child_edge_is_created
     #[instrument(skip(self))]
     pub async fn save_commit_graph_edge(&self, child_id: &str, parent_id: &str) -> Result<()> {
-        debug!("Saving graph edge: {} -> {}", parent_id, child_id);
+        self.save_commit_graph_edge_typed(child_id, parent_id, crate::schema::EdgeType::Normal)
+            .await
+    }
 
-        let edge = GraphEdge::new(child_id, parent_id);
+    /// Save a typed graph edge between child and parent commits
+    #[instrument(skip(self))]
+    pub async fn save_commit_graph_edge_typed(
+        &self,
+        child_id: &str,
+        parent_id: &str,
+        edge_type: crate::schema::EdgeType,
+    ) -> Result<()> {
+        debug!(
+            "Saving graph edge: {} -> {} ({:?})",
+            parent_id, child_id, edge_type
+        );
+
+        let edge = match edge_type {
+            crate::schema::EdgeType::Merge => GraphEdge::merge(child_id, parent_id),
+            _ => GraphEdge::new(child_id, parent_id),
+        };
 
         let _created: Option<GraphEdge> = self.db.create("graph_edges").content(edge).await?;
 

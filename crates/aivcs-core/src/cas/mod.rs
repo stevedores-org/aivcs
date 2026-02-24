@@ -39,7 +39,8 @@ impl fmt::Display for Digest {
 
 impl fmt::Debug for Digest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Digest({})", &self.to_hex()[..12])
+        let hex = self.to_hex();
+        write!(f, "Digest({})", hex.get(..12).unwrap_or(&hex))
     }
 }
 
