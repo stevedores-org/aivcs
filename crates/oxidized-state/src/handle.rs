@@ -11,7 +11,8 @@
 use crate::ci::{CiPipelineSpec, CiRunRecord, CiSnapshot};
 use crate::error::StateError;
 use crate::schema::{
-    AgentRecord, BranchRecord, CommitId, CommitRecord, GraphEdge, MemoryRecord, SnapshotRecord,
+    AgentRecord, BranchRecord, CommitId, CommitRecord, DecisionRecord, GraphEdge,
+    MemoryProvenanceRecord, MemoryRecord, SnapshotRecord,
 };
 use crate::storage_traits::{ContentDigest, ReleaseMetadata, ReleaseRecord, StorageResult};
 use crate::Result;
@@ -891,6 +892,119 @@ impl SurrealHandle {
             .map_err(Into::into)
     }
 
+    // ========== Decision and Provenance Operations (EPIC5) ==========
+
+    /// Save a decision record
+    #[instrument(skip(self, record))]
+    pub async fn save_decision(&self, record: &DecisionRecord) -> Result<DecisionRecord> {
+        debug!("Saving decision");
+
+        let record_owned = record.clone();
+
+        let created: Option<DecisionRecord> =
+            self.db.create("decisions").content(record_owned).await?;
+
+        created.ok_or_else(|| StateError::Transaction("Failed to save decision".to_string()))
+    }
+
+    /// Get decision by decision ID
+    #[instrument(skip(self))]
+    pub async fn get_decision(&self, decision_id: &str) -> Result<Option<DecisionRecord>> {
+        let id_owned = decision_id.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT * FROM decisions WHERE decision_id = $id")
+            .bind(("id", id_owned))
+            .await?;
+
+        let decisions: Vec<DecisionRecord> = result.take(0)?;
+        Ok(decisions.into_iter().next())
+    }
+
+    /// Update decision outcome by decision ID
+    #[instrument(skip(self))]
+    pub async fn update_decision_outcome(
+        &self,
+        decision_id: &str,
+        outcome_json: String,
+    ) -> Result<DecisionRecord> {
+        let id_owned = decision_id.to_string();
+        let now = SurrealDatetime::from(Utc::now());
+
+        let mut result = self
+            .db
+            .query(
+                "UPDATE decisions SET outcome = $outcome, outcome_at = $outcome_at WHERE decision_id = $id RETURN AFTER",
+            )
+            .bind(("id", id_owned))
+            .bind(("outcome", outcome_json))
+            .bind(("outcome_at", now))
+            .await?;
+
+        let decisions: Vec<DecisionRecord> = result.take(0)?;
+        decisions
+            .into_iter()
+            .next()
+            .ok_or_else(|| StateError::Transaction("Decision not found for update".to_string()))
+    }
+
+    /// Get decision history for a task
+    #[instrument(skip(self))]
+    pub async fn get_decision_history(
+        &self,
+        task: &str,
+        limit: usize,
+    ) -> Result<Vec<DecisionRecord>> {
+        let task_owned = task.to_string();
+
+        let mut result = self
+            .db
+            .query(
+                "SELECT * FROM decisions WHERE task = $task ORDER BY timestamp DESC LIMIT $limit",
+            )
+            .bind(("task", task_owned))
+            .bind(("limit", limit as i64))
+            .await?;
+
+        let decisions: Vec<DecisionRecord> = result.take(0)?;
+        Ok(decisions)
+    }
+
+    /// Save a memory provenance record
+    #[instrument(skip(self, record))]
+    pub async fn save_provenance(
+        &self,
+        record: &MemoryProvenanceRecord,
+    ) -> Result<MemoryProvenanceRecord> {
+        debug!("Saving memory provenance");
+
+        let record_owned = record.clone();
+
+        let created: Option<MemoryProvenanceRecord> = self
+            .db
+            .create("memory_provenances")
+            .content(record_owned)
+            .await?;
+
+        created.ok_or_else(|| StateError::Transaction("Failed to save provenance".to_string()))
+    }
+
+    /// Get provenance records for a memory
+    #[instrument(skip(self))]
+    pub async fn get_provenance(&self, memory_id: &str) -> Result<Vec<MemoryProvenanceRecord>> {
+        let memory_id_owned = memory_id.to_string();
+
+        let mut result = self
+            .db
+            .query("SELECT * FROM memory_provenances WHERE memory_id = $memory_id")
+            .bind(("memory_id", memory_id_owned))
+            .await?;
+
+        let provenances: Vec<MemoryProvenanceRecord> = result.take(0)?;
+        Ok(provenances)
+    }
+
     // ========== History Operations ==========
 
     /// Get commit history (walk back from a commit)
@@ -993,6 +1107,35 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Cannot delete the default branch"));
+    }
+
+    #[tokio::test]
+    async fn test_update_decision_outcome_persists_fields() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        let decision = DecisionRecord::new(
+            "dec-outcome-1".to_string(),
+            "commit-123".to_string(),
+            "task-123".to_string(),
+            "action-123".to_string(),
+            "because".to_string(),
+            0.9,
+        );
+        handle.save_decision(&decision).await.unwrap();
+
+        let updated = handle
+            .update_decision_outcome(
+                "dec-outcome-1",
+                r#"{"status":"success","duration_ms":123}"#.to_string(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            updated.outcome,
+            Some(r#"{"status":"success","duration_ms":123}"#.to_string())
+        );
+        assert!(updated.outcome_at.is_some());
     }
 
     #[tokio::test]

@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "CI/CD pipeline execution and reporting for AIVCS"
 
 [dependencies]
 # Async runtime
