@@ -44,6 +44,8 @@ pub use parallel::{
 pub use diff::node_paths::{
     diff_node_paths, extract_node_path, NodeDivergence, NodePathDiff, NodeStep,
 };
+pub use diff::lcs_diff::diff_tool_calls as diff_tool_calls_lcs;
+pub use diff::lcs_diff::ToolCallChange as LcsToolCallChange;
 pub use diff::tool_calls::{diff_tool_calls, ParamDelta, ToolCall, ToolCallChange, ToolCallDiff};
 pub use gate::{
     evaluate_gate, CaseResult, EvalReport, GateRule, GateRuleSet, GateVerdict, Violation,
