@@ -121,7 +121,6 @@ impl BackportExecutor {
             .map_err(|e| MultiRepoError::Storage(format!("invalid run_id uuid: {}", e)))?;
 
         for task in tasks {
-            // Clone task fields used across payload creation, executor call, and outcome.
             let commit_sha = task.commit_sha.clone();
             let target_branch = task.target_branch.clone();
 
@@ -175,7 +174,7 @@ impl BackportExecutor {
                     }
                 },
                 serde_json::json!({
-                    "commit_sha": task.commit_sha,
+                    "commit_sha": commit_sha,
                     "applied_sha": applied_sha,
                     "conflict_files": conflict_files,
                 }),
