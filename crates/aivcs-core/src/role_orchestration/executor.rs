@@ -71,7 +71,7 @@ where
 {
     let executor = Arc::new(role_executor);
     let results: Arc<Mutex<Vec<RoleRunResult>>> = Arc::new(Mutex::new(Vec::new()));
-    let (fail_tx, _fail_rx) = tokio::sync::watch::channel(false);
+    let (fail_tx, _fail_rx_guard) = tokio::sync::watch::channel(false);
     let fail_flag = Arc::new(fail_tx);
 
     // Semaphore enforces max_concurrent
@@ -91,7 +91,13 @@ where
         let sem = Arc::clone(&sem);
 
         let task = tokio::spawn(async move {
-            let _permit = sem.acquire_owned().await.ok();
+            let _permit = match sem.acquire_owned().await {
+                Ok(permit) => permit,
+                Err(e) => {
+                    warn!(role = %role, error = %e, "failed to acquire semaphore permit");
+                    return;
+                }
+            };
 
             // Abort early if fail_fast was triggered by a sibling.
             if *fail_rx.borrow() {
@@ -114,6 +120,15 @@ where
                     if config.fail_fast {
                         let _ = fail_flag.send(true);
                     }
+                    results.lock().await.push(RoleRunResult {
+                        role,
+                        run_id: RunId::new(),
+                        output: RoleOutput::Fix {
+                            patch_digest: String::new(),
+                            resolved_issues: vec![format!("failed to create run: {e}")],
+                        },
+                        success: false,
+                    });
                     return;
                 }
             };

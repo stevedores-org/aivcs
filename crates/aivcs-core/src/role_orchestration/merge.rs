@@ -118,7 +118,7 @@ fn merge_review_and_test(
     let mut conflicts = Vec::new();
     let mut auto_resolved_count = 0;
 
-    // Rule 1: reviewer approves but tests fail → unresolvable conflict.
+    // Rule 1: tests fail and reviewer approved -> unresolvable conflict.
     if approved && !passed {
         conflicts.push(RoleConflict {
             aspect: "approval_vs_test_result".to_string(),
@@ -132,6 +132,20 @@ fn merge_review_and_test(
         });
     }
 
+    // Rule 2: both reviewer and tests indicate non-ready outcome -> conflict.
+    if !approved && !passed {
+        conflicts.push(RoleConflict {
+            aspect: "review_rejected_and_tests_failed".to_string(),
+            from_role_a: AgentRole::Reviewer,
+            value_a: serde_json::json!({ "approved": false, "requires_fix": requires_fix }),
+            from_role_b: AgentRole::Tester,
+            value_b: serde_json::json!({ "passed": false, "failed_cases": failed_cases }),
+            remediation:
+                "Both review and tests rejected the change. Invoke Fixer before rerunning Reviewer/Tester."
+                    .to_string(),
+        });
+    }
+
     // Rule 2: reviewer requires fix but tests pass → auto-resolve (trust Reviewer).
     if requires_fix && passed && conflicts.is_empty() {
         auto_resolved_count += 1;
@@ -139,9 +153,19 @@ fn merge_review_and_test(
 
     // Clean merge: no unresolved conflicts.
     if conflicts.is_empty() {
+        let (resolved_approved, resolved_requires_fix) = if requires_fix && passed {
+            (false, true)
+        } else if !approved && passed {
+            // Tests can override an outright review rejection when no "requires_fix" is set.
+            auto_resolved_count += 1;
+            (true, false)
+        } else {
+            (approved, requires_fix)
+        };
+
         let resolved = Some(RoleOutput::Review {
-            approved: true,
-            requires_fix: false,
+            approved: resolved_approved,
+            requires_fix: resolved_requires_fix,
             comments: comments.to_vec(),
         });
         return Ok(MergedRoleOutput {
@@ -210,6 +234,17 @@ mod tests {
             merge_parallel_outputs(&review_token(false, true), &test_token(true, vec![])).unwrap();
         assert!(result.is_clean());
         assert_eq!(result.auto_resolved_count, 1);
+        match result.resolved {
+            Some(RoleOutput::Review {
+                approved,
+                requires_fix,
+                ..
+            }) => {
+                assert!(!approved);
+                assert!(requires_fix);
+            }
+            _ => panic!("expected resolved review output"),
+        }
     }
 
     #[test]
@@ -270,5 +305,40 @@ mod tests {
             merge_parallel_outputs(&test_token(true, vec![]), &review_token(true, false)).unwrap();
         assert_eq!(merged_ab.is_clean(), merged_ba.is_clean());
         assert_eq!(merged_ab.conflicts.len(), merged_ba.conflicts.len());
+    }
+
+    #[test]
+    fn test_merge_reviewer_rejected_and_tests_failed_is_conflict() {
+        let result = merge_parallel_outputs(
+            &review_token(false, false),
+            &test_token(false, vec!["t1"]),
+        )
+        .unwrap();
+        assert!(!result.is_clean());
+        assert!(result.resolved.is_none());
+        assert!(
+            result
+                .conflicts
+                .iter()
+                .any(|c| c.aspect == "review_rejected_and_tests_failed")
+        );
+    }
+
+    #[test]
+    fn test_merge_reviewer_rejected_but_tests_passed_uses_test_signal() {
+        let result =
+            merge_parallel_outputs(&review_token(false, false), &test_token(true, vec![])).unwrap();
+        assert!(result.is_clean());
+        match result.resolved {
+            Some(RoleOutput::Review {
+                approved,
+                requires_fix,
+                ..
+            }) => {
+                assert!(approved);
+                assert!(!requires_fix);
+            }
+            _ => panic!("expected resolved review output"),
+        }
     }
 }

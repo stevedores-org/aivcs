@@ -207,7 +207,7 @@ pub fn merge_role_outputs(outputs: &[RoleOutput], strategy: MergeConflictStrateg
                     owners.insert(key, output.role);
                 }
                 Some(existing_value) if existing_value == &incoming_value => {
-                    owners.insert(key.clone(), output.role);
+                    // Preserve the original owner on equal-value writes for stable tie-breaking.
                 }
                 Some(existing_value) => {
                     let existing_role = *owners.get(&key).unwrap_or(&output.role);
