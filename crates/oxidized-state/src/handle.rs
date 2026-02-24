@@ -137,6 +137,9 @@ struct DbReleaseRecord {
     name: String,
     spec_digest: ContentDigest,
     metadata: ReleaseMetadata,
+    version_label: Option<String>,
+    promoted_by: String,
+    notes: Option<String>,
     created_at: SurrealDatetime,
 }
 
@@ -599,6 +602,9 @@ impl SurrealHandle {
         let record = DbReleaseRecord {
             name: name.to_string(),
             spec_digest: spec_digest.clone(),
+            version_label: metadata.version_label.clone(),
+            promoted_by: metadata.promoted_by.clone(),
+            notes: metadata.notes.clone(),
             metadata,
             created_at: SurrealDatetime::from(Utc::now()),
         };
@@ -1135,5 +1141,56 @@ mod tests {
             .unwrap();
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].run_id, saved_run.run_id);
+    }
+
+    #[tokio::test]
+    async fn test_release_fields_roundtrip_in_surreal() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+
+        let metadata = ReleaseMetadata {
+            version_label: Some("v1.2.3".to_string()),
+            promoted_by: "test-user".to_string(),
+            notes: Some("Release notes here".to_string()),
+        };
+        let digest = ContentDigest::from_bytes(b"spec-data");
+
+        // Promote release
+        let release = handle
+            .release_promote("test-agent", &digest, metadata.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(release.name, "test-agent");
+        assert_eq!(release.metadata.version_label, Some("v1.2.3".to_string()));
+
+        // Check raw DB record to ensure top-level fields are set (since table is SCHEMAFULL)
+        let mut result = handle
+            .db
+            .query("SELECT name, version_label, promoted_by, notes FROM releases WHERE name = 'test-agent'")
+            .await
+            .unwrap();
+
+        #[derive(serde::Deserialize)]
+        struct RawRelease {
+            name: String,
+            version_label: Option<String>,
+            promoted_by: String,
+            notes: Option<String>,
+        }
+
+        let rows: Vec<RawRelease> = result.take(0).unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+
+        assert_eq!(row.version_label, Some("v1.2.3".to_string()));
+        assert_eq!(row.promoted_by, "test-user");
+        assert_eq!(row.notes, Some("Release notes here".to_string()));
+        assert_eq!(row.name, "test-agent");
+
+        // Verify history roundtrip
+        let history = handle.release_history("test-agent").await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].metadata.version_label, Some("v1.2.3".to_string()));
+        assert_eq!(history[0].metadata.promoted_by, "test-user");
     }
 }
