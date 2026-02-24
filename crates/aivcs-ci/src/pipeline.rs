@@ -110,6 +110,9 @@ impl CiPipeline {
             recorder.record(&called_event).await?;
             seq += 1;
 
+            // Per-stage start for accurate duration in both success and error paths
+            let stage_start = Instant::now();
+
             // Execute stage — catch errors so we can record a ToolFailed event
             let stage_start = Instant::now();
             let result = match CiRunner::execute_stage(&config).await {
