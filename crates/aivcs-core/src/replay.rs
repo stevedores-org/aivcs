@@ -106,13 +106,23 @@ pub async fn find_resume_point(
         .payload
         .get("checkpoint_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
+        .ok_or_else(|| {
+            AivcsError::StorageError(format!(
+                "checkpoint_saved event at seq {} missing 'checkpoint_id' field",
+                cp_event.seq
+            ))
+        })?
         .to_string();
     let node_id = cp_event
         .payload
         .get("node_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
+        .ok_or_else(|| {
+            AivcsError::StorageError(format!(
+                "checkpoint_saved event at seq {} missing 'node_id' field",
+                cp_event.seq
+            ))
+        })?
         .to_string();
 
     let events_before = events[..=pos].to_vec();
