@@ -35,7 +35,7 @@ pub use error::{StateError, StorageError};
 pub use handle::{CloudConfig, SurrealHandle};
 pub use migrations::init_schema;
 pub use schema::{
-    AgentRecord, BranchRecord, CommitId, CommitRecord, DecisionRecord, GraphEdge,
+    AgentRecord, BranchRecord, CommitId, CommitRecord, DecisionRecord, EdgeType, GraphEdge,
     MemoryProvenanceRecord, MemoryRecord, ProvenanceSourceType, ReleaseRecordSchema,
     RunEventRecord as DbRunEventRecord, RunRecord as DbRunRecord, SnapshotRecord,
 };

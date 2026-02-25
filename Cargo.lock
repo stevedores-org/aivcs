@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "aivcs-ci"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "aivcs-core",
  "anyhow",
@@ -85,7 +85,7 @@ dependencies = [
 
 [[package]]
 name = "aivcs-cli"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "aivcs-ci",
  "aivcs-core",
@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "aivcs-core"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -113,7 +113,6 @@ dependencies = [
  "nix-env-manager",
  "oxidized-state",
  "oxidizedgraph",
- "regex",
  "semantic-rag-merge",
  "serde",
  "serde_json",
@@ -129,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "aivcsd"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "aivcs-core",
  "anyhow",
@@ -2635,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "nix-env-manager"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2828,7 +2827,7 @@ dependencies = [
 
 [[package]]
 name = "oxidized-state"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3903,7 +3902,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-rag-merge"
-version = "0.2.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",

@@ -68,7 +68,13 @@ impl CiPipeline {
         // Start recording run
         let metadata = RunMetadata {
             git_sha: Some(ci_spec.git_sha.clone()),
-            agent_name: format!("cargo-ci-{}", &spec_digest.as_str()[..12]),
+            agent_name: format!(
+                "cargo-ci-{}",
+                spec_digest
+                    .as_str()
+                    .get(..12)
+                    .unwrap_or(spec_digest.as_str())
+            ),
             tags: json!({
                 "stages": stages.iter().map(|s| &s.name).collect::<Vec<_>>(),
                 "workspace": ci_spec.workspace_path.to_string_lossy(),

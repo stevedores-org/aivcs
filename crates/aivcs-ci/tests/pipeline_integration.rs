@@ -219,3 +219,52 @@ async fn test_gate_passes_for_success() {
     assert!(verdict.passed, "Gate should pass for all successful stages");
     assert!(verdict.violations.is_empty(), "Should have no violations");
 }
+
+/// Test: stage execution error (e.g. spawn failure) is recorded as ToolFailed and pipeline continues.
+/// CRR PR#166 follow-up: ensures error path records events and StageResult with exit_code = -1.
+#[tokio::test]
+async fn test_pipeline_execution_error_recorded_as_tool_failed() {
+    let ledger = Arc::new(MemoryRunLedger::new());
+
+    // Use a non-existent executable so execute_stage returns Err (spawn failure)
+    let stages = vec![StageConfig::custom(
+        "exec_error_stage".to_string(),
+        vec!["/nonexistent-binary-that-does-not-exist".to_string()],
+        5,
+    )];
+
+    let ci_spec = CiSpec::new(
+        PathBuf::from("."),
+        &["exec_error_stage".to_string()],
+        "abc123".to_string(),
+        "rustc_hash".to_string(),
+    );
+
+    let result = CiPipeline::run(ledger.clone(), &ci_spec, stages)
+        .await
+        .expect("pipeline run should not fail");
+
+    assert!(!result.success, "Pipeline should report failure");
+    assert_eq!(result.stages.len(), 1, "One stage should be recorded");
+    let stage = &result.stages[0];
+    assert_eq!(
+        stage.exit_code, -1,
+        "Execution error should use exit_code -1"
+    );
+    assert!(!stage.success, "Stage should be marked failed");
+
+    let run_id = RunId(result.run_id);
+    let events = ledger
+        .get_events(&run_id)
+        .await
+        .expect("Failed to get events");
+
+    assert_eq!(events.len(), 2, "Should have tool_called + tool_failed");
+    assert_eq!(events[0].kind, "tool_called");
+    assert_eq!(events[1].kind, "tool_failed");
+    assert_eq!(
+        events[1].payload["exit_code"].as_i64(),
+        Some(-1),
+        "tool_failed event should have exit_code -1"
+    );
+}
