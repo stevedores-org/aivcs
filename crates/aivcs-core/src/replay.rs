@@ -658,10 +658,7 @@ mod tests {
             agent_name: "agent".to_string(),
             tags: serde_json::json!({}),
         };
-        let run_id2 = ledger2
-            .create_run(&spec, metadata2)
-            .await
-            .expect("create");
+        let run_id2 = ledger2.create_run(&spec, metadata2).await.expect("create");
 
         ledger2
             .append_event(
