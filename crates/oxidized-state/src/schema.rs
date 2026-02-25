@@ -563,8 +563,8 @@ pub struct DecisionRecord {
     pub action: String,
     /// Why this decision was made
     pub rationale: String,
-    /// Alternative options considered (JSON array)
-    pub alternatives: serde_json::Value,
+    /// Alternative options considered
+    pub alternatives: Vec<String>,
     /// Confidence level (0.0-1.0)
     pub confidence: f32,
     /// Decision outcome
@@ -594,7 +594,7 @@ impl DecisionRecord {
             task,
             action,
             rationale,
-            alternatives: serde_json::json!([]),
+            alternatives: Vec::new(),
             confidence,
             outcome: None,
             timestamp: Utc::now(),
@@ -604,7 +604,7 @@ impl DecisionRecord {
 
     /// Add alternatives to consider
     pub fn with_alternatives(mut self, alternatives: Vec<String>) -> Self {
-        self.alternatives = serde_json::json!(alternatives);
+        self.alternatives = alternatives;
         self
     }
 
@@ -901,9 +901,10 @@ mod tests {
         )
         .with_alternatives(vec!["linear_backoff".to_string(), "no_retry".to_string()]);
 
-        let alts: Vec<String> = serde_json::from_value(decision.alternatives).unwrap();
-        assert_eq!(alts.len(), 2);
-        assert!(alts.contains(&"linear_backoff".to_string()));
+        assert_eq!(decision.alternatives.len(), 2);
+        assert!(decision
+            .alternatives
+            .contains(&"linear_backoff".to_string()));
     }
 
     #[test]

@@ -68,7 +68,13 @@ impl CiPipeline {
         // Start recording run
         let metadata = RunMetadata {
             git_sha: Some(ci_spec.git_sha.clone()),
-            agent_name: format!("cargo-ci-{}", &spec_digest.as_str()[..12]),
+            agent_name: format!(
+                "cargo-ci-{}",
+                spec_digest
+                    .as_str()
+                    .get(..12)
+                    .unwrap_or(spec_digest.as_str())
+            ),
             tags: json!({
                 "stages": stages.iter().map(|s| &s.name).collect::<Vec<_>>(),
                 "workspace": ci_spec.workspace_path.to_string_lossy(),
@@ -109,9 +115,6 @@ impl CiPipeline {
             );
             recorder.record(&called_event).await?;
             seq += 1;
-
-            // Per-stage start for accurate duration in both success and error paths
-            let stage_start = Instant::now();
 
             // Execute stage — catch errors so we can record a ToolFailed event
             let stage_start = Instant::now();

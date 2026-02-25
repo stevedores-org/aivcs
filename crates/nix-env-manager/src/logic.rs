@@ -32,7 +32,7 @@ pub fn generate_logic_hash(source_path: &Path) -> Result<String> {
     }
 
     let hash = hex::encode(hasher.finalize());
-    debug!("Logic hash: {}", &hash[..12]);
+    debug!("Logic hash: {}", hash.get(..12).unwrap_or(&hash));
     Ok(hash)
 }
 

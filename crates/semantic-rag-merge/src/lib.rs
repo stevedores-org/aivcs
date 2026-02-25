@@ -8,7 +8,7 @@
 //! Focus: Semantic conflict resolution and memory synthesis.
 
 use anyhow::Result;
-use oxidized_state::{CommitId, MemoryRecord, SurrealHandle};
+use oxidized_state::{CommitId, EdgeType, MemoryRecord, SurrealHandle};
 use serde::{Deserialize, Serialize};
 
 /// Difference between two memory vector stores
@@ -273,6 +273,13 @@ pub async fn semantic_merge(
         handle.save_memory(mem).await?;
     }
 
+    // Save merge snapshot so load_snapshot(merge_commit_id) works
+    let merge_state = serde_json::json!({
+        "merged_from": [commit_a, commit_b],
+        "memory_count": merged_memories.len(),
+    });
+    handle.save_snapshot(&merge_commit_id, merge_state).await?;
+
     // Create merge commit record
     let commit = oxidized_state::CommitRecord::new(
         merge_commit_id.clone(),
@@ -282,12 +289,12 @@ pub async fn semantic_merge(
     );
     handle.save_commit(&commit).await?;
 
-    // Save graph edges for both parents
+    // Save graph edges for both parents (typed as merge edges)
     handle
-        .save_commit_graph_edge(&merge_commit_id.hash, commit_a)
+        .save_commit_graph_edge_typed(&merge_commit_id.hash, commit_a, EdgeType::Merge)
         .await?;
     handle
-        .save_commit_graph_edge(&merge_commit_id.hash, commit_b)
+        .save_commit_graph_edge_typed(&merge_commit_id.hash, commit_b, EdgeType::Merge)
         .await?;
 
     // Get delta for summary
