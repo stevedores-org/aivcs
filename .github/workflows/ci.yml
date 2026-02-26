@@ -11,10 +11,6 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  ATTIC_SERVER: https://nix-cache.stevedores.org
-  ATTIC_CACHE: aivcs
-
 jobs:
   rust-checks:
     runs-on: ubuntu-latest
@@ -37,44 +33,25 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-  nix-report:
+  nix-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
+      - name: Setup Nix + Cache
+        uses: stevedores-org/nix-cache/.github/actions/setup@develop
         with:
-          extra_nix_config: |
-            extra-substituters = https://nix-cache.stevedores.org
+          push: ${{ github.event_name == 'push' }}
+          cache-auth-token: ${{ secrets.CACHE_AUTH_TOKEN }}
+          signing-secret-key: ${{ secrets.NIX_SIGNING_SECRET_KEY }}
 
-      - name: Run Nix checks (report-only)
-        id: nix_checks
-        shell: bash
-        run: |
-          set +e
-          nix flake check --print-build-logs > nix-flake-check.log 2>&1
-          status=$?
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+      - name: Nix flake check
+        run: nix flake check --print-build-logs
 
-      - name: Upload Nix report artifact
-        uses: actions/upload-artifact@v4
+      - name: Push to cache
+        if: github.event_name == 'push'
+        uses: stevedores-org/nix-cache/.github/actions/push@develop
         with:
-          name: nix-flake-check-log
-          path: nix-flake-check.log
-          if-no-files-found: warn
-
-      - name: Publish Nix check summary
-        shell: bash
-        run: |
-          if [ "${{ steps.nix_checks.outputs.status }}" = "0" ]; then
-            echo "### Nix flake check: PASS (report-only)" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### Nix flake check: FAIL (report-only)" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "See artifact: \`nix-flake-check-log\`." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          paths: .#default
