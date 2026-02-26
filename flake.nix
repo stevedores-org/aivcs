@@ -2,8 +2,8 @@
   description = "AIVCS - AI Version Control System";
 
   nixConfig = {
-    extra-substituters = [ "https://nix-cache.stevedores.org/stevedores" ];
-    extra-trusted-substituters = [ "https://nix-cache.stevedores.org/stevedores" ];
+    extra-substituters = [ "https://nix-cache.stevedores.org" ];
+    extra-trusted-public-keys = [ "stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag=" ];
   };
 
   # NOTE: Inputs are pinned to exact commits via flake.lock (committed to repo).
@@ -95,9 +95,6 @@
             # SurrealDB
             surrealdb
 
-            # Nix cache
-            attic-client
-
             # Tools
             just
             git
@@ -112,10 +109,6 @@
             echo "  cargo test --workspace        # Run all tests"
             echo "  cargo run -p aivcs-cli        # Run CLI"
             echo "  surreal start memory           # Start SurrealDB (in-memory)"
-            echo ""
-            echo "Nix Cache (Attic):"
-            echo "  attic login stevedores https://nix-cache.stevedores.org \$ATTIC_TOKEN"
-            echo "  attic push stevedores <store-path>"
             echo ""
           '';
         };
