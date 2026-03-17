@@ -40,18 +40,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Nix + Cache
-        uses: stevedores-org/nix-cache/.github/actions/setup@develop
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
         with:
-          push: ${{ github.event_name == 'push' }}
-          cache-auth-token: ${{ secrets.CACHE_AUTH_TOKEN }}
-          signing-secret-key: ${{ secrets.NIX_SIGNING_SECRET_KEY }}
+          extra_nix_config: |
+            extra-substituters = https://nix-cache.stevedores.org
+            extra-trusted-public-keys = stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag=
 
       - name: Nix flake check
         run: nix flake check --print-build-logs
-
-      - name: Push to cache
-        if: github.event_name == 'push'
-        uses: stevedores-org/nix-cache/.github/actions/push@develop
-        with:
-          paths: .#default
