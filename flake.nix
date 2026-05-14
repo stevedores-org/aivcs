@@ -2,8 +2,7 @@
   description = "AIVCS - AI Version Control System";
 
   nixConfig = {
-    extra-substituters = [ "https://nix-cache.stevedores.org/stevedores" ];
-    extra-trusted-substituters = [ "https://nix-cache.stevedores.org/stevedores" ];
+    extra-substituters = [ "https://nix-cache.stevedores.org" ];
     extra-trusted-public-keys = [ "stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag=" ];
   };
 
@@ -25,7 +24,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; };
+        pkgs = import nixpkgs { inherit system overlays; config.allowUnfree = true; };
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" "rustfmt" "clippy" ];
@@ -45,6 +44,7 @@
           ];
           nativeBuildInputs = with pkgs; [
             pkg-config
+            git
           ];
         };
 
@@ -96,9 +96,6 @@
             # SurrealDB
             surrealdb
 
-            # Nix cache
-            attic-client
-
             # Tools
             just
             git
@@ -113,10 +110,6 @@
             echo "  cargo test --workspace        # Run all tests"
             echo "  cargo run -p aivcs-cli        # Run CLI"
             echo "  surreal start memory           # Start SurrealDB (in-memory)"
-            echo ""
-            echo "Nix Cache (Attic):"
-            echo "  attic login stevedores https://nix-cache.stevedores.org \$ATTIC_TOKEN"
-            echo "  attic push stevedores <store-path>"
             echo ""
           '';
         };
