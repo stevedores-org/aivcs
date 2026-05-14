@@ -11,6 +11,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ATTIC_SERVER: https://nix-cache.stevedores.org
+  ATTIC_CACHE: aivcs
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
 jobs:
   rust-checks:
     runs-on: ubuntu-latest
@@ -24,6 +31,18 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "workspace"
+          cache-targets: true
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -31,7 +50,10 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo nextest run --workspace --cargo-profile ci --profile ci
+
+      - name: Doc Tests
+        run: cargo test --doc --workspace --profile ci
 
   nix-checks:
     runs-on: ubuntu-latest
