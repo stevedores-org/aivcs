@@ -161,7 +161,7 @@ impl MemoryIndex {
             .collect();
 
         // Sort newest first
-        matches.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        matches.sort_by_key(|m| std::cmp::Reverse(m.created_at));
 
         let total_matches = matches.len();
 
