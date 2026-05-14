@@ -85,10 +85,6 @@ debug = true
 [profile.ci]
 inherits = "test"
 opt-level = 1
-debug = 0
+debug = false
 codegen-units = 16
 incremental = false
-
-[profile.ci.package."*"]
-opt-level = 1
-debug = 0
