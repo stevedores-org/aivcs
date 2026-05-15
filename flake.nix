@@ -71,9 +71,14 @@
         # Build workspace deps first (for caching)
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        # Build the full workspace
+        # Build the full workspace. Tests are run separately by the `tests`
+        # check (cargoNextest with `testSrc` that includes .github/workflows/);
+        # disabling `doCheck` here avoids a duplicate `cargo test` against
+        # `cargoSrc`, which lacks the workflow YAML files and would fail the
+        # workflow-validation tests.
         workspace = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
+          doCheck = false;
         });
       in
       {
