@@ -32,9 +32,19 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
+        # Source filter: cargo sources plus .github/workflows/ so that
+        # workflow-validation tests (aivcs-core::eval_workflow,
+        # aivcs-core::ci_workflow) can read the YAML files at test time.
+        src = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            (craneLib.filterCargoSources path type)
+            || (pkgs.lib.hasInfix "/.github/workflows/" (toString path));
+        };
+
         # Common args for crane builds
         commonArgs = {
-          src = craneLib.cleanCargoSource ./.;
+          inherit src;
           strictDeps = true;
           buildInputs = with pkgs; [
             openssl
@@ -65,7 +75,7 @@
           });
 
           fmt = craneLib.cargoFmt {
-            src = craneLib.cleanCargoSource ./.;
+            inherit src;
           };
 
           tests = craneLib.cargoNextest (commonArgs // {
