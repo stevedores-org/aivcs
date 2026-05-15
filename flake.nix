@@ -37,10 +37,15 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        # Source filter: cargo sources plus .github/workflows/ so that
+        # Narrow source for cargo work (build, clippy, fmt, dep cache). Keeping
+        # this filter unchanged means buildDepsOnly's cache is not invalidated
+        # by edits to .github/workflows/*.yml.
+        cargoSrc = craneLib.cleanCargoSource ./.;
+
+        # Wider source for tests only: cargo sources plus .github/workflows/ so
         # workflow-validation tests (aivcs-core::eval_workflow,
         # aivcs-core::ci_workflow) can read the YAML files at test time.
-        src = pkgs.lib.cleanSourceWith {
+        testSrc = pkgs.lib.cleanSourceWith {
           src = ./.;
           filter = path: type:
             (craneLib.filterCargoSources path type)
@@ -49,7 +54,7 @@
 
         # Common args for crane builds
         commonArgs = {
-          inherit src;
+          src = cargoSrc;
           strictDeps = true;
           buildInputs = with pkgs; [
             openssl
@@ -81,10 +86,11 @@
           });
 
           fmt = craneLib.cargoFmt {
-            inherit src;
+            src = cargoSrc;
           };
 
           tests = craneLib.cargoNextest (commonArgs // {
+            src = testSrc;
             inherit cargoArtifacts;
             partitions = 1;
             partitionType = "count";
