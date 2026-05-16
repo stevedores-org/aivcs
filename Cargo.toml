@@ -80,3 +80,11 @@ panic = "abort"
 [profile.dev]
 opt-level = 0
 debug = true
+
+# CI-optimized profile: balance build speed with correctness (no LTO, more codegen-units)
+[profile.ci]
+inherits = "test"
+opt-level = 1
+debug = false
+codegen-units = 16
+incremental = false

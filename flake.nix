@@ -2,8 +2,13 @@
   description = "AIVCS - AI Version Control System";
 
   nixConfig = {
-    extra-substituters = [ "https://nix-cache.stevedores.org/stevedores" ];
-    extra-trusted-substituters = [ "https://nix-cache.stevedores.org/stevedores" ];
+    extra-substituters = [ "https://nix-cache.stevedores.org" ];
+    extra-trusted-public-keys = [
+      "stevedores-1:ZEtb+wHYNR/LDmMDhF3/EpRZDNma8exY2b1TGZ6uS2A="
+      # Legacy key — kept trusted for any artifacts already pushed under
+      # this name. Can be removed once the cache is re-signed under stevedores-1.
+      "stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag="
+    ];
   };
 
   # NOTE: Inputs are pinned to exact commits via flake.lock (committed to repo).
@@ -24,7 +29,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; };
+        pkgs = import nixpkgs { inherit system overlays; config.allowUnfree = true; };
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" "rustfmt" "clippy" ];
@@ -32,9 +37,24 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
+        # Narrow source for cargo work (build, clippy, fmt, dep cache). Keeping
+        # this filter unchanged means buildDepsOnly's cache is not invalidated
+        # by edits to .github/workflows/*.yml.
+        cargoSrc = craneLib.cleanCargoSource ./.;
+
+        # Wider source for tests only: cargo sources plus .github/workflows/ so
+        # workflow-validation tests (aivcs-core::eval_workflow,
+        # aivcs-core::ci_workflow) can read the YAML files at test time.
+        testSrc = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            (craneLib.filterCargoSources path type)
+            || (pkgs.lib.hasInfix "/.github/workflows/" (toString path));
+        };
+
         # Common args for crane builds
         commonArgs = {
-          src = craneLib.cleanCargoSource ./.;
+          src = cargoSrc;
           strictDeps = true;
           buildInputs = with pkgs; [
             openssl
@@ -44,15 +64,21 @@
           ];
           nativeBuildInputs = with pkgs; [
             pkg-config
+            git
           ];
         };
 
         # Build workspace deps first (for caching)
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        # Build the full workspace
+        # Build the full workspace. Tests are run separately by the `tests`
+        # check (cargoNextest with `testSrc` that includes .github/workflows/);
+        # disabling `doCheck` here avoids a duplicate `cargo test` against
+        # `cargoSrc`, which lacks the workflow YAML files and would fail the
+        # workflow-validation tests.
         workspace = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
+          doCheck = false;
         });
       in
       {
@@ -65,10 +91,11 @@
           });
 
           fmt = craneLib.cargoFmt {
-            src = craneLib.cleanCargoSource ./.;
+            src = cargoSrc;
           };
 
           tests = craneLib.cargoNextest (commonArgs // {
+            src = testSrc;
             inherit cargoArtifacts;
             partitions = 1;
             partitionType = "count";
@@ -95,9 +122,6 @@
             # SurrealDB
             surrealdb
 
-            # Nix cache
-            attic-client
-
             # Tools
             just
             git
@@ -112,10 +136,6 @@
             echo "  cargo test --workspace        # Run all tests"
             echo "  cargo run -p aivcs-cli        # Run CLI"
             echo "  surreal start memory           # Start SurrealDB (in-memory)"
-            echo ""
-            echo "Nix Cache (Attic):"
-            echo "  attic login stevedores https://nix-cache.stevedores.org \$ATTIC_TOKEN"
-            echo "  attic push stevedores <store-path>"
             echo ""
           '';
         };

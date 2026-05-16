@@ -164,7 +164,7 @@ impl RetentionPolicy {
         }
 
         // Sort by created_at descending (newest first) for count-based pruning
-        entries.sort_by(|a, b| b.0.cmp(&a.0));
+        entries.sort_by_key(|e| std::cmp::Reverse(e.0));
 
         let mut pruned = 0usize;
         let now = Utc::now();

@@ -348,7 +348,7 @@ impl ContextAssembler {
     /// Pack segments by priority (highest first) within the token budget.
     pub fn assemble(&self, mut segments: Vec<ContextSegment>) -> AssembledContext {
         // Sort by priority descending (highest priority first).
-        segments.sort_by(|a, b| b.priority.cmp(&a.priority));
+        segments.sort_by_key(|s| std::cmp::Reverse(s.priority));
 
         let mut included = Vec::new();
         let mut total_tokens = 0usize;
@@ -452,7 +452,7 @@ impl CompactionPolicy {
                 }
                 for (_key, mut group) in by_key {
                     // Sort newest first.
-                    group.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                    group.sort_by_key(|e| std::cmp::Reverse(e.created_at));
                     for (i, e) in group.into_iter().enumerate() {
                         if i < max_per_key {
                             retained.push(e.clone());
@@ -468,7 +468,7 @@ impl CompactionPolicy {
         }
 
         // Restore chronological order.
-        retained.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        retained.sort_by_key(|e| e.created_at);
 
         CompactionResult {
             retained,
