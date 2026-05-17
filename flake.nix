@@ -45,11 +45,19 @@
         # Wider source for tests only: cargo sources plus .github/workflows/ so
         # workflow-validation tests (aivcs-core::eval_workflow,
         # aivcs-core::ci_workflow) can read the YAML files at test time.
+        #
+        # cleanSourceWith requires every ancestor directory of an included file
+        # to also pass the filter, so the `.github` and `.github/workflows`
+        # dirs are matched explicitly — not just the YAML leaves.
         testSrc = pkgs.lib.cleanSourceWith {
           src = ./.;
           filter = path: type:
+            let p = toString path; in
             (craneLib.filterCargoSources path type)
-            || (pkgs.lib.hasInfix "/.github/workflows/" (toString path));
+            || (type == "directory" && (
+                 pkgs.lib.hasSuffix "/.github" p
+                 || pkgs.lib.hasSuffix "/.github/workflows" p))
+            || (pkgs.lib.hasInfix "/.github/workflows/" p);
         };
 
         # Common args for crane builds
