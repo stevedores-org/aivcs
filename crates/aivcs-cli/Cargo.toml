@@ -37,6 +37,7 @@ clap.workspace = true
 
 # Utilities
 tempfile.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

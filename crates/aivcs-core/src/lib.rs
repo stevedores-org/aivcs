@@ -2,6 +2,7 @@
 //!
 //! Re-exports core components for programmatic access to AIVCS functionality.
 
+pub mod a2a;
 pub mod cas;
 pub mod compat;
 pub mod deploy;
@@ -41,6 +42,11 @@ pub use domain::{
 };
 
 pub use event_adapter::{subscribe_ledger_to_bus, LedgerHandler};
+
+pub use a2a::{
+    emit_code_committed_best_effort, A2aRetryPolicy, CodeCommittedEvent, HttpJsonRpcTransport,
+    DEFAULT_A2A_METHOD,
+};
 
 pub use git::{capture_head_sha, is_git_repo};
 

@@ -28,7 +28,10 @@ use std::sync::Arc;
 use tracing::{info, Level};
 
 use aivcs_ci::{BuiltinStage, CiGate, CiPipeline, CiSpec, StageConfig};
-use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
+use aivcs_core::{
+    diff_tool_calls, fork_agent_parallel, A2aRetryPolicy, CodeCommittedEvent, HttpJsonRpcTransport,
+    ToolCallChange, DEFAULT_A2A_METHOD,
+};
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -563,6 +566,14 @@ async fn cmd_snapshot(
     let branch_record = BranchRecord::new(branch, &commit_id.hash, branch == "main");
     handle.save_branch(&branch_record).await?;
 
+    emit_code_committed_event(
+        branch,
+        &commit_id.hash,
+        vec![state_path.display().to_string()],
+        author,
+    )
+    .await;
+
     info!(
         cas_digest = %cas_digest,
         git_sha = %git_sha,
@@ -575,6 +586,85 @@ async fn cmd_snapshot(
     println!("CAS digest: {}", cas_digest);
 
     Ok(())
+}
+
+async fn emit_code_committed_event(
+    branch: &str,
+    commit_sha: &str,
+    changed_paths: Vec<String>,
+    author: &str,
+) {
+    let Some(endpoint) = std::env::var("AIVCS_A2A_JSONRPC_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return;
+    };
+
+    let repo = detect_repo_name().unwrap_or_else(|| "unknown/unknown".to_string());
+    let method = std::env::var("AIVCS_A2A_JSONRPC_METHOD")
+        .unwrap_or_else(|_| DEFAULT_A2A_METHOD.to_string());
+    let authoring_agent_id = std::env::var("AIVCS_AGENT_ID").unwrap_or_else(|_| author.to_string());
+    let job_id = std::env::var("AIVCS_JOB_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+
+    let event = CodeCommittedEvent {
+        repo,
+        branch: branch.to_string(),
+        commit_sha: commit_sha.to_string(),
+        changed_paths,
+        authoring_agent_id,
+        job_id,
+        timestamp: chrono::Utc::now(),
+    };
+
+    let transport = HttpJsonRpcTransport::new(endpoint);
+    aivcs_core::emit_code_committed_best_effort(
+        &transport,
+        &method,
+        &event,
+        A2aRetryPolicy::default(),
+    )
+    .await;
+}
+
+fn detect_repo_name() -> Option<String> {
+    std::env::var("GITHUB_REPOSITORY")
+        .ok()
+        .filter(|value| is_owner_repo(value))
+        .or_else(detect_repo_from_origin_remote)
+}
+
+fn detect_repo_from_origin_remote() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let remote = String::from_utf8(output.stdout).ok()?;
+    parse_github_remote(remote.trim())
+}
+
+fn parse_github_remote(remote: &str) -> Option<String> {
+    let without_suffix = remote.strip_suffix(".git").unwrap_or(remote);
+    let candidate = without_suffix
+        .strip_prefix("git@github.com:")
+        .or_else(|| without_suffix.strip_prefix("https://github.com/"))?;
+
+    is_owner_repo(candidate).then(|| candidate.to_string())
+}
+
+fn is_owner_repo(value: &str) -> bool {
+    let mut parts = value.split('/');
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(owner), Some(repo), None) if !owner.is_empty() && !repo.is_empty()
+    )
 }
 
 /// Restore agent to a previous state
@@ -788,6 +878,14 @@ async fn cmd_merge(
     // Update target branch head
     let branch = BranchRecord::new(target, &result.merge_commit_id.hash, target == "main");
     handle.save_branch(&branch).await?;
+
+    emit_code_committed_event(
+        target,
+        &result.merge_commit_id.hash,
+        Vec::new(),
+        "agent-git",
+    )
+    .await;
 
     println!("Merge complete: {}", result.merge_commit_id.short());
     println!("{}", result.summary);
@@ -1753,5 +1851,26 @@ mod tests {
 }"#;
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn parse_github_remote_supports_https_and_ssh() {
+        assert_eq!(
+            parse_github_remote("https://github.com/stevedores-org/aivcs.git"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+        assert_eq!(
+            parse_github_remote("git@github.com:stevedores-org/aivcs.git"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_github_remote_rejects_non_github_remote() {
+        assert_eq!(
+            parse_github_remote("https://example.com/org/repo.git"),
+            None
+        );
+        assert_eq!(parse_github_remote("not-a-remote"), None);
     }
 }

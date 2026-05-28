@@ -107,6 +107,46 @@ aivcs trace main
 aivcs trace experiment-0 --depth 50
 ```
 
+### A2A CODE_COMMITTED Events
+
+`aivcs snapshot` and `aivcs merge` can notify an A2A JSON-RPC transport after an AIVCS commit is durably stored. Emission is opt-in and best-effort: transport failures are logged and retried with bounded exponential backoff, but they do not fail the local commit operation.
+
+```bash
+export AIVCS_A2A_JSONRPC_URL="https://a2a.example.com/jsonrpc"
+export AIVCS_AGENT_ID="builder-agent"
+export AIVCS_JOB_ID="agent-job-123"
+aivcs snapshot --state state.json --message "Update state" --branch develop
+```
+
+Optional settings:
+
+| Variable | Description |
+|----------|-------------|
+| `AIVCS_A2A_JSONRPC_URL` | Enables JSON-RPC event emission when set |
+| `AIVCS_A2A_JSONRPC_METHOD` | Overrides the default method, `a2a.events.publish` |
+| `AIVCS_AGENT_ID` | Authoring agent ID; falls back to the snapshot author |
+| `AIVCS_JOB_ID` | Ephemeral job ID included in the event payload |
+| `GITHUB_REPOSITORY` | Repository in `owner/name` form; otherwise detected from `origin` |
+
+The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the state file path in `changed_paths`; merge events may emit an empty list because they merge persisted AIVCS state rather than filesystem paths.
+
+```json
+{
+  "event": {
+    "kind": "CODE_COMMITTED",
+    "payload": {
+      "repo": "stevedores-org/aivcs",
+      "branch": "develop",
+      "commit_sha": "<aivcs-commit-hash>",
+      "changed_paths": ["state.json"],
+      "authoring_agent_id": "builder-agent",
+      "job_id": "agent-job-123",
+      "timestamp": "2026-05-27T00:00:00Z"
+    }
+  }
+}
+```
+
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — prerequisites, install, first-run walkthrough
