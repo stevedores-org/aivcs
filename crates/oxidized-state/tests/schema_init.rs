@@ -27,6 +27,9 @@ fn test_run_record_serialization() {
         Some("git-sha".to_string()),
         "agent-1".to_string(),
         json!({"env": "test"}),
+        None,
+        false,
+        1,
     );
 
     let json = serde_json::to_string(&run).expect("Failed to serialize");
@@ -77,6 +80,9 @@ fn test_run_record_state_transitions() {
         None,
         "agent-1".to_string(),
         json!({}),
+        None,
+        false,
+        1,
     );
 
     // Start in "RUNNING" state
@@ -104,6 +110,9 @@ fn test_run_record_fail_transition() {
         None,
         "agent-2".to_string(),
         json!({}),
+        None,
+        false,
+        1,
     );
 
     // Start in "RUNNING" state
@@ -128,6 +137,9 @@ fn test_unique_constraint_run_id_concept() {
         None,
         "agent".to_string(),
         json!({}),
+        None,
+        false,
+        1,
     );
 
     let run2 = RunRecord::new(
@@ -136,6 +148,9 @@ fn test_unique_constraint_run_id_concept() {
         None,
         "agent".to_string(),
         json!({}),
+        None,
+        false,
+        1,
     );
 
     // Both have same spec_digest but different run_ids
@@ -174,6 +189,9 @@ fn test_index_keys_present_in_records() {
         Some("abc123".to_string()),
         "agent-1".to_string(),
         json!({"env": "test"}),
+        None,
+        false,
+        1,
     );
 
     // Index fields: run_id, spec_digest, git_sha, agent_name, created_at

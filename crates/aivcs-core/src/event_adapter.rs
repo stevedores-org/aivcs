@@ -305,7 +305,7 @@ mod tests {
         RunMetadata {
             git_sha: None,
             agent_name: "test-agent".into(),
-            tags: json!({}),
+            tags: json!({}), evaluation: Default::default(),
         }
     }
 

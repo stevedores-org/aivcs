@@ -1,0 +1,9 @@
+# aivcs — Cursor IDE Rules
+
+- **Rust Language**: Always generate idiomatic Rust 2021. Use async/await and Tokio.
+- **Project Structure**: Respect the `crates/` directory layout.
+- **Traits**: Program against `RunLedger` and `EventSink` traits to maintain flexibility.
+- **A2A Protocol**: Ensure all new event types are reflected in the protocol documentation.
+- **Testing**: Every PR must include integration tests verifying state capture or merging logic.
+- **Context**: Always load `CLAUDE.md` and `GEMINI.md` for architectural context.
+- **Clippy**: All generated code must be clippy-clean.

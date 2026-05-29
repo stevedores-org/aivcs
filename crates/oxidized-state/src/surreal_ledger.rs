@@ -12,10 +12,11 @@ use crate::error::{StateError, StorageError};
 use crate::migrations;
 use crate::schema::RunEventRecord as DbEvent;
 use crate::schema::RunRecord as DbRun;
-use crate::storage_traits::RunRecord;
 use crate::storage_traits::{
-    ContentDigest, RunEvent, RunId, RunLedger, RunMetadata, RunStatus, RunSummary, StorageResult,
+    ContentDigest, EvaluationMetadata, RunEvent, RunId, RunLedger, RunMetadata, RunRecord,
+    RunStatus, RunSummary, StorageResult,
 };
+
 
 /// SurrealDB-backed implementation of [`RunLedger`].
 pub struct SurrealRunLedger {
@@ -196,6 +197,11 @@ impl SurrealRunLedger {
                 git_sha: row.git_sha,
                 agent_name: row.agent_name,
                 tags: row.tags,
+                evaluation: EvaluationMetadata {
+                    rubric_path: row.rubric_path,
+                    is_promotion_gate: row.is_promotion_gate,
+                    agent_phase: row.agent_phase,
+                },
             },
             status,
             summary,
@@ -229,6 +235,9 @@ impl RunLedger for SurrealRunLedger {
             metadata.git_sha,
             metadata.agent_name,
             metadata.tags,
+            metadata.evaluation.rubric_path,
+            metadata.evaluation.is_promotion_gate,
+            metadata.evaluation.agent_phase,
         );
 
         debug!(run_id = %run_id, "creating run");

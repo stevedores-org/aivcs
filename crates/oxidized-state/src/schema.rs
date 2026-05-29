@@ -400,6 +400,14 @@ pub struct RunRecord {
     pub duration_ms: u64,
     /// Whether run succeeded
     pub success: bool,
+    /// Path to the success rubric for this evaluation.
+    pub rubric_path: Option<String>,
+    /// Whether this run is a production-promotion gate.
+    #[serde(default)]
+    pub is_promotion_gate: bool,
+    /// Current maturity phase of the agent (1-4).
+    #[serde(default)]
+    pub agent_phase: u8,
     /// Created timestamp
     #[serde(with = "surreal_datetime")]
     pub created_at: DateTime<Utc>,
@@ -416,6 +424,9 @@ impl RunRecord {
         git_sha: Option<String>,
         agent_name: String,
         tags: serde_json::Value,
+        rubric_path: Option<String>,
+        is_promotion_gate: bool,
+        agent_phase: u8,
     ) -> Self {
         RunRecord {
             id: None,
@@ -429,6 +440,9 @@ impl RunRecord {
             final_state_digest: None,
             duration_ms: 0,
             success: false,
+            rubric_path,
+            is_promotion_gate,
+            agent_phase,
             created_at: Utc::now(),
             completed_at: None,
         }
@@ -800,6 +814,9 @@ mod tests {
             Some("abc123".to_string()),
             "test-agent".to_string(),
             serde_json::json!({"env": "test"}),
+            None,
+            false,
+            1,
         );
 
         assert_eq!(run.run_id, "run-123");
@@ -816,6 +833,9 @@ mod tests {
             Some("abc123".to_string()),
             "test-agent".to_string(),
             serde_json::json!({}),
+            None,
+            false,
+            1,
         )
         .complete(5, Some("state-digest-xyz".to_string()), 1000);
 
@@ -833,6 +853,9 @@ mod tests {
             None,
             "test-agent".to_string(),
             serde_json::json!({}),
+            None,
+            false,
+            1,
         )
         .fail(2, 500);
 

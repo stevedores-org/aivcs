@@ -107,7 +107,7 @@ mod tests {
         let metadata = oxidized_state::RunMetadata {
             git_sha: None,
             agent_name: "test".to_string(),
-            tags: json!({}),
+            tags: json!({}), evaluation: Default::default(),
         };
 
         let recorder = GraphRunRecorder::start(ledger.clone(), &spec_digest, metadata)

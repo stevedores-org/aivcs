@@ -215,7 +215,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: Some("test_sha".to_string()),
             agent_name: "test_agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger
@@ -343,7 +343,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: Some("test_sha".to_string()),
             agent_name: "test_agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger
@@ -418,7 +418,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: None,
             agent_name: "test_agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger
@@ -453,7 +453,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: None,
             agent_name: "agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger.create_run(&spec, metadata).await.expect("create");
@@ -521,7 +521,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: None,
             agent_name: "agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger.create_run(&spec, metadata).await.expect("create");
@@ -554,7 +554,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: None,
             agent_name: "agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger.create_run(&spec, metadata).await.expect("create");
@@ -620,7 +620,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: None,
             agent_name: "agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger.create_run(&spec, metadata).await.expect("create");
@@ -656,7 +656,7 @@ mod tests {
         let metadata2 = RunMetadata {
             git_sha: None,
             agent_name: "agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
         let run_id2 = ledger2.create_run(&spec, metadata2).await.expect("create");
 
@@ -694,7 +694,7 @@ mod tests {
         let metadata = RunMetadata {
             git_sha: Some("test_sha".to_string()),
             agent_name: "test_agent".to_string(),
-            tags: serde_json::json!({}),
+            tags: serde_json::json!({}), evaluation: Default::default(),
         };
 
         let run_id = ledger

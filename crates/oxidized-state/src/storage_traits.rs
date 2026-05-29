@@ -114,8 +114,8 @@ impl std::fmt::Display for RunId {
     }
 }
 
-/// Metadata attached to a run at creation time
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Metadata for a specific execution run
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RunMetadata {
     /// Git SHA at time of run
     pub git_sha: Option<String>,
@@ -123,6 +123,21 @@ pub struct RunMetadata {
     pub agent_name: String,
     /// Arbitrary key-value tags
     pub tags: serde_json::Value,
+    /// Evaluation context for this run
+    #[serde(default)]
+    pub evaluation: EvaluationMetadata,
+}
+
+/// Metadata for tasks that are part of an agent evaluation.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EvaluationMetadata {
+    /// Path to the success rubric for this evaluation.
+    pub rubric_path: Option<String>,
+    /// Whether this run is a production-promotion gate.
+    pub is_promotion_gate: bool,
+    /// Current maturity phase of the agent (1-4).
+    pub agent_phase: u8,
 }
 
 /// A single event in an execution run
