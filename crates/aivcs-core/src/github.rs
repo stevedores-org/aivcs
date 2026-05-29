@@ -21,7 +21,7 @@ impl GitHubClient {
             .personal_token(token)
             .build()
             .context("failed to initialize GitHub client")?;
-        
+
         Ok(Self {
             octocrab,
             owner,
@@ -34,9 +34,12 @@ impl GitHubClient {
         info!("Creating branch '{}' from '{}'", branch_name, base);
 
         // Get base branch SHA
-        let base_ref = self.octocrab
+        let base_ref = self
+            .octocrab
             .repos(&self.owner, &self.repo)
-            .get_ref(&octocrab::params::repos::Reference::Branch(base.to_string()))
+            .get_ref(&octocrab::params::repos::Reference::Branch(
+                base.to_string(),
+            ))
             .await
             .context(format!("failed to get base ref '{}'", base))?;
 
@@ -91,7 +94,8 @@ impl GitHubClient {
     ) -> Result<u64> {
         info!("Opening PR: '{}' ({} -> {})", title, head, base);
 
-        let pr = self.octocrab
+        let pr = self
+            .octocrab
             .pulls(&self.owner, &self.repo)
             .create(title, head, base)
             .body(body)
@@ -113,8 +117,11 @@ impl GitHubClient {
     pub async fn request_librarian_review(&self, pr_number: u64) -> Result<()> {
         let librarian = std::env::var("RELIC_LIBRARIAN_USERNAME")
             .unwrap_or_else(|_| "librarian-agent".to_string());
-        
-        info!("Requesting review from Librarian Agent ('{}') on PR #{}", librarian, pr_number);
+
+        info!(
+            "Requesting review from Librarian Agent ('{}') on PR #{}",
+            librarian, pr_number
+        );
 
         // octocrab 0.41 request_reviews takes (pr_number, reviewers, team_reviewers)
         self.octocrab

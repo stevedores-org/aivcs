@@ -536,9 +536,7 @@ async fn main() -> Result<()> {
                 owner,
                 repo,
                 librarian,
-            } => {
-                cmd_pr_open(title, body, head, base, owner, repo, librarian).await
-            }
+            } => cmd_pr_open(title, body, head, base, owner, repo, librarian).await,
         },
         Commands::Report { action } => match action {
             ReportAction::CrossOrg {
@@ -547,7 +545,6 @@ async fn main() -> Result<()> {
                 output,
             } => cmd_report_cross_org(graph, &objective, output).await,
         },
-
     }
 }
 
@@ -611,12 +608,14 @@ async fn cmd_pr_open(
 ) -> Result<()> {
     use aivcs_core::github::GitHubClient;
 
-    let token = std::env::var("GITHUB_TOKEN")
-        .context("GITHUB_TOKEN environment variable is required")?;
+    let token =
+        std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN environment variable is required")?;
 
     let client = GitHubClient::new(token, owner, repo)?;
 
-    let pr_number = client.open_pr(&title, &body, &head, &base, librarian).await?;
+    let pr_number = client
+        .open_pr(&title, &body, &head, &base, librarian)
+        .await?;
 
     println!("Successfully opened PR #{}", pr_number);
 

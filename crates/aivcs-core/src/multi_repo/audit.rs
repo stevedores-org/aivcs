@@ -3,9 +3,9 @@
 //! Analyzes cross-repo dependency graphs to identify reliability coupling,
 //! critical paths, and single points of failure (SPOFs).
 
-use std::collections::{HashMap, HashSet};
-use serde::{Deserialize, Serialize};
 use crate::multi_repo::model::CrossRepoGraph;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// Reliability metrics for a single repository.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -50,12 +50,13 @@ impl<'a> AuditEngine<'a> {
         }
 
         for repo in &self.graph.repos {
-            let direct_dependents = downstream_map.get(repo.name.as_str())
+            let direct_dependents = downstream_map
+                .get(repo.name.as_str())
                 .map(|v| v.len())
                 .unwrap_or(0);
-            
+
             let blast_radius = self.compute_blast_radius(repo.name.as_str(), &downstream_map);
-            
+
             // Heuristic for critical path: affects > 30% of the graph
             let is_critical_path = blast_radius as f32 > (self.graph.repos.len() as f32 * 0.3);
 
@@ -80,7 +81,7 @@ impl<'a> AuditEngine<'a> {
     fn compute_blast_radius(&self, start_node: &str, map: &HashMap<&str, Vec<&str>>) -> usize {
         let mut visited = HashSet::new();
         let mut stack = vec![start_node];
-        
+
         while let Some(node) = stack.pop() {
             if let Some(downstream) = map.get(node) {
                 for next in downstream {
@@ -90,7 +91,7 @@ impl<'a> AuditEngine<'a> {
                 }
             }
         }
-        
+
         visited.len()
     }
 }
@@ -103,14 +104,26 @@ mod tests {
     #[test]
     fn test_blast_radius_calculation() {
         let repos = vec![
-            RepoId::new("A"), RepoId::new("B"), RepoId::new("C"), RepoId::new("D")
+            RepoId::new("A"),
+            RepoId::new("B"),
+            RepoId::new("C"),
+            RepoId::new("D"),
         ];
         // A -> B -> C
         // A -> D
         let dependencies = vec![
-            RepoDependency { dependent: RepoId::new("B"), dependency: RepoId::new("A") },
-            RepoDependency { dependent: RepoId::new("C"), dependency: RepoId::new("B") },
-            RepoDependency { dependent: RepoId::new("D"), dependency: RepoId::new("A") },
+            RepoDependency {
+                dependent: RepoId::new("B"),
+                dependency: RepoId::new("A"),
+            },
+            RepoDependency {
+                dependent: RepoId::new("C"),
+                dependency: RepoId::new("B"),
+            },
+            RepoDependency {
+                dependent: RepoId::new("D"),
+                dependency: RepoId::new("A"),
+            },
         ];
         let graph = CrossRepoGraph::new(repos, dependencies);
         let engine = AuditEngine::new(&graph);

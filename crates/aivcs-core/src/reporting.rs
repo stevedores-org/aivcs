@@ -100,13 +100,20 @@ pub fn render_diff_summary_md(artifact: &DiffSummaryArtifact) -> String {
 pub fn render_cross_org_audit_md(artifact: &CrossOrgAuditArtifact) -> String {
     let mut out = String::new();
     out.push_str("# Cross-Org Integration Audit Report\n\n");
-    out.push_str(&format!("Generated at: {}\n\n", artifact.generated_at.to_rfc3339()));
+    out.push_str(&format!(
+        "Generated at: {}\n\n",
+        artifact.generated_at.to_rfc3339()
+    ));
 
     out.push_str("## Reliability Coupling Analysis\n\n");
     out.push_str("| Repository | Direct Dependents | Blast Radius | Critical Path |\n");
     out.push_str("|---|---|---|---|\n");
     for c in &artifact.coupling {
-        let critical = if c.is_critical_path { "⚠️ YES" } else { "ok" };
+        let critical = if c.is_critical_path {
+            "⚠️ YES"
+        } else {
+            "ok"
+        };
         out.push_str(&format!(
             "| `{}` | {} | {} | {} |\n",
             c.repo_id, c.direct_dependents, c.blast_radius, critical
@@ -123,8 +130,20 @@ pub fn render_cross_org_audit_md(artifact: &CrossOrgAuditArtifact) -> String {
     }
 
     out.push_str("## Integration Health Summary\n\n");
-    let status_icon = if artifact.health.all_healthy { "✅" } else { "❌" };
-    out.push_str(&format!("Overall Status: {} {}\n\n", status_icon, if artifact.health.all_healthy { "HEALTHY" } else { "DEGRADED" }));
+    let status_icon = if artifact.health.all_healthy {
+        "✅"
+    } else {
+        "❌"
+    };
+    out.push_str(&format!(
+        "Overall Status: {} {}\n\n",
+        status_icon,
+        if artifact.health.all_healthy {
+            "HEALTHY"
+        } else {
+            "DEGRADED"
+        }
+    ));
 
     out.push_str("| Repository | Status | Latest Run | Failing Stages |\n");
     out.push_str("|---|---|---|---|\n");
@@ -136,10 +155,16 @@ pub fn render_cross_org_audit_md(artifact: &CrossOrgAuditArtifact) -> String {
             crate::multi_repo::aggregator::RepoHealthStatus::Unknown => ("Unknown", "❓"),
         };
         let failing = match &h.status {
-            crate::multi_repo::aggregator::RepoHealthStatus::Degraded { failing_stages } => failing_stages.join(", "),
+            crate::multi_repo::aggregator::RepoHealthStatus::Degraded { failing_stages } => {
+                failing_stages.join(", ")
+            }
             _ => "-".to_string(),
         };
-        let run_id = h.last_run.as_ref().map(|r| r.run_id.chars().take(8).collect::<String>()).unwrap_or_else(|| "N/A".to_string());
+        let run_id = h
+            .last_run
+            .as_ref()
+            .map(|r| r.run_id.chars().take(8).collect::<String>())
+            .unwrap_or_else(|| "N/A".to_string());
         out.push_str(&format!(
             "| `{}` | {} {} | `{}` | {} |\n",
             h.repo_id, icon, status_text, run_id, failing
@@ -153,7 +178,7 @@ pub fn render_cross_org_audit_md(artifact: &CrossOrgAuditArtifact) -> String {
             out.push_str(&format!("- **Decouple `{}`**: This repository has a very high blast radius ({}). Consider splitting it into smaller, more focused services or adding redundant fallback paths.\n", c.repo_id, c.blast_radius));
         }
     }
-    
+
     out.push_str("## Dependency Matrix (Mermaid)\n\n");
     out.push_str("```mermaid\ngraph TD\n");
     // We don't have the original graph here easily, but we can reconstruct it from coupling if we had more info
