@@ -51,6 +51,9 @@ surrealdb = { version = "2.1", default-features = false, features = ["kv-mem", "
 # HTTP Client
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# GitHub API integration
+octocrab = "0.41"
+
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }

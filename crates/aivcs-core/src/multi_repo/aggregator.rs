@@ -28,7 +28,7 @@ pub enum RepoHealthStatus {
 }
 
 /// CI health details for a single repo within an objective.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RepoHealth {
     /// Repository identifier.
     pub repo_id: String,
@@ -39,7 +39,7 @@ pub struct RepoHealth {
 }
 
 /// Unified CI health report for a logical objective.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CiHealthReport {
     /// Name of the logical objective (e.g. `"release-2.0"`, `"pr-142"`).
     pub objective: String,

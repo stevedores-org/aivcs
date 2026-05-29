@@ -11,6 +11,7 @@
 //! - [`provenance::ReleaseProvenance`] — release artifact provenance
 
 pub mod aggregator;
+pub mod audit;
 pub mod backport;
 pub mod error;
 pub mod graph;
