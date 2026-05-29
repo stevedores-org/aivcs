@@ -106,13 +106,23 @@ pub async fn find_resume_point(
         .payload
         .get("checkpoint_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
+        .ok_or_else(|| {
+            AivcsError::StorageError(format!(
+                "checkpoint_saved event at seq {} missing 'checkpoint_id' field",
+                cp_event.seq
+            ))
+        })?
         .to_string();
     let node_id = cp_event
         .payload
         .get("node_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
+        .ok_or_else(|| {
+            AivcsError::StorageError(format!(
+                "checkpoint_saved event at seq {} missing 'node_id' field",
+                cp_event.seq
+            ))
+        })?
         .to_string();
 
     let events_before = events[..=pos].to_vec();
@@ -600,6 +610,80 @@ mod tests {
         let last = resume.events_before.last().expect("last");
         assert_eq!(last.kind, "checkpoint_saved");
         assert_eq!(last.seq, 2);
+    }
+
+    #[tokio::test]
+    async fn test_find_resume_point_missing_field_returns_error() {
+        let ledger: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
+
+        let spec = ContentDigest::from_bytes(b"test_spec");
+        let metadata = RunMetadata {
+            git_sha: None,
+            agent_name: "agent".to_string(),
+            tags: serde_json::json!({}),
+        };
+
+        let run_id = ledger.create_run(&spec, metadata).await.expect("create");
+
+        // checkpoint_saved event missing both checkpoint_id and node_id
+        ledger
+            .append_event(
+                &run_id,
+                RunEvent {
+                    seq: 1,
+                    kind: "checkpoint_saved".to_string(),
+                    payload: serde_json::json!({}),
+                    timestamp: chrono::Utc::now(),
+                },
+            )
+            .await
+            .expect("append");
+
+        let result = find_resume_point(&*ledger, &run_id.0).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AivcsError::StorageError(msg) => {
+                assert!(
+                    msg.contains("checkpoint_id"),
+                    "error should mention missing field, got: {msg}"
+                );
+            }
+            other => panic!("Expected StorageError, got {:?}", other),
+        }
+
+        // checkpoint_saved with checkpoint_id but missing node_id
+        let ledger2: Arc<dyn RunLedger> = Arc::new(MemoryRunLedger::new());
+        let metadata2 = RunMetadata {
+            git_sha: None,
+            agent_name: "agent".to_string(),
+            tags: serde_json::json!({}),
+        };
+        let run_id2 = ledger2.create_run(&spec, metadata2).await.expect("create");
+
+        ledger2
+            .append_event(
+                &run_id2,
+                RunEvent {
+                    seq: 1,
+                    kind: "checkpoint_saved".to_string(),
+                    payload: serde_json::json!({ "checkpoint_id": "cp1" }),
+                    timestamp: chrono::Utc::now(),
+                },
+            )
+            .await
+            .expect("append");
+
+        let result2 = find_resume_point(&*ledger2, &run_id2.0).await;
+        assert!(result2.is_err());
+        match result2.unwrap_err() {
+            AivcsError::StorageError(msg) => {
+                assert!(
+                    msg.contains("node_id"),
+                    "error should mention missing field, got: {msg}"
+                );
+            }
+            other => panic!("Expected StorageError, got {:?}", other),
+        }
     }
 
     #[tokio::test]
