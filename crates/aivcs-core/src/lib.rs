@@ -12,6 +12,7 @@ pub mod domain;
 pub mod event_adapter;
 pub mod gate;
 pub mod git;
+pub mod github;
 pub mod hitl_controls;
 pub mod memory;
 pub mod memory_context;

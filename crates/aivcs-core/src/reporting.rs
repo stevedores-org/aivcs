@@ -47,6 +47,15 @@ pub struct DiffSummaryArtifact {
     pub run_param_changed: usize,
 }
 
+/// Data model for cross-org integration audit report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CrossOrgAuditArtifact {
+    pub generated_at: DateTime<Utc>,
+    pub coupling: Vec<crate::multi_repo::audit::RepoCoupling>,
+    pub critical_spofs: Vec<String>,
+    pub health: crate::multi_repo::aggregator::CiHealthReport,
+}
+
 /// Write eval_results.json in pretty JSON format.
 pub fn write_eval_results_json(path: &Path, artifact: &EvalResultsArtifact) -> Result<()> {
     let content = serde_json::to_string_pretty(artifact).context("serialize eval artifact")?;
@@ -84,6 +93,74 @@ pub fn render_diff_summary_md(artifact: &DiffSummaryArtifact) -> String {
         artifact.run_reordered,
         artifact.run_param_changed
     ));
+    out
+}
+
+/// Render cross-org integration audit report in Markdown.
+pub fn render_cross_org_audit_md(artifact: &CrossOrgAuditArtifact) -> String {
+    let mut out = String::new();
+    out.push_str("# Cross-Org Integration Audit Report\n\n");
+    out.push_str(&format!("Generated at: {}\n\n", artifact.generated_at.to_rfc3339()));
+
+    out.push_str("## Reliability Coupling Analysis\n\n");
+    out.push_str("| Repository | Direct Dependents | Blast Radius | Critical Path |\n");
+    out.push_str("|---|---|---|---|\n");
+    for c in &artifact.coupling {
+        let critical = if c.is_critical_path { "⚠️ YES" } else { "ok" };
+        out.push_str(&format!(
+            "| `{}` | {} | {} | {} |\n",
+            c.repo_id, c.direct_dependents, c.blast_radius, critical
+        ));
+    }
+    out.push('\n');
+
+    if !artifact.critical_spofs.is_empty() {
+        out.push_str("### 🚨 Critical Single Points of Failure (SPOFs)\n");
+        for spof in &artifact.critical_spofs {
+            out.push_str(&format!("- `{}`\n", spof));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## Integration Health Summary\n\n");
+    let status_icon = if artifact.health.all_healthy { "✅" } else { "❌" };
+    out.push_str(&format!("Overall Status: {} {}\n\n", status_icon, if artifact.health.all_healthy { "HEALTHY" } else { "DEGRADED" }));
+
+    out.push_str("| Repository | Status | Latest Run | Failing Stages |\n");
+    out.push_str("|---|---|---|---|\n");
+    for h in &artifact.health.repo_health {
+        let (status_text, icon) = match &h.status {
+            crate::multi_repo::aggregator::RepoHealthStatus::Healthy => ("Healthy", "✅"),
+            crate::multi_repo::aggregator::RepoHealthStatus::Degraded { .. } => ("Degraded", "⚠️"),
+            crate::multi_repo::aggregator::RepoHealthStatus::Down => ("Down", "❌"),
+            crate::multi_repo::aggregator::RepoHealthStatus::Unknown => ("Unknown", "❓"),
+        };
+        let failing = match &h.status {
+            crate::multi_repo::aggregator::RepoHealthStatus::Degraded { failing_stages } => failing_stages.join(", "),
+            _ => "-".to_string(),
+        };
+        let run_id = h.last_run.as_ref().map(|r| r.run_id.chars().take(8).collect::<String>()).unwrap_or_else(|| "N/A".to_string());
+        out.push_str(&format!(
+            "| `{}` | {} {} | `{}` | {} |\n",
+            h.repo_id, icon, status_text, run_id, failing
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("## Recommendations\n\n");
+    for c in &artifact.coupling {
+        if c.is_critical_path && c.blast_radius > 5 {
+            out.push_str(&format!("- **Decouple `{}`**: This repository has a very high blast radius ({}). Consider splitting it into smaller, more focused services or adding redundant fallback paths.\n", c.repo_id, c.blast_radius));
+        }
+    }
+    
+    out.push_str("## Dependency Matrix (Mermaid)\n\n");
+    out.push_str("```mermaid\ngraph TD\n");
+    // We don't have the original graph here easily, but we can reconstruct it from coupling if we had more info
+    // or just pass it in. For now, a placeholder or simple list.
+    out.push_str("    %% [Dependency graph visualization]\n");
+    out.push_str("```\n");
+
     out
 }
 
