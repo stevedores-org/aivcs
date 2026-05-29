@@ -113,6 +113,19 @@ impl GitHubClient {
         Ok(pr_number)
     }
 
+    /// Add a comment to an existing issue or Pull Request.
+    pub async fn add_comment(&self, issue_number: u64, body: &str) -> Result<u64> {
+        info!("Adding comment to #{}", issue_number);
+
+        let comment = self.octocrab
+            .issues(&self.owner, &self.repo)
+            .create_comment(issue_number, body)
+            .await
+            .context(format!("failed to add comment to #{}", issue_number))?;
+
+        Ok(comment.id.0)
+    }
+
     /// Request a review from the Librarian Agent.
     pub async fn request_librarian_review(&self, pr_number: u64) -> Result<()> {
         let librarian = std::env::var("RELIC_LIBRARIAN_USERNAME")
