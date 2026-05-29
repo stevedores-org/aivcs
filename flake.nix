@@ -42,14 +42,28 @@
         # by edits to .github/workflows/*.yml.
         cargoSrc = craneLib.cleanCargoSource ./.;
 
-        # Wider source for tests only: cargo sources plus .github/workflows/ so
-        # workflow-validation tests (aivcs-core::eval_workflow,
-        # aivcs-core::ci_workflow) can read the YAML files at test time.
+        # Wider source for tests only: cargo sources plus .github/workflows/*.yml
+        # so the workflow-validation tests in crates/aivcs-core
+        # (eval_workflow.rs, ci_workflow.rs) can read those YAMLs at runtime.
+        # Without this, those tests panic inside the nix sandbox.
+        #
+        # cleanSourceWith requires every ancestor directory of an included file
+        # to also pass the filter, so the `.github` and `.github/workflows`
+        # dirs are matched explicitly — not just the YAML leaves. The leaf
+        # match restricts to regular `.yml` files so the filter never picks up
+        # symlinks, sockets, or stray `.yaml`/swap files in that path.
         testSrc = pkgs.lib.cleanSourceWith {
           src = ./.;
+          name = "test-source";
           filter = path: type:
+            let p = toString path; in
             (craneLib.filterCargoSources path type)
-            || (pkgs.lib.hasInfix "/.github/workflows/" (toString path));
+            || (type == "directory"
+                && (pkgs.lib.hasSuffix "/.github" p
+                    || pkgs.lib.hasSuffix "/.github/workflows" p))
+            || (type == "regular"
+                && pkgs.lib.hasInfix "/.github/workflows/" p
+                && pkgs.lib.hasSuffix ".yml" p);
         };
 
         # Common args for crane builds
