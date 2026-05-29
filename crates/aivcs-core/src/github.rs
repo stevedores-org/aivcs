@@ -117,7 +117,8 @@ impl GitHubClient {
     pub async fn add_comment(&self, issue_number: u64, body: &str) -> Result<u64> {
         info!("Adding comment to #{}", issue_number);
 
-        let comment = self.octocrab
+        let comment = self
+            .octocrab
             .issues(&self.owner, &self.repo)
             .create_comment(issue_number, body)
             .await
