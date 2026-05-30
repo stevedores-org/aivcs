@@ -46,6 +46,7 @@ impl DeployByDigestRunner {
             tags: serde_json::json!({
                 "mode": "deploy_by_digest",
             }),
+            evaluation: Default::default(),
         };
 
         let run_id = ledger

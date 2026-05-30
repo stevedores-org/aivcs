@@ -213,6 +213,7 @@ mod tests {
                 git_sha: None,
                 agent_name: "agent".to_string(),
                 tags: serde_json::json!({}),
+                evaluation: Default::default(),
             },
             status: RunStatus::Completed,
             summary: Some(RunSummary {

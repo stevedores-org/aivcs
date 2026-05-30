@@ -111,6 +111,7 @@ where
                     "parent_run_id": parent_id,
                     "role": role.to_string(),
                 }),
+                evaluation: Default::default(),
             };
 
             let run_id = match ledger.create_run(&spec_digest, metadata).await {

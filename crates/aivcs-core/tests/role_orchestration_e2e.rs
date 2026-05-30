@@ -166,6 +166,7 @@ async fn test_e2e_replay_digest_is_deterministic() {
             git_sha: Some("aabbcc".to_string()),
             agent_name: "e2e-agent".to_string(),
             tags: serde_json::json!({}),
+            evaluation: Default::default(),
         };
         let run_id = ledger.create_run(&spec, meta).await.unwrap();
 

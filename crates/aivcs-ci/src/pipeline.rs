@@ -80,6 +80,7 @@ impl CiPipeline {
                 "workspace": ci_spec.workspace_path.to_string_lossy(),
                 "toolchain": &ci_spec.toolchain_hash,
             }),
+            evaluation: Default::default(),
         };
 
         let recorder = GraphRunRecorder::start(ledger.clone(), &spec_digest, metadata).await?;

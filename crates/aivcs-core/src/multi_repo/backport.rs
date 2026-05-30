@@ -108,6 +108,7 @@ impl BackportExecutor {
             git_sha: None,
             agent_name: "backport-executor".to_string(),
             tags: serde_json::json!({ "originating_run_id": originating_run_id }),
+            evaluation: Default::default(),
         };
 
         let recorder = GraphRunRecorder::start(Arc::clone(&self.ledger), &spec, metadata)

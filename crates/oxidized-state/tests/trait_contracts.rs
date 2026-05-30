@@ -112,6 +112,7 @@ fn sample_metadata() -> RunMetadata {
         git_sha: Some("abc123".to_string()),
         agent_name: "test-agent".to_string(),
         tags: serde_json::json!({"env": "test"}),
+        evaluation: Default::default(),
     }
 }
 

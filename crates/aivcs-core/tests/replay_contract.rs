@@ -18,6 +18,7 @@ async fn build_seeded_run(ledger: &dyn RunLedger) -> RunId {
         git_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
         agent_name: "golden_agent".to_string(),
         tags: serde_json::json!({}),
+        evaluation: Default::default(),
     };
 
     let run_id = ledger
@@ -125,6 +126,7 @@ async fn test_golden_digest_identical_inputs_match() {
             git_sha: None,
             agent_name: "a".to_string(),
             tags: serde_json::json!({}),
+            evaluation: Default::default(),
         };
         let id = ledger.create_run(&spec, meta).await.unwrap();
         ledger

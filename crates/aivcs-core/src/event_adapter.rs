@@ -306,6 +306,7 @@ mod tests {
             git_sha: None,
             agent_name: "test-agent".into(),
             tags: json!({}),
+            evaluation: Default::default(),
         }
     }
 

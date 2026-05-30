@@ -170,6 +170,7 @@ impl ReleaseSequencer {
             git_sha: None,
             agent_name: "release-sequencer".to_string(),
             tags: serde_json::json!({ "plan_id": plan.plan_id }),
+            evaluation: Default::default(),
         };
 
         let recorder = GraphRunRecorder::start(Arc::clone(&self.ledger), &spec, metadata)
