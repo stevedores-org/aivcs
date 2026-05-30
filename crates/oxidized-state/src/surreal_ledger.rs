@@ -17,7 +17,6 @@ use crate::storage_traits::{
     RunStatus, RunSummary, StorageResult,
 };
 
-
 /// SurrealDB-backed implementation of [`RunLedger`].
 pub struct SurrealRunLedger {
     db: Surreal<Any>,
