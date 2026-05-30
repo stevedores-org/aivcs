@@ -7,7 +7,7 @@
 ## Core Mandates
 
 1. **Safety First**: Ensure all state captures are deterministic and content-addressed (content-hash based IDs).
-2. **Persistence**: The `RunLedger` must support both in-memory (for testing) and persistent (Postgres/SurrealDB) backends.
+2. **Persistence**: The `RunLedger` must support both in-memory (for testing) and persistent (SurrealDB) backends.
 3. **Auditability**: Every agent decision and state transition must be recordable via the A2A protocol.
 4. **Resilience**: The A2A transport must handle timeouts (10s default) and intermittent connectivity issues gracefully.
 
