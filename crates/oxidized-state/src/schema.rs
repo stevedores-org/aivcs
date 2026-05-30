@@ -418,6 +418,7 @@ pub struct RunRecord {
 
 impl RunRecord {
     /// Create a new run record in "running" state
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         run_id: String,
         spec_digest: String,
