@@ -128,9 +128,18 @@ impl GitHubClient {
     }
 
     /// Request a review from the Librarian Agent.
+    ///
+    /// The Librarian's GitHub username is read from `RELIC_LIBRARIAN_USERNAME`.
+    /// This is required when called: a missing or empty env var aborts before any
+    /// API call, rather than silently requesting review from a placeholder user
+    /// that may not exist and failing partway through a multi-step pipeline.
     pub async fn request_librarian_review(&self, pr_number: u64) -> Result<()> {
         let librarian = std::env::var("RELIC_LIBRARIAN_USERNAME")
-            .unwrap_or_else(|_| "librarian-agent".to_string());
+            .context("RELIC_LIBRARIAN_USERNAME must be set to request a Librarian Agent review")?;
+        anyhow::ensure!(
+            !librarian.trim().is_empty(),
+            "RELIC_LIBRARIAN_USERNAME is set but empty"
+        );
 
         info!(
             "Requesting review from Librarian Agent ('{}') on PR #{}",

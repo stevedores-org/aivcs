@@ -48,12 +48,16 @@ pub struct DiffSummaryArtifact {
 }
 
 /// Data model for cross-org integration audit report.
+///
+/// `health` is `Option` because the audit and the CI health report are computed
+/// independently — a caller may have one without the other. When `None`, the
+/// renderer surfaces "not available" rather than fabricating a healthy default.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CrossOrgAuditArtifact {
     pub generated_at: DateTime<Utc>,
     pub coupling: Vec<crate::multi_repo::audit::RepoCoupling>,
     pub critical_spofs: Vec<String>,
-    pub health: crate::multi_repo::aggregator::CiHealthReport,
+    pub health: Option<crate::multi_repo::aggregator::CiHealthReport>,
 }
 
 /// Write eval_results.json in pretty JSON format.
@@ -130,47 +134,51 @@ pub fn render_cross_org_audit_md(artifact: &CrossOrgAuditArtifact) -> String {
     }
 
     out.push_str("## Integration Health Summary\n\n");
-    let status_icon = if artifact.health.all_healthy {
-        "✅"
-    } else {
-        "❌"
-    };
-    out.push_str(&format!(
-        "Overall Status: {} {}\n\n",
-        status_icon,
-        if artifact.health.all_healthy {
-            "HEALTHY"
-        } else {
-            "DEGRADED"
-        }
-    ));
+    match &artifact.health {
+        Some(health) => {
+            let (status_icon, status_label) = if health.all_healthy {
+                ("✅", "HEALTHY")
+            } else {
+                ("❌", "DEGRADED")
+            };
+            out.push_str(&format!(
+                "Overall Status: {} {}\n\n",
+                status_icon, status_label
+            ));
 
-    out.push_str("| Repository | Status | Latest Run | Failing Stages |\n");
-    out.push_str("|---|---|---|---|\n");
-    for h in &artifact.health.repo_health {
-        let (status_text, icon) = match &h.status {
-            crate::multi_repo::aggregator::RepoHealthStatus::Healthy => ("Healthy", "✅"),
-            crate::multi_repo::aggregator::RepoHealthStatus::Degraded { .. } => ("Degraded", "⚠️"),
-            crate::multi_repo::aggregator::RepoHealthStatus::Down => ("Down", "❌"),
-            crate::multi_repo::aggregator::RepoHealthStatus::Unknown => ("Unknown", "❓"),
-        };
-        let failing = match &h.status {
-            crate::multi_repo::aggregator::RepoHealthStatus::Degraded { failing_stages } => {
-                failing_stages.join(", ")
+            out.push_str("| Repository | Status | Latest Run | Failing Stages |\n");
+            out.push_str("|---|---|---|---|\n");
+            for h in &health.repo_health {
+                let (status_text, icon) = match &h.status {
+                    crate::multi_repo::aggregator::RepoHealthStatus::Healthy => ("Healthy", "✅"),
+                    crate::multi_repo::aggregator::RepoHealthStatus::Degraded { .. } => {
+                        ("Degraded", "⚠️")
+                    }
+                    crate::multi_repo::aggregator::RepoHealthStatus::Down => ("Down", "❌"),
+                    crate::multi_repo::aggregator::RepoHealthStatus::Unknown => ("Unknown", "❓"),
+                };
+                let failing = match &h.status {
+                    crate::multi_repo::aggregator::RepoHealthStatus::Degraded {
+                        failing_stages,
+                    } => failing_stages.join(", "),
+                    _ => "-".to_string(),
+                };
+                let run_id = h
+                    .last_run
+                    .as_ref()
+                    .map(|r| r.run_id.chars().take(8).collect::<String>())
+                    .unwrap_or_else(|| "N/A".to_string());
+                out.push_str(&format!(
+                    "| `{}` | {} {} | `{}` | {} |\n",
+                    h.repo_id, icon, status_text, run_id, failing
+                ));
             }
-            _ => "-".to_string(),
-        };
-        let run_id = h
-            .last_run
-            .as_ref()
-            .map(|r| r.run_id.chars().take(8).collect::<String>())
-            .unwrap_or_else(|| "N/A".to_string());
-        out.push_str(&format!(
-            "| `{}` | {} {} | `{}` | {} |\n",
-            h.repo_id, icon, status_text, run_id, failing
-        ));
+            out.push('\n');
+        }
+        None => {
+            out.push_str("_Not available — no CI health data was provided to this report._\n\n");
+        }
     }
-    out.push('\n');
 
     out.push_str("## Recommendations\n\n");
     for c in &artifact.coupling {
@@ -178,13 +186,6 @@ pub fn render_cross_org_audit_md(artifact: &CrossOrgAuditArtifact) -> String {
             out.push_str(&format!("- **Decouple `{}`**: This repository has a very high blast radius ({}). Consider splitting it into smaller, more focused services or adding redundant fallback paths.\n", c.repo_id, c.blast_radius));
         }
     }
-
-    out.push_str("## Dependency Matrix (Mermaid)\n\n");
-    out.push_str("```mermaid\ngraph TD\n");
-    // We don't have the original graph here easily, but we can reconstruct it from coupling if we had more info
-    // or just pass it in. For now, a placeholder or simple list.
-    out.push_str("    %% [Dependency graph visualization]\n");
-    out.push_str("```\n");
 
     out
 }
@@ -257,5 +258,56 @@ mod tests {
         let actual = render_diff_summary_md(&artifact);
         let expected = "# Diff Summary\n\n## Spec\n- changed paths: 2\n- only in A: 1\n- only in B: 0\n\n### Changed Paths\n- `/model`\n- `/routing/strategy`\n\n## Run\n- events A: 12\n- events B: 14\n- added tool calls: 1\n- removed tool calls: 0\n- reordered tool calls: 2\n- param changed: 3\n";
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn cross_org_audit_md_without_health_says_not_available() {
+        use crate::multi_repo::audit::RepoCoupling;
+
+        let artifact = CrossOrgAuditArtifact {
+            generated_at: DateTime::parse_from_rfc3339("2026-05-29T00:00:00Z")
+                .expect("parse RFC3339")
+                .with_timezone(&Utc),
+            coupling: vec![
+                RepoCoupling {
+                    repo_id: "A".to_string(),
+                    direct_dependents: 2,
+                    blast_radius: 6,
+                    is_critical_path: true,
+                },
+                RepoCoupling {
+                    repo_id: "B".to_string(),
+                    direct_dependents: 0,
+                    blast_radius: 0,
+                    is_critical_path: false,
+                },
+            ],
+            critical_spofs: vec!["A".to_string()],
+            health: None,
+        };
+
+        let rendered = render_cross_org_audit_md(&artifact);
+
+        // Audit table is rendered.
+        assert!(rendered.contains("## Reliability Coupling Analysis"));
+        assert!(rendered.contains("| `A` | 2 | 6 | ⚠️ YES |"));
+        assert!(rendered.contains("| `B` | 0 | 0 | ok |"));
+
+        // SPOF section is rendered.
+        assert!(rendered.contains("Critical Single Points of Failure"));
+
+        // Health section says not available — must NOT claim HEALTHY/DEGRADED.
+        assert!(rendered.contains("## Integration Health Summary"));
+        assert!(rendered.contains("_Not available"));
+        assert!(!rendered.contains("HEALTHY"));
+        assert!(!rendered.contains("DEGRADED"));
+
+        // Recommendations exist because A.blast_radius > 5.
+        assert!(rendered.contains("## Recommendations"));
+        assert!(rendered.contains("Decouple `A`"));
+
+        // Mermaid placeholder section must be gone.
+        assert!(!rendered.contains("Dependency Matrix"));
+        assert!(!rendered.contains("Dependency graph visualization"));
     }
 }

@@ -569,20 +569,11 @@ async fn cmd_report_cross_org(
     let engine = AuditEngine::new(&graph);
     let audit = engine.audit();
 
-    // Aggregate health (using empty list if not implemented here)
-    let health = aivcs_core::CiHealthReport {
-        objective: _objective.to_string(),
-        repo_health: Vec::new(),
-        generated_at: chrono::Utc::now(),
-        all_healthy: true,
-        unhealthy_repos: Vec::new(),
-    };
-
     let artifact = CrossOrgAuditArtifact {
         generated_at: chrono::Utc::now(),
         coupling: audit.coupling,
         critical_spofs: audit.critical_spofs,
-        health,
+        health: None,
     };
 
     let report = render_cross_org_audit_md(&artifact);
