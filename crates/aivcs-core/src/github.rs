@@ -134,12 +134,7 @@ impl GitHubClient {
     /// API call, rather than silently requesting review from a placeholder user
     /// that may not exist and failing partway through a multi-step pipeline.
     pub async fn request_librarian_review(&self, pr_number: u64) -> Result<()> {
-        let librarian = std::env::var("RELIC_LIBRARIAN_USERNAME")
-            .context("RELIC_LIBRARIAN_USERNAME must be set to request a Librarian Agent review")?;
-        anyhow::ensure!(
-            !librarian.trim().is_empty(),
-            "RELIC_LIBRARIAN_USERNAME is set but empty"
-        );
+        let librarian = resolve_librarian_username(std::env::var("RELIC_LIBRARIAN_USERNAME"))?;
 
         info!(
             "Requesting review from Librarian Agent ('{}') on PR #{}",
@@ -154,5 +149,74 @@ impl GitHubClient {
             .context(format!("failed to request review for PR #{}", pr_number))?;
 
         Ok(())
+    }
+}
+
+/// Validate the raw `RELIC_LIBRARIAN_USERNAME` env-var lookup result.
+///
+/// Split out so the validation contract can be unit-tested without an HTTP
+/// client. A missing or whitespace-only value is rejected eagerly: the
+/// alternative is silently requesting review from a placeholder user that may
+/// not exist and failing partway through a multi-step pipeline.
+fn resolve_librarian_username(
+    raw: std::result::Result<String, std::env::VarError>,
+) -> Result<String> {
+    let value =
+        raw.context("RELIC_LIBRARIAN_USERNAME must be set to request a Librarian Agent review")?;
+    anyhow::ensure!(
+        !value.trim().is_empty(),
+        "RELIC_LIBRARIAN_USERNAME is set but empty"
+    );
+    Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env::VarError;
+
+    #[test]
+    fn resolve_librarian_username_missing_env_is_rejected() {
+        let err = resolve_librarian_username(Err(VarError::NotPresent)).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("RELIC_LIBRARIAN_USERNAME must be set"),
+            "expected missing-env error, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn resolve_librarian_username_empty_string_is_rejected() {
+        let err = resolve_librarian_username(Ok(String::new())).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("set but empty"),
+            "expected empty-value error, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn resolve_librarian_username_whitespace_only_is_rejected() {
+        let err = resolve_librarian_username(Ok("   \t\n".to_string())).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("set but empty"),
+            "expected whitespace-only to be treated as empty, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn resolve_librarian_username_valid_value_is_returned_verbatim() {
+        let username = resolve_librarian_username(Ok("librarian-bot".to_string())).unwrap();
+        assert_eq!(username, "librarian-bot");
+    }
+
+    #[test]
+    fn resolve_librarian_username_not_unicode_is_rejected() {
+        let err = resolve_librarian_username(Err(VarError::NotUnicode(std::ffi::OsString::from(
+            "ignored",
+        ))))
+        .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("RELIC_LIBRARIAN_USERNAME must be set"),
+            "expected missing-env-style error for non-unicode value, got: {err:#}"
+        );
     }
 }

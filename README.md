@@ -71,6 +71,7 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 | `trace` | Time-travel debugging - show reasoning trace |
 | `replay` | Replay a recorded run artifact by run ID |
 | `diff-runs` | Diff the tool-call sequences of two runs |
+| `pr open` | Open a GitHub Pull Request and request review from the Librarian Agent |
 
 ### Environment Commands (Phase 2)
 
@@ -146,6 +147,31 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
   }
 }
 ```
+
+### GitHub Integration (`pr open`)
+
+`aivcs pr open` creates a Pull Request via the GitHub API and, by default, requests review from the Librarian Agent so it can audit changes before downstream OCI builds. This is the canonical PR-creation path used by autonomous builder agents running in ephemeral ADK Jobs.
+
+```bash
+export GITHUB_TOKEN="<github-app-installation-token-or-pat>"
+export RELIC_LIBRARIAN_USERNAME="librarian-bot"
+aivcs pr open \
+  --owner stevedores-org \
+  --repo aivcs \
+  --head feature/my-change \
+  --base main \
+  --title "feat: my change" \
+  --body  "Summary of what changed."
+```
+
+Required environment:
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_TOKEN` | Bearer token for the GitHub API. Accepts a GitHub App installation token (preferred for autonomous Jobs) or a personal access token. |
+| `RELIC_LIBRARIAN_USERNAME` | GitHub username of the Librarian Agent. Required when `--librarian` is enabled (the default). Missing or whitespace-only values are rejected eagerly so the failure surfaces before the API call rather than mid-pipeline. |
+
+The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the review request in development or test contexts where the Librarian is not deployed.
 
 ## Documentation
 
