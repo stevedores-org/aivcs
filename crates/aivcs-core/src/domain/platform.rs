@@ -21,8 +21,8 @@ impl Platform {
         }
 
         if cfg!(target_os = "linux") {
-            let is_nixos = Path::new("/etc/NIXOS").exists() || 
-                fs::read_to_string("/etc/os-release")
+            let is_nixos = Path::new("/etc/NIXOS").exists()
+                || fs::read_to_string("/etc/os-release")
                     .map(|v| v.contains("ID=nixos"))
                     .unwrap_or(false);
 
@@ -63,9 +63,11 @@ impl EnvValidation {
             platform: Platform::detect(),
             nix_available: is_command_available("nix"),
             attic_available: is_command_available("attic"),
-            is_nix_shell: std::env::var("IN_NIX_SHELL").is_ok() 
-                || (std::env::var("SHLVL").map(|v| v == "2").unwrap_or(false) 
-                    && std::env::var("PATH").map(|v| v.contains("/nix/store")).unwrap_or(false)),
+            is_nix_shell: std::env::var("IN_NIX_SHELL").is_ok()
+                || (std::env::var("SHLVL").map(|v| v == "2").unwrap_or(false)
+                    && std::env::var("PATH")
+                        .map(|v| v.contains("/nix/store"))
+                        .unwrap_or(false)),
         }
     }
 }
