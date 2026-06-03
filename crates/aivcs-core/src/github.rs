@@ -161,8 +161,17 @@ impl GitHubClient {
 fn resolve_librarian_username(
     raw: std::result::Result<String, std::env::VarError>,
 ) -> Result<String> {
-    let value =
-        raw.context("RELIC_LIBRARIAN_USERNAME must be set to request a Librarian Agent review")?;
+    let value = match raw {
+        Ok(v) => v,
+        Err(std::env::VarError::NotPresent) => {
+            anyhow::bail!(
+                "RELIC_LIBRARIAN_USERNAME must be set to request a Librarian Agent review"
+            )
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            anyhow::bail!("RELIC_LIBRARIAN_USERNAME contains non-UTF-8 bytes")
+        }
+    };
     anyhow::ensure!(
         !value.trim().is_empty(),
         "RELIC_LIBRARIAN_USERNAME is set but empty"
@@ -209,14 +218,22 @@ mod tests {
     }
 
     #[test]
-    fn resolve_librarian_username_not_unicode_is_rejected() {
+    fn resolve_librarian_username_not_unicode_is_rejected_with_distinct_message() {
+        // NotUnicode means the env var IS set but contains invalid UTF-8 —
+        // distinguish it from "missing" so an operator debugging an ESO
+        // projection sees the real failure mode.
         let err = resolve_librarian_username(Err(VarError::NotUnicode(std::ffi::OsString::from(
             "ignored",
         ))))
         .unwrap_err();
+        let rendered = format!("{err:#}");
         assert!(
-            format!("{err:#}").contains("RELIC_LIBRARIAN_USERNAME must be set"),
-            "expected missing-env-style error for non-unicode value, got: {err:#}"
+            rendered.contains("non-UTF-8"),
+            "expected non-UTF-8-specific error, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains("must be set"),
+            "non-UTF-8 error must not claim the variable is unset, got: {rendered}"
         );
     }
 }
