@@ -47,7 +47,7 @@ impl CasStore for FsCasStore {
         // Atomic write: write to temp file in the same directory, then rename.
         let mut tmp = NamedTempFile::new_in(shard_dir)?;
         tmp.write_all(data)?;
-        
+
         // Robust persist: handle transient WSL/Windows rename errors with retries.
         let mut attempts = 0;
         loop {
@@ -57,8 +57,9 @@ impl CasStore for FsCasStore {
                     attempts += 1;
                     // Check if it's a known transient error in WSL/9p
                     let kind = e.error.kind();
-                    if kind == std::io::ErrorKind::PermissionDenied || 
-                       kind == std::io::ErrorKind::Other {
+                    if kind == std::io::ErrorKind::PermissionDenied
+                        || kind == std::io::ErrorKind::Other
+                    {
                         std::thread::sleep(std::time::Duration::from_millis(10 * attempts));
                         // Re-fetch the tempfile from the error if we want to retry,
                         // but persist consumes it. NamedTempFile::persist returns PersistError
