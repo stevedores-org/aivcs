@@ -54,6 +54,7 @@ pub struct EnvValidation {
     pub platform: Platform,
     pub nix_available: bool,
     pub attic_available: bool,
+    pub is_nix_shell: bool,
 }
 
 impl EnvValidation {
@@ -62,6 +63,9 @@ impl EnvValidation {
             platform: Platform::detect(),
             nix_available: is_command_available("nix"),
             attic_available: is_command_available("attic"),
+            is_nix_shell: std::env::var("IN_NIX_SHELL").is_ok() 
+                || (std::env::var("SHLVL").map(|v| v == "2").unwrap_or(false) 
+                    && std::env::var("PATH").map(|v| v.contains("/nix/store")).unwrap_or(false)),
         }
     }
 }
