@@ -12,6 +12,7 @@ pub mod ci_event;
 pub mod digest;
 pub mod error;
 pub mod eval;
+pub mod platform;
 pub mod release;
 pub mod run;
 pub mod snapshot;
@@ -24,6 +25,7 @@ pub use eval::{
     DeterministicEvalRunner, EvalCaseResult, EvalRunReport, EvalSuite, EvalTestCase,
     EvalThresholds, ScorerConfig, ScorerType,
 };
+pub use platform::{EnvValidation, Platform};
 pub use release::{Release, ReleaseEnvironment, ReleasePointer};
 pub use run::{Event, EventKind, Run, RunStatus};
 pub use snapshot::SnapshotMeta;
