@@ -49,7 +49,7 @@ impl CasStore for FsCasStore {
         tmp.write_all(data)?;
 
         // Robust persist: handle transient WSL/Windows rename errors with retries.
-        let mut attempts = 0;
+        let mut attempts: u64 = 0;
         loop {
             match tmp.persist(&path) {
                 Ok(_) => break,
@@ -60,7 +60,7 @@ impl CasStore for FsCasStore {
                     if kind == std::io::ErrorKind::PermissionDenied
                         || kind == std::io::ErrorKind::Other
                     {
-                        std::thread::sleep(std::time::Duration::from_millis(10 * attempts));
+                        std::thread::sleep(std::time::Duration::from_millis(10 * attempts as u64));
                         // Re-fetch the tempfile from the error if we want to retry,
                         // but persist consumes it. NamedTempFile::persist returns PersistError
                         // which contains the file if it failed.
