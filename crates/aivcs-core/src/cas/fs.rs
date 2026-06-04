@@ -8,13 +8,13 @@ use super::{CasError, CasStore, Digest, Result};
 
 /// Filesystem-backed content-addressed store with git-style 2-char sharding.
 ///
-/// Layout: `<root>/objects/<first 2 hex chars>/<remaining hex chars>`
+/// Layout: <root>/objects/<first 2 hex chars>/<remaining hex chars>
 pub struct FsCasStore {
     objects_dir: PathBuf,
 }
 
 impl FsCasStore {
-    /// Create a new `FsCasStore` rooted at `root`. Creates `root/objects/` if needed.
+    /// Create a new FsCasStore rooted at root. Creates root/objects/ if needed.
     pub fn new(root: impl AsRef<Path>) -> Result<Self> {
         let objects_dir = root.as_ref().join("objects");
         fs::create_dir_all(&objects_dir)?;
@@ -49,21 +49,17 @@ impl CasStore for FsCasStore {
         tmp.write_all(data)?;
 
         // Robust persist: handle transient WSL/Windows rename errors with retries.
-        let mut attempts: u64 = 0;
+        let mut attempts: u32 = 0;
         loop {
             match tmp.persist(&path) {
                 Ok(_) => break,
                 Err(e) if attempts < 3 => {
                     attempts += 1;
-                    // Check if it's a known transient error in WSL/9p
                     let kind = e.error.kind();
                     if kind == std::io::ErrorKind::PermissionDenied
                         || kind == std::io::ErrorKind::Other
                     {
-                        std::thread::sleep(std::time::Duration::from_millis(10 * attempts as u64));
-                        // Re-fetch the tempfile from the error if we want to retry,
-                        // but persist consumes it. NamedTempFile::persist returns PersistError
-                        // which contains the file if it failed.
+                        std::thread::sleep(std::time::Duration::from_millis((10 * attempts) as u64));
                         tmp = e.file;
                         continue;
                     }
