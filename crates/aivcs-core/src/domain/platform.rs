@@ -21,8 +21,8 @@ impl Platform {
         }
 
         if cfg!(target_os = "linux") {
-            let is_nixos = Path::new("/etc/NIXOS").exists() || 
-                fs::read_to_string("/etc/os-release")
+            let is_nixos = Path::new("/etc/NIXOS").exists()
+                || fs::read_to_string("/etc/os-release")
                     .map(|v| v.contains("ID=nixos"))
                     .unwrap_or(false);
 
