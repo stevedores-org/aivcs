@@ -49,6 +49,18 @@ impl Platform {
     }
 }
 
+impl std::fmt::Display for Platform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::GenericLinux => write!(f, "generic-linux"),
+            Self::MacOS => write!(f, "macos"),
+            Self::NixOS => write!(f, "nixos"),
+            Self::NixOSWSL => write!(f, "nixos-wsl"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
 /// Validation result for the environment.
 pub struct EnvValidation {
     pub platform: Platform,
@@ -70,6 +82,36 @@ impl EnvValidation {
                         .unwrap_or(false)),
         }
     }
+
+    /// Actionable guidance for operators, with WSL-specific hints when relevant.
+    pub fn recommendations(&self) -> Vec<String> {
+        let mut tips = Vec::new();
+
+        if self.platform.is_wsl() {
+            tips.push(
+                "Keep AIVCS CAS and .aivcs/ state on the Linux filesystem (/home/...), not /mnt/c, to avoid WSL 9p rename errors.".into(),
+            );
+            if !self.is_nix_shell {
+                tips.push(
+                    "Enter a Nix shell (`nix develop`) or install the NixOS-WSL tarball before running CI locally.".into(),
+                );
+            }
+        }
+
+        if self.platform.is_nixos() && !self.nix_available {
+            tips.push(
+                "Nix was not found on PATH. Enable programs.nix or install nix in your NixOS configuration.".into(),
+            );
+        }
+
+        if !self.attic_available {
+            tips.push(
+                "Attic is optional but recommended for faster rebuilds. Set ATTIC_SERVER and ATTIC_CACHE, or see docs/runbooks/nixos-wsl.md.".into(),
+            );
+        }
+
+        tips
+    }
 }
 
 fn is_command_available(cmd: &str) -> bool {
@@ -87,9 +129,26 @@ mod tests {
     #[test]
     fn test_platform_detection_smoke() {
         let p = Platform::detect();
-        // Just verify it doesn't panic and returns something plausible
         if cfg!(target_os = "macos") {
             assert_eq!(p, Platform::MacOS);
         }
+    }
+
+    #[test]
+    fn test_platform_display() {
+        assert_eq!(Platform::NixOSWSL.to_string(), "nixos-wsl");
+    }
+
+    #[test]
+    fn wsl_recommendations_include_linux_filesystem_hint() {
+        let validation = EnvValidation {
+            platform: Platform::NixOSWSL,
+            nix_available: true,
+            attic_available: false,
+            is_nix_shell: false,
+        };
+        let tips = validation.recommendations();
+        assert!(tips.iter().any(|t| t.contains("/mnt/c")));
+        assert!(tips.iter().any(|t| t.contains("nix develop")));
     }
 }

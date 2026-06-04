@@ -1229,8 +1229,18 @@ async fn cmd_is_cached(hash: &str) -> Result<()> {
 
 /// Show environment system info
 async fn cmd_env_info() -> Result<()> {
+    use aivcs_core::domain::EnvValidation;
+
+    let validation = EnvValidation::check();
+
     println!("AIVCS Environment Info");
     println!("======================");
+    println!();
+    println!("Platform: {}", validation.platform);
+    println!(
+        "Nix shell: {}",
+        if validation.is_nix_shell { "yes" } else { "no" }
+    );
     println!();
 
     // Nix availability
@@ -1281,6 +1291,15 @@ async fn cmd_env_info() -> Result<()> {
         println!("  ATTIC_TOKEN: (set)");
     } else {
         println!("  ATTIC_TOKEN: (not set)");
+    }
+
+    let tips = validation.recommendations();
+    if !tips.is_empty() {
+        println!();
+        println!("Recommendations:");
+        for tip in tips {
+            println!("  - {}", tip);
+        }
     }
 
     Ok(())
