@@ -1,7 +1,7 @@
 # E2E smoke test: aivcsd starts and the aivcs CLI can init + snapshot.
 { pkgs, aivcsPackage, aivcsdPackage }:
 
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "aivcs-wsl-e2e";
 
   nodes.machine = {
