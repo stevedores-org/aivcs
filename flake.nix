@@ -105,7 +105,6 @@
             aivcs-wsl = self.nixosConfigurations.aivcs-wsl.config.system.build.toplevel;
             aivcs-wsl-e2e = import ./nix/tests/aivcs-wsl-e2e.nix {
               inherit pkgs;
-              inherit (linuxPackages) aivcs aivcsd;
               aivcsPackage = aivcs;
               aivcsdPackage = aivcsd;
             };
