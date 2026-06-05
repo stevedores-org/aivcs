@@ -5,6 +5,8 @@ fn main() -> Result<()> {
     aivcs_core::init_tracing(false, Level::INFO);
 
     tracing::info!("aivcsd stub started");
+    // Stub daemon: stay alive until systemd sends SIGTERM on stop.
+    std::thread::park();
     Ok(())
 }
 
