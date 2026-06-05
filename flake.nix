@@ -84,11 +84,15 @@
           aivcs = craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
             cargoExtraArgs = "-p aivcs-cli";
+            pname = "aivcs";
+            meta.mainProgram = "aivcs";
           });
 
           aivcsd = craneLib.buildPackage (commonArgs // {
             inherit cargoArtifacts;
             cargoExtraArgs = "-p aivcsd";
+            pname = "aivcsd";
+            meta.mainProgram = "aivcsd";
           });
         in
         {
