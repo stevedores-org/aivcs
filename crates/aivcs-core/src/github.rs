@@ -128,9 +128,13 @@ impl GitHubClient {
     }
 
     /// Request a review from the Librarian Agent.
+    ///
+    /// The Librarian's GitHub username is read from `RELIC_LIBRARIAN_USERNAME`.
+    /// This is required when called: a missing or empty env var aborts before any
+    /// API call, rather than silently requesting review from a placeholder user
+    /// that may not exist and failing partway through a multi-step pipeline.
     pub async fn request_librarian_review(&self, pr_number: u64) -> Result<()> {
-        let librarian = std::env::var("RELIC_LIBRARIAN_USERNAME")
-            .unwrap_or_else(|_| "librarian-agent".to_string());
+        let librarian = resolve_librarian_username(std::env::var("RELIC_LIBRARIAN_USERNAME"))?;
 
         info!(
             "Requesting review from Librarian Agent ('{}') on PR #{}",
@@ -145,5 +149,91 @@ impl GitHubClient {
             .context(format!("failed to request review for PR #{}", pr_number))?;
 
         Ok(())
+    }
+}
+
+/// Validate the raw `RELIC_LIBRARIAN_USERNAME` env-var lookup result.
+///
+/// Split out so the validation contract can be unit-tested without an HTTP
+/// client. A missing or whitespace-only value is rejected eagerly: the
+/// alternative is silently requesting review from a placeholder user that may
+/// not exist and failing partway through a multi-step pipeline.
+fn resolve_librarian_username(
+    raw: std::result::Result<String, std::env::VarError>,
+) -> Result<String> {
+    let value = match raw {
+        Ok(v) => v,
+        Err(std::env::VarError::NotPresent) => {
+            anyhow::bail!(
+                "RELIC_LIBRARIAN_USERNAME must be set to request a Librarian Agent review"
+            )
+        }
+        Err(std::env::VarError::NotUnicode(_)) => {
+            anyhow::bail!("RELIC_LIBRARIAN_USERNAME contains non-UTF-8 bytes")
+        }
+    };
+    anyhow::ensure!(
+        !value.trim().is_empty(),
+        "RELIC_LIBRARIAN_USERNAME is set but empty"
+    );
+    Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env::VarError;
+
+    #[test]
+    fn resolve_librarian_username_missing_env_is_rejected() {
+        let err = resolve_librarian_username(Err(VarError::NotPresent)).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("RELIC_LIBRARIAN_USERNAME must be set"),
+            "expected missing-env error, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn resolve_librarian_username_empty_string_is_rejected() {
+        let err = resolve_librarian_username(Ok(String::new())).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("set but empty"),
+            "expected empty-value error, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn resolve_librarian_username_whitespace_only_is_rejected() {
+        let err = resolve_librarian_username(Ok("   \t\n".to_string())).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("set but empty"),
+            "expected whitespace-only to be treated as empty, got: {err:#}"
+        );
+    }
+
+    #[test]
+    fn resolve_librarian_username_valid_value_is_returned_verbatim() {
+        let username = resolve_librarian_username(Ok("librarian-bot".to_string())).unwrap();
+        assert_eq!(username, "librarian-bot");
+    }
+
+    #[test]
+    fn resolve_librarian_username_not_unicode_is_rejected_with_distinct_message() {
+        // NotUnicode means the env var IS set but contains invalid UTF-8 —
+        // distinguish it from "missing" so an operator debugging an ESO
+        // projection sees the real failure mode.
+        let err = resolve_librarian_username(Err(VarError::NotUnicode(std::ffi::OsString::from(
+            "ignored",
+        ))))
+        .unwrap_err();
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("non-UTF-8"),
+            "expected non-UTF-8-specific error, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains("must be set"),
+            "non-UTF-8 error must not claim the variable is unset, got: {rendered}"
+        );
     }
 }

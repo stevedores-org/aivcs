@@ -287,6 +287,52 @@ enum PrAction {
         #[arg(long, default_value_t = true)]
         librarian: bool,
     },
+
+    /// Create a GitHub branch from a base ref
+    Branch {
+        /// Branch name to create
+        #[arg(short, long)]
+        name: String,
+
+        /// Base branch or ref
+        #[arg(short, long, default_value = "main")]
+        base: String,
+
+        /// GitHub organization/owner
+        #[arg(long)]
+        owner: String,
+
+        /// GitHub repository name
+        #[arg(long)]
+        repo: String,
+    },
+
+    /// Commit a file to a GitHub branch via the Contents API
+    Commit {
+        /// Target branch
+        #[arg(short, long)]
+        branch: String,
+
+        /// Repository-relative file path
+        #[arg(short, long)]
+        path: String,
+
+        /// Commit message
+        #[arg(short, long)]
+        message: String,
+
+        /// Local file to upload
+        #[arg(short, long)]
+        file: PathBuf,
+
+        /// GitHub organization/owner
+        #[arg(long)]
+        owner: String,
+
+        /// GitHub repository name
+        #[arg(long)]
+        repo: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -537,6 +583,20 @@ async fn main() -> Result<()> {
                 repo,
                 librarian,
             } => cmd_pr_open(title, body, head, base, owner, repo, librarian).await,
+            PrAction::Branch {
+                name,
+                base,
+                owner,
+                repo,
+            } => cmd_pr_branch(name, base, owner, repo).await,
+            PrAction::Commit {
+                branch,
+                path,
+                message,
+                file,
+                owner,
+                repo,
+            } => cmd_pr_commit(branch, path, message, file, owner, repo).await,
         },
         Commands::Report { action } => match action {
             ReportAction::CrossOrg {
@@ -569,20 +629,11 @@ async fn cmd_report_cross_org(
     let engine = AuditEngine::new(&graph);
     let audit = engine.audit();
 
-    // Aggregate health (using empty list if not implemented here)
-    let health = aivcs_core::CiHealthReport {
-        objective: _objective.to_string(),
-        repo_health: Vec::new(),
-        generated_at: chrono::Utc::now(),
-        all_healthy: true,
-        unhealthy_repos: Vec::new(),
-    };
-
     let artifact = CrossOrgAuditArtifact {
         generated_at: chrono::Utc::now(),
         coupling: audit.coupling,
         critical_spofs: audit.critical_spofs,
-        health,
+        health: None,
     };
 
     let report = render_cross_org_audit_md(&artifact);
@@ -606,12 +657,7 @@ async fn cmd_pr_open(
     repo: String,
     librarian: bool,
 ) -> Result<()> {
-    use aivcs_core::github::GitHubClient;
-
-    let token =
-        std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN environment variable is required")?;
-
-    let client = GitHubClient::new(token, owner, repo)?;
+    let client = github_client_from_env(owner, repo)?;
 
     let pr_number = client
         .open_pr(&title, &body, &head, &base, librarian)
@@ -620,6 +666,39 @@ async fn cmd_pr_open(
     println!("Successfully opened PR #{}", pr_number);
 
     Ok(())
+}
+
+async fn cmd_pr_branch(name: String, base: String, owner: String, repo: String) -> Result<()> {
+    let client = github_client_from_env(owner, repo)?;
+    let sha = client.create_branch(&name, &base).await?;
+    println!("Created branch '{}' from '{}' ({})", name, base, sha);
+    Ok(())
+}
+
+async fn cmd_pr_commit(
+    branch: String,
+    path: String,
+    message: String,
+    file: PathBuf,
+    owner: String,
+    repo: String,
+) -> Result<()> {
+    let content = std::fs::read_to_string(&file)
+        .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
+    let client = github_client_from_env(owner, repo)?;
+    client
+        .commit_file(&branch, &path, &content, &message)
+        .await?;
+    println!("Committed '{}' to branch '{}'", path, branch);
+    Ok(())
+}
+
+fn github_client_from_env(owner: String, repo: String) -> Result<aivcs_core::github::GitHubClient> {
+    use aivcs_core::github::GitHubClient;
+
+    let token =
+        std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN environment variable is required")?;
+    GitHubClient::new(token, owner, repo)
 }
 
 /// Initialize a new AIVCS repository
@@ -718,6 +797,14 @@ async fn cmd_snapshot(
     // Update branch head
     let branch_record = BranchRecord::new(branch, &commit_id.hash, branch == "main");
     handle.save_branch(&branch_record).await?;
+
+    aivcs_core::maybe_emit_code_committed_from_env(
+        branch,
+        &commit_id.hash,
+        vec![state_path.display().to_string()],
+        author,
+    )
+    .await;
 
     info!(
         cas_digest = %cas_digest,
@@ -944,6 +1031,14 @@ async fn cmd_merge(
     // Update target branch head
     let branch = BranchRecord::new(target, &result.merge_commit_id.hash, target == "main");
     handle.save_branch(&branch).await?;
+
+    aivcs_core::maybe_emit_code_committed_from_env(
+        target,
+        &result.merge_commit_id.hash,
+        Vec::new(),
+        "agent-git",
+    )
+    .await;
 
     println!("Merge complete: {}", result.merge_commit_id.short());
     println!("{}", result.summary);

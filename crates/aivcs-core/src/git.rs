@@ -43,6 +43,48 @@ pub fn is_git_repo(dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Resolve `owner/name` for GitHub event payloads.
+///
+/// Prefers `GITHUB_REPOSITORY`, then parses `git remote get-url origin`.
+pub fn detect_github_repository() -> Option<String> {
+    std::env::var("GITHUB_REPOSITORY")
+        .ok()
+        .filter(|value| is_owner_repo(value))
+        .or_else(detect_github_repository_from_origin)
+}
+
+fn detect_github_repository_from_origin() -> Option<String> {
+    let output = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let remote = String::from_utf8(output.stdout).ok()?;
+    parse_github_remote(remote.trim())
+}
+
+/// Parse `owner/name` from common GitHub remote URL formats.
+pub fn parse_github_remote(remote: &str) -> Option<String> {
+    let without_suffix = remote.strip_suffix(".git").unwrap_or(remote);
+    let candidate = without_suffix
+        .strip_prefix("git@github.com:")
+        .or_else(|| without_suffix.strip_prefix("https://github.com/"))?;
+
+    is_owner_repo(candidate).then(|| candidate.to_string())
+}
+
+fn is_owner_repo(value: &str) -> bool {
+    let mut parts = value.split('/');
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(owner), Some(repo), None) if !owner.is_empty() && !repo.is_empty()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +139,23 @@ mod tests {
     fn is_git_repo_false_for_non_repo() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!is_git_repo(dir.path()));
+    }
+
+    #[test]
+    fn parse_github_remote_supports_https_and_ssh() {
+        assert_eq!(
+            parse_github_remote("https://github.com/stevedores-org/aivcs.git"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+        assert_eq!(
+            parse_github_remote("git@github.com:stevedores-org/aivcs.git"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_github_remote_rejects_invalid_values() {
+        assert_eq!(parse_github_remote("https://gitlab.com/org/repo"), None);
+        assert_eq!(parse_github_remote("not-a-url"), None);
     }
 }

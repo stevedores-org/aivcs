@@ -45,11 +45,11 @@ pub use domain::{
 pub use event_adapter::{subscribe_ledger_to_bus, LedgerHandler};
 
 pub use a2a::{
-    emit_code_committed_best_effort, A2aRetryPolicy, CodeCommittedEvent, HttpJsonRpcTransport,
-    DEFAULT_A2A_METHOD,
+    emit_code_committed_best_effort, maybe_emit_code_committed_from_env, A2aRetryPolicy,
+    CodeCommittedEvent, HttpJsonRpcTransport, DEFAULT_A2A_METHOD,
 };
 
-pub use git::{capture_head_sha, is_git_repo};
+pub use git::{capture_head_sha, detect_github_repository, is_git_repo, parse_github_remote};
 
 pub use memory::{DecisionRecorder, DecisionRecorderConfig};
 
