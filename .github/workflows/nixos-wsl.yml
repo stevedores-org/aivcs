@@ -40,7 +40,7 @@ jobs:
         run: nix build .#nixosConfigurations.aivcs-wsl.config.system.build.toplevel --print-build-logs
 
       - name: Build tarball builder
-        run: nix build .#nixosConfigurations.aivcs-wsl.config.system.build.tarballBuilder --print-build-logs
+        run: nix build .#nixosConfigurations.aivcs-wsl.config.system.build.tarballBuilder --print-build-logs -o tarball-result
 
       - name: Run NixOS-WSL e2e check
         run: nix build .#checks.x86_64-linux.aivcs-wsl-e2e --print-build-logs
@@ -49,5 +49,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nixos-wsl-tarball-builder
-          path: result/bin/nixos-wsl-tarball-builder
+          path: tarball-result/bin/nixos-wsl-tarball-builder
           if-no-files-found: error
