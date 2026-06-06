@@ -148,18 +148,33 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
 }
 ```
 
-### GitHub Integration (`pr open`, `pr branch`, `pr commit`)
+### GitHub Integration (`pr open`, `pr branch`, `pr commit`, `pr pipeline`)
 
-Autonomous builder agents use the `pr` subcommands to branch, commit, and open Pull Requests via the GitHub API. Tokens are read from `GITHUB_TOKEN` (GitHub App installation token from ESO, or PAT for local dev).
+Autonomous builder agents use the `pr` subcommands to branch, commit, and open Pull Requests via the GitHub API. Tokens are read from `GITHUB_TOKEN` (GitHub App installation token from ESO) or `GITHUB_TOKEN_FILE` (Kubernetes secret volume mount).
 
 ```bash
 export GITHUB_TOKEN="<github-app-installation-token-or-pat>"
+# Or: export GITHUB_TOKEN_FILE="/var/run/secrets/github/token"
 export RELIC_LIBRARIAN_USERNAME="librarian-bot"
 
-# 1. Create a feature branch
-aivcs pr branch --name feature/my-change --base main --owner stevedores-org --repo aivcs
+# Zero-touch pipeline (branch → commit → CODE_COMMITTED → open PR)
+uv run aivcs pr pipeline \
+  --branch feature/my-change \
+  --base develop \
+  --path docs/example.md \
+  --file ./example.md \
+  --message "docs: add example" \
+  --title "feat: my change" \
+  --body "Summary of what changed." \
+  --owner stevedores-org \
+  --repo aivcs
 
-# 2. Commit a file to that branch
+# Or step-by-step:
+
+# 1. Create a feature branch
+aivcs pr branch --name feature/my-change --base develop --owner stevedores-org --repo aivcs
+
+# 2. Commit a file to that branch (emits CODE_COMMITTED when A2A URL is set)
 aivcs pr commit \
   --branch feature/my-change \
   --path docs/example.md \
@@ -173,7 +188,7 @@ aivcs pr open \
   --owner stevedores-org \
   --repo aivcs \
   --head feature/my-change \
-  --base main \
+  --base develop \
   --title "feat: my change" \
   --body  "Summary of what changed."
 ```
@@ -185,22 +200,25 @@ Required environment:
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_TOKEN` | Bearer token for the GitHub API. Accepts a GitHub App installation token (preferred for autonomous Jobs) or a personal access token. |
+| `GITHUB_TOKEN_FILE` | Alternative token source: path to a file containing the bearer token (typical ESO secret volume mount). Used when `GITHUB_TOKEN` is unset or whitespace-only. |
 | `RELIC_LIBRARIAN_USERNAME` | GitHub username of the Librarian Agent. Required when `--librarian` is enabled (the default). Missing or whitespace-only values are rejected eagerly so the failure surfaces before the API call rather than mid-pipeline. |
 
 The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the review request in development or test contexts where the Librarian is not deployed.
 
+See [Zero-Touch PR Pipeline](docs/runbooks/zero-touch-pr-pipeline.md) for the full ADK Job runbook.
+
 #### A2A `CODE_COMMITTED` emission
 
-`aivcs snapshot` and `aivcs merge` emit a `CODE_COMMITTED` Agent-to-Agent event when the JSON-RPC URL is configured. The repo is resolved from `GITHUB_REPOSITORY` if set, otherwise from `git remote get-url origin`. The emission is no-op when the URL var is absent.
+`aivcs snapshot`, `aivcs merge`, `aivcs pr commit`, and `aivcs pr pipeline` emit a `CODE_COMMITTED` Agent-to-Agent event when the JSON-RPC URL is configured. The repo is resolved from `GITHUB_REPOSITORY` if set, otherwise from `git remote get-url origin`. The emission is no-op when the URL var is absent.
 
 | Variable | Description |
 |----------|-------------|
 | `AIVCS_A2A_JSONRPC_URL` | JSON-RPC endpoint to POST the event to. Absent or whitespace-only ⇒ no emission. |
-| `AIVCS_A2A_JSONRPC_METHOD` | Override the JSON-RPC method name. Defaults to `event.code_committed`. |
+| `AIVCS_A2A_JSONRPC_METHOD` | Override the JSON-RPC method name. Defaults to `a2a.events.publish`. |
 | `AIVCS_AGENT_ID` | Authoring agent identifier in the event payload. Falls back to the local commit author. |
 | `AIVCS_JOB_ID` | Optional job/run correlation ID. Whitespace-only values are dropped. |
 
-> ⚠️ The emission is awaited synchronously inside `snapshot` / `merge`. Transport failures retry per `A2aRetryPolicy::default()` before returning; the CLI blocks for that window. Pin the retry policy if you tighten snapshot-latency SLOs.
+> ⚠️ The emission is awaited synchronously inside `snapshot` / `merge` / `pr commit` / `pr pipeline`. Transport failures retry per `A2aRetryPolicy::default()` before returning; the CLI blocks for that window. Pin the retry policy if you tighten snapshot-latency SLOs.
 
 #### `pr commit` and file content
 
@@ -214,6 +232,7 @@ The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the 
 - [Local Development](docs/runbooks/local-development.md) — build, test, dev workflows
 - [Database Configuration](docs/runbooks/database-configuration.md) — in-memory, local, cloud setup
 - [CI Troubleshooting](docs/runbooks/ci-troubleshooting.md) — common failures, reproduce locally
+- [Zero-Touch PR Pipeline](docs/runbooks/zero-touch-pr-pipeline.md) — autonomous agent Jobs: branch, commit, PR, A2A
 
 ## Contributing
 

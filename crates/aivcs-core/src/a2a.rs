@@ -150,11 +150,15 @@ impl Default for A2aRetryPolicy {
 ///
 /// No-op when the endpoint env var is unset. Transport failures are logged and
 /// retried but never propagated to callers.
+///
+/// `repo_override` supplies `owner/repo` when the caller knows the target repo
+/// (e.g. GitHub Contents API commits from Agent Jobs without a local git remote).
 pub async fn maybe_emit_code_committed_from_env(
     branch: &str,
     commit_sha: &str,
     changed_paths: Vec<String>,
     author: &str,
+    repo_override: Option<&str>,
 ) {
     let Some(endpoint) = std::env::var("AIVCS_A2A_JSONRPC_URL")
         .ok()
@@ -163,8 +167,10 @@ pub async fn maybe_emit_code_committed_from_env(
         return;
     };
 
-    let repo =
-        crate::git::detect_github_repository().unwrap_or_else(|| "unknown/unknown".to_string());
+    let repo = repo_override
+        .map(str::to_string)
+        .or_else(crate::git::detect_github_repository)
+        .unwrap_or_else(|| "unknown/unknown".to_string());
     let method = std::env::var("AIVCS_A2A_JSONRPC_METHOD")
         .unwrap_or_else(|_| DEFAULT_A2A_METHOD.to_string());
     let authoring_agent_id = std::env::var("AIVCS_AGENT_ID").unwrap_or_else(|_| author.to_string());
