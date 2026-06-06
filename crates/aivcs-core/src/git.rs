@@ -68,11 +68,17 @@ fn detect_github_repository_from_origin() -> Option<String> {
 }
 
 /// Parse `owner/name` from common GitHub remote URL formats.
+///
+/// Supported shapes (trailing `.git` is stripped before matching):
+/// - `git@github.com:owner/name` (SCP-style SSH — the default git output)
+/// - `https://github.com/owner/name`
+/// - `ssh://git@github.com/owner/name` (RFC-style SSH that some tooling emits)
 pub fn parse_github_remote(remote: &str) -> Option<String> {
     let without_suffix = remote.strip_suffix(".git").unwrap_or(remote);
     let candidate = without_suffix
         .strip_prefix("git@github.com:")
-        .or_else(|| without_suffix.strip_prefix("https://github.com/"))?;
+        .or_else(|| without_suffix.strip_prefix("https://github.com/"))
+        .or_else(|| without_suffix.strip_prefix("ssh://git@github.com/"))?;
 
     is_owner_repo(candidate).then(|| candidate.to_string())
 }
@@ -149,6 +155,21 @@ mod tests {
         );
         assert_eq!(
             parse_github_remote("git@github.com:stevedores-org/aivcs.git"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_github_remote_supports_rfc_ssh_url() {
+        // RFC-style SSH URL — some tools (and `git remote -v` output on
+        // certain Git versions / configs) emit this form. Slash separator
+        // after the hostname, unlike the SCP-style colon form.
+        assert_eq!(
+            parse_github_remote("ssh://git@github.com/stevedores-org/aivcs.git"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+        assert_eq!(
+            parse_github_remote("ssh://git@github.com/stevedores-org/aivcs"),
             Some("stevedores-org/aivcs".to_string())
         );
     }

@@ -683,13 +683,24 @@ async fn cmd_pr_commit(
     owner: String,
     repo: String,
 ) -> Result<()> {
-    let content = std::fs::read_to_string(&file)
+    // Read as bytes + UTF-8 validate explicitly so the operator sees an
+    // actionable message for binary files instead of the opaque default
+    // ("stream did not contain valid UTF-8"). Binary commits would need
+    // a different code path through the Contents API — tracked separately.
+    let bytes = tokio::fs::read(&file)
+        .await
         .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
+    let content = std::str::from_utf8(&bytes).map_err(|err| {
+        anyhow::anyhow!(
+            "File {file:?} is not valid UTF-8 ({err}). Binary file commits via `aivcs pr commit` are not yet supported."
+        )
+    })?;
+
     let client = github_client_from_env(owner, repo)?;
-    client
-        .commit_file(&branch, &path, &content, &message)
+    let sha = client
+        .commit_file(&branch, &path, content, &message)
         .await?;
-    println!("Committed '{}' to branch '{}'", path, branch);
+    println!("Committed '{path}' to branch '{branch}' ({sha})");
     Ok(())
 }
 
