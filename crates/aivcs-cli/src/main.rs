@@ -753,17 +753,10 @@ async fn cmd_pr_branch(name: String, base: String, owner: String, repo: String) 
     Ok(())
 }
 
-async fn read_utf8_file_for_github_commit(file: &PathBuf) -> Result<String> {
-    let bytes = tokio::fs::read(file)
+async fn read_file_for_github_commit(file: &PathBuf) -> Result<Vec<u8>> {
+    tokio::fs::read(file)
         .await
-        .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
-    std::str::from_utf8(&bytes)
-        .map(|content| content.to_string())
-        .map_err(|err| {
-            anyhow::anyhow!(
-                "File {file:?} is not valid UTF-8 ({err}). Binary file commits via GitHub Contents API are not yet supported."
-            )
-        })
+        .with_context(|| format!("Failed to read file for commit: {:?}", file))
 }
 
 async fn cmd_pr_commit(
@@ -774,7 +767,7 @@ async fn cmd_pr_commit(
     owner: String,
     repo: String,
 ) -> Result<()> {
-    let content = read_utf8_file_for_github_commit(&file).await?;
+    let content = read_file_for_github_commit(&file).await?;
     let github_repo = format!("{owner}/{repo}");
 
     let client = github_client_from_env(owner, repo)?;
@@ -832,7 +825,7 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         println!("Created branch '{branch}' from '{base}' ({sha})");
     }
 
-    let content = read_utf8_file_for_github_commit(&file).await?;
+    let content = read_file_for_github_commit(&file).await?;
 
     let sha = client
         .commit_file(&branch, &path, &content, &message)
