@@ -298,39 +298,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn resolve_github_token_prefers_env_var() {
-        let _token = EnvGuard::set("GITHUB_TOKEN", "ghp_from_env");
-        let _file = EnvGuard::set("GITHUB_TOKEN_FILE", "/should/not/read");
-
-        let token = resolve_github_token().unwrap();
-        assert_eq!(token, "ghp_from_env");
-    }
-
-    #[test]
-    fn resolve_github_token_reads_file_when_env_empty() {
-        let _token = EnvGuard::set("GITHUB_TOKEN", "   ");
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("token");
-        std::fs::write(&path, "ghp_from_file\n").unwrap();
-        let _file = EnvGuard::set("GITHUB_TOKEN_FILE", path.to_str().unwrap());
-
-        let token = resolve_github_token().unwrap();
-        assert_eq!(token, "ghp_from_file");
-    }
-
-    #[test]
-    fn resolve_github_token_missing_both_is_rejected() {
-        let _token = EnvUnsetGuard::unset("GITHUB_TOKEN");
-        let _file = EnvUnsetGuard::unset("GITHUB_TOKEN_FILE");
-
-        let err = resolve_github_token().unwrap_err();
-        assert!(
-            format!("{err:#}").contains("GITHUB_TOKEN or GITHUB_TOKEN_FILE"),
-            "expected missing-token error, got: {err:#}"
-        );
-    }
-
     struct EnvUnsetGuard {
         key: &'static str,
         previous: Option<String>,
@@ -354,6 +321,37 @@ mod tests {
                     None => std::env::remove_var(self.key),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn resolve_github_token_scenarios() {
+        // Prefer env var over file path.
+        {
+            let _token = EnvGuard::set("GITHUB_TOKEN", "ghp_from_env");
+            let _file = EnvGuard::set("GITHUB_TOKEN_FILE", "/should/not/read");
+            assert_eq!(resolve_github_token().unwrap(), "ghp_from_env");
+        }
+
+        // Fall back to file when env var is whitespace-only.
+        {
+            let _token = EnvGuard::set("GITHUB_TOKEN", "   ");
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("token");
+            std::fs::write(&path, "ghp_from_file\n").unwrap();
+            let _file = EnvGuard::set("GITHUB_TOKEN_FILE", path.to_str().unwrap());
+            assert_eq!(resolve_github_token().unwrap(), "ghp_from_file");
+        }
+
+        // Reject when neither source is usable.
+        {
+            let _token = EnvUnsetGuard::unset("GITHUB_TOKEN");
+            let _file = EnvUnsetGuard::unset("GITHUB_TOKEN_FILE");
+            let err = resolve_github_token().unwrap_err();
+            assert!(
+                format!("{err:#}").contains("GITHUB_TOKEN or GITHUB_TOKEN_FILE"),
+                "expected missing-token error, got: {err:#}"
+            );
         }
     }
 }

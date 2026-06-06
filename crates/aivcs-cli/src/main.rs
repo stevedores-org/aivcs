@@ -340,31 +340,31 @@ enum PrAction {
     /// ephemeral ADK Agent Jobs that invoke `aivcs` via `uv`.
     Pipeline {
         /// Feature branch to create and commit to
-        #[arg(short, long)]
+        #[arg(long)]
         branch: String,
 
         /// Base branch or ref
-        #[arg(short, long, default_value = "develop")]
+        #[arg(long, default_value = "develop")]
         base: String,
 
         /// Repository-relative file path
-        #[arg(short, long)]
+        #[arg(long)]
         path: String,
 
         /// Local file to upload
-        #[arg(short, long)]
+        #[arg(long)]
         file: PathBuf,
 
         /// Commit message
-        #[arg(short, long)]
+        #[arg(long)]
         message: String,
 
         /// Pull request title
-        #[arg(short, long)]
+        #[arg(long)]
         title: String,
 
         /// Pull request body (markdown)
-        #[arg(short, long)]
+        #[arg(long)]
         body: String,
 
         /// GitHub organization/owner
@@ -753,6 +753,19 @@ async fn cmd_pr_branch(name: String, base: String, owner: String, repo: String) 
     Ok(())
 }
 
+async fn read_utf8_file_for_github_commit(file: &PathBuf) -> Result<String> {
+    let bytes = tokio::fs::read(file)
+        .await
+        .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
+    std::str::from_utf8(&bytes)
+        .map(|content| content.to_string())
+        .map_err(|err| {
+            anyhow::anyhow!(
+                "File {file:?} is not valid UTF-8 ({err}). Binary file commits via GitHub Contents API are not yet supported."
+            )
+        })
+}
+
 async fn cmd_pr_commit(
     branch: String,
     path: String,
@@ -761,22 +774,12 @@ async fn cmd_pr_commit(
     owner: String,
     repo: String,
 ) -> Result<()> {
-    // Read as bytes + UTF-8 validate explicitly so the operator sees an
-    // actionable message for binary files instead of the opaque default
-    // ("stream did not contain valid UTF-8"). Binary commits would need
-    // a different code path through the Contents API — tracked separately.
-    let bytes = tokio::fs::read(&file)
-        .await
-        .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
-    let content = std::str::from_utf8(&bytes).map_err(|err| {
-        anyhow::anyhow!(
-            "File {file:?} is not valid UTF-8 ({err}). Binary file commits via `aivcs pr commit` are not yet supported."
-        )
-    })?;
+    let content = read_utf8_file_for_github_commit(&file).await?;
+    let github_repo = format!("{owner}/{repo}");
 
     let client = github_client_from_env(owner, repo)?;
     let sha = client
-        .commit_file(&branch, &path, content, &message)
+        .commit_file(&branch, &path, &content, &message)
         .await?;
     println!("Committed '{path}' to branch '{branch}' ({sha})");
 
@@ -785,6 +788,7 @@ async fn cmd_pr_commit(
         &sha,
         vec![path.clone()],
         "github-pr-commit",
+        Some(&github_repo),
     )
     .await;
 
@@ -820,6 +824,7 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         skip_branch,
     } = args;
 
+    let github_repo = format!("{owner}/{repo}");
     let client = github_client_from_env(owner.clone(), repo.clone())?;
 
     if !skip_branch {
@@ -827,17 +832,10 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         println!("Created branch '{branch}' from '{base}' ({sha})");
     }
 
-    let bytes = tokio::fs::read(&file)
-        .await
-        .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
-    let content = std::str::from_utf8(&bytes).map_err(|err| {
-        anyhow::anyhow!(
-            "File {file:?} is not valid UTF-8 ({err}). Binary file commits via `aivcs pr pipeline` are not yet supported."
-        )
-    })?;
+    let content = read_utf8_file_for_github_commit(&file).await?;
 
     let sha = client
-        .commit_file(&branch, &path, content, &message)
+        .commit_file(&branch, &path, &content, &message)
         .await?;
     println!("Committed '{path}' to branch '{branch}' ({sha})");
 
@@ -846,6 +844,7 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         &sha,
         vec![path.clone()],
         "github-pr-pipeline",
+        Some(&github_repo),
     )
     .await;
 
@@ -966,6 +965,7 @@ async fn cmd_snapshot(
         &commit_id.hash,
         vec![state_path.display().to_string()],
         author,
+        None,
     )
     .await;
 
@@ -1200,6 +1200,7 @@ async fn cmd_merge(
         &result.merge_commit_id.hash,
         Vec::new(),
         "agent-git",
+        None,
     )
     .await;
 
