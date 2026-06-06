@@ -333,6 +333,56 @@ enum PrAction {
         #[arg(long)]
         repo: String,
     },
+
+    /// Zero-touch pipeline: branch → commit → CODE_COMMITTED → open PR
+    ///
+    /// Runs the full autonomous builder flow in one invocation. Intended for
+    /// ephemeral ADK Agent Jobs that invoke `aivcs` via `uv`.
+    Pipeline {
+        /// Feature branch to create and commit to
+        #[arg(short, long)]
+        branch: String,
+
+        /// Base branch or ref
+        #[arg(short, long, default_value = "develop")]
+        base: String,
+
+        /// Repository-relative file path
+        #[arg(short, long)]
+        path: String,
+
+        /// Local file to upload
+        #[arg(short, long)]
+        file: PathBuf,
+
+        /// Commit message
+        #[arg(short, long)]
+        message: String,
+
+        /// Pull request title
+        #[arg(short, long)]
+        title: String,
+
+        /// Pull request body (markdown)
+        #[arg(short, long)]
+        body: String,
+
+        /// GitHub organization/owner
+        #[arg(long)]
+        owner: String,
+
+        /// GitHub repository name
+        #[arg(long)]
+        repo: String,
+
+        /// Request review from the Librarian Agent
+        #[arg(long, default_value_t = true)]
+        librarian: bool,
+
+        /// Skip branch creation (for retries when the branch already exists)
+        #[arg(long, default_value_t = false)]
+        skip_branch: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -597,6 +647,34 @@ async fn main() -> Result<()> {
                 owner,
                 repo,
             } => cmd_pr_commit(branch, path, message, file, owner, repo).await,
+            PrAction::Pipeline {
+                branch,
+                base,
+                path,
+                file,
+                message,
+                title,
+                body,
+                owner,
+                repo,
+                librarian,
+                skip_branch,
+            } => {
+                cmd_pr_pipeline(PrPipelineArgs {
+                    branch,
+                    base,
+                    path,
+                    file,
+                    message,
+                    title,
+                    body,
+                    owner,
+                    repo,
+                    librarian,
+                    skip_branch,
+                })
+                .await
+            }
         },
         Commands::Report { action } => match action {
             ReportAction::CrossOrg {
@@ -701,14 +779,88 @@ async fn cmd_pr_commit(
         .commit_file(&branch, &path, content, &message)
         .await?;
     println!("Committed '{path}' to branch '{branch}' ({sha})");
+
+    aivcs_core::maybe_emit_code_committed_from_env(
+        &branch,
+        &sha,
+        vec![path.clone()],
+        "github-pr-commit",
+    )
+    .await;
+
+    Ok(())
+}
+
+struct PrPipelineArgs {
+    branch: String,
+    base: String,
+    path: String,
+    file: PathBuf,
+    message: String,
+    title: String,
+    body: String,
+    owner: String,
+    repo: String,
+    librarian: bool,
+    skip_branch: bool,
+}
+
+async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
+    let PrPipelineArgs {
+        branch,
+        base,
+        path,
+        file,
+        message,
+        title,
+        body,
+        owner,
+        repo,
+        librarian,
+        skip_branch,
+    } = args;
+
+    let client = github_client_from_env(owner.clone(), repo.clone())?;
+
+    if !skip_branch {
+        let sha = client.create_branch(&branch, &base).await?;
+        println!("Created branch '{branch}' from '{base}' ({sha})");
+    }
+
+    let bytes = tokio::fs::read(&file)
+        .await
+        .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
+    let content = std::str::from_utf8(&bytes).map_err(|err| {
+        anyhow::anyhow!(
+            "File {file:?} is not valid UTF-8 ({err}). Binary file commits via `aivcs pr pipeline` are not yet supported."
+        )
+    })?;
+
+    let sha = client
+        .commit_file(&branch, &path, content, &message)
+        .await?;
+    println!("Committed '{path}' to branch '{branch}' ({sha})");
+
+    aivcs_core::maybe_emit_code_committed_from_env(
+        &branch,
+        &sha,
+        vec![path.clone()],
+        "github-pr-pipeline",
+    )
+    .await;
+
+    let pr_number = client
+        .open_pr(&title, &body, &branch, &base, librarian)
+        .await?;
+    println!("Successfully opened PR #{pr_number}");
+
     Ok(())
 }
 
 fn github_client_from_env(owner: String, repo: String) -> Result<aivcs_core::github::GitHubClient> {
-    use aivcs_core::github::GitHubClient;
+    use aivcs_core::github::{resolve_github_token, GitHubClient};
 
-    let token =
-        std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN environment variable is required")?;
+    let token = resolve_github_token()?;
     GitHubClient::new(token, owner, repo)
 }
 

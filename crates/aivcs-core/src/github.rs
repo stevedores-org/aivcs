@@ -15,7 +15,7 @@ pub struct GitHubClient {
 }
 
 impl GitHubClient {
-    /// Create a new GitHub client using a personal access token.
+    /// Create a new GitHub client using a bearer token (PAT or GitHub App installation token).
     pub fn new(token: String, owner: String, repo: String) -> Result<Self> {
         let octocrab = Octocrab::builder()
             .personal_token(token)
@@ -159,6 +159,33 @@ impl GitHubClient {
     }
 }
 
+/// Resolve a GitHub bearer token for autonomous agent Jobs.
+///
+/// Prefers `GITHUB_TOKEN` (typical ESO projected env var). Falls back to
+/// `GITHUB_TOKEN_FILE` (Kubernetes secret volume mount path) so tokens never
+/// need to be written to shell history.
+pub fn resolve_github_token() -> Result<String> {
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        let trimmed = token.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+
+    if let Ok(path) = std::env::var("GITHUB_TOKEN_FILE") {
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read GITHUB_TOKEN_FILE at '{path}'"))?;
+        let trimmed = content.trim();
+        anyhow::ensure!(
+            !trimmed.is_empty(),
+            "GITHUB_TOKEN_FILE at '{path}' is empty"
+        );
+        return Ok(trimmed.to_string());
+    }
+
+    anyhow::bail!("GITHUB_TOKEN or GITHUB_TOKEN_FILE must be set for GitHub API access")
+}
+
 /// Validate the raw `RELIC_LIBRARIAN_USERNAME` env-var lookup result.
 ///
 /// Split out so the validation contract can be unit-tested without an HTTP
@@ -242,5 +269,91 @@ mod tests {
             !rendered.contains("must be set"),
             "non-UTF-8 error must not claim the variable is unset, got: {rendered}"
         );
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            // SAFETY: tests run serially within this module; each guard restores on drop.
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_github_token_prefers_env_var() {
+        let _token = EnvGuard::set("GITHUB_TOKEN", "ghp_from_env");
+        let _file = EnvGuard::set("GITHUB_TOKEN_FILE", "/should/not/read");
+
+        let token = resolve_github_token().unwrap();
+        assert_eq!(token, "ghp_from_env");
+    }
+
+    #[test]
+    fn resolve_github_token_reads_file_when_env_empty() {
+        let _token = EnvGuard::set("GITHUB_TOKEN", "   ");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        std::fs::write(&path, "ghp_from_file\n").unwrap();
+        let _file = EnvGuard::set("GITHUB_TOKEN_FILE", path.to_str().unwrap());
+
+        let token = resolve_github_token().unwrap();
+        assert_eq!(token, "ghp_from_file");
+    }
+
+    #[test]
+    fn resolve_github_token_missing_both_is_rejected() {
+        let _token = EnvUnsetGuard::unset("GITHUB_TOKEN");
+        let _file = EnvUnsetGuard::unset("GITHUB_TOKEN_FILE");
+
+        let err = resolve_github_token().unwrap_err();
+        assert!(
+            format!("{err:#}").contains("GITHUB_TOKEN or GITHUB_TOKEN_FILE"),
+            "expected missing-token error, got: {err:#}"
+        );
+    }
+
+    struct EnvUnsetGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvUnsetGuard {
+        fn unset(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvUnsetGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
     }
 }
