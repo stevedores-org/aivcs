@@ -24,6 +24,11 @@ pkgs.testers.nixosTest {
 
   testScript = ''
     machine.wait_for_unit("aivcsd.service")
+    machine.wait_for_open_port(8080)
+
+    # Verify aivcsd health and version endpoints
+    machine.succeed("curl -f http://localhost:8080/health | grep healthy")
+    machine.succeed("curl -f http://localhost:8080/version | grep aivcsd")
 
     machine.succeed("mkdir -p /tmp/aivcs-demo")
     machine.succeed("bash -lc 'cd /tmp/aivcs-demo && aivcs init'")
