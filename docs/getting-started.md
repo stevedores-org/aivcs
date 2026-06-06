@@ -9,6 +9,8 @@
 | Nix *(optional)* | 2.18+ | Only needed for `aivcs env` commands |
 | Attic *(optional)* | latest | Only needed for binary cache features |
 
+For a reproducible **NixOS-WSL** environment (Windows + WSL2), see [docs/runbooks/nixos-wsl.md](runbooks/nixos-wsl.md).
+
 ## Installation
 
 ```bash

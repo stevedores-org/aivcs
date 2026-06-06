@@ -209,6 +209,7 @@ The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the 
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — prerequisites, install, first-run walkthrough
+- [NixOS-WSL Runbook](docs/runbooks/nixos-wsl.md) — build/import the WSL tarball, validate the environment
 - [Architecture](docs/architecture.md) — crate layers, data flow, key abstractions
 - [Local Development](docs/runbooks/local-development.md) — build, test, dev workflows
 - [Database Configuration](docs/runbooks/database-configuration.md) — in-memory, local, cloud setup

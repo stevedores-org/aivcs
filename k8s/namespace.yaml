@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aivcs
+  labels:
+    lornu.ai/managed-by: flux
+    lornu.ai/cloud: aws
