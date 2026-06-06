@@ -189,6 +189,23 @@ Required environment:
 
 The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the review request in development or test contexts where the Librarian is not deployed.
 
+#### A2A `CODE_COMMITTED` emission
+
+`aivcs snapshot` and `aivcs merge` emit a `CODE_COMMITTED` Agent-to-Agent event when the JSON-RPC URL is configured. The repo is resolved from `GITHUB_REPOSITORY` if set, otherwise from `git remote get-url origin`. The emission is no-op when the URL var is absent.
+
+| Variable | Description |
+|----------|-------------|
+| `AIVCS_A2A_JSONRPC_URL` | JSON-RPC endpoint to POST the event to. Absent or whitespace-only ⇒ no emission. |
+| `AIVCS_A2A_JSONRPC_METHOD` | Override the JSON-RPC method name. Defaults to `event.code_committed`. |
+| `AIVCS_AGENT_ID` | Authoring agent identifier in the event payload. Falls back to the local commit author. |
+| `AIVCS_JOB_ID` | Optional job/run correlation ID. Whitespace-only values are dropped. |
+
+> ⚠️ The emission is awaited synchronously inside `snapshot` / `merge`. Transport failures retry per `A2aRetryPolicy::default()` before returning; the CLI blocks for that window. Pin the retry policy if you tighten snapshot-latency SLOs.
+
+#### `pr commit` and file content
+
+`aivcs pr commit` reads `--file` as UTF-8 text. Binary files are rejected with an actionable error before the API call. Binary commits via the Contents API require a different code path; see the inner `commit_file` doc.
+
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — prerequisites, install, first-run walkthrough

@@ -62,17 +62,22 @@ impl GitHubClient {
         Ok(sha)
     }
 
-    /// Commit a single file to a specific branch.
+    /// Commit a single file to a specific branch. Returns the resulting commit SHA.
+    ///
+    /// Currently UTF-8 text only — octocrab's `create_file` takes `String`
+    /// content. Binary commits need a different API path; see the inline
+    /// reject in `cmd_pr_commit`.
     pub async fn commit_file(
         &self,
         branch: &str,
         path: &str,
         content: &str,
         message: &str,
-    ) -> Result<()> {
+    ) -> Result<String> {
         info!("Committing file '{}' to branch '{}'", path, branch);
 
-        self.octocrab
+        let update = self
+            .octocrab
             .repos(&self.owner, &self.repo)
             .create_file(path, message, content)
             .branch(branch)
@@ -80,7 +85,9 @@ impl GitHubClient {
             .await
             .context(format!("failed to commit file '{}'", path))?;
 
-        Ok(())
+        update.commit.sha.ok_or_else(|| {
+            anyhow::anyhow!("GitHub Contents API returned no commit SHA for '{}'", path)
+        })
     }
 
     /// Open a Pull Request and optionally request review from the Librarian Agent.
