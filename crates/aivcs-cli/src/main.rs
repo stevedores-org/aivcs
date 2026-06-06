@@ -1551,6 +1551,9 @@ async fn cmd_env_info() -> Result<()> {
     } else {
         println!("  ATTIC_TOKEN: (not set)");
     }
+    if let Some(tmp) = &validation.tmpdir {
+        println!("  TMPDIR: {}", tmp);
+    }
 
     let tips = validation.recommendations();
     if !tips.is_empty() {
