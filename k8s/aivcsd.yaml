@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aivcsd
+  labels:
+    app: aivcsd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aivcsd
+  template:
+    metadata:
+      labels:
+        app: aivcsd
+    spec:
+      containers:
+      - name: aivcsd
+        image: lornuaiprod.azurecr.io/lornu-ai/aivcsd:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: RUST_LOG
+          value: info
+        # SurrealDB configuration
+        - name: SURREALDB_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: aivcs-config
+              key: SURREALDB_ENDPOINT
+        - name: SURREALDB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: aivcs-secrets
+              key: SURREALDB_USERNAME
+        - name: SURREALDB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: aivcs-secrets
+              key: SURREALDB_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aivcsd
+spec:
+  selector:
+    app: aivcsd
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+  type: ClusterIP

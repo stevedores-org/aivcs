@@ -287,6 +287,52 @@ enum PrAction {
         #[arg(long, default_value_t = true)]
         librarian: bool,
     },
+
+    /// Create a GitHub branch from a base ref
+    Branch {
+        /// Branch name to create
+        #[arg(short, long)]
+        name: String,
+
+        /// Base branch or ref
+        #[arg(short, long, default_value = "main")]
+        base: String,
+
+        /// GitHub organization/owner
+        #[arg(long)]
+        owner: String,
+
+        /// GitHub repository name
+        #[arg(long)]
+        repo: String,
+    },
+
+    /// Commit a file to a GitHub branch via the Contents API
+    Commit {
+        /// Target branch
+        #[arg(short, long)]
+        branch: String,
+
+        /// Repository-relative file path
+        #[arg(short, long)]
+        path: String,
+
+        /// Commit message
+        #[arg(short, long)]
+        message: String,
+
+        /// Local file to upload
+        #[arg(short, long)]
+        file: PathBuf,
+
+        /// GitHub organization/owner
+        #[arg(long)]
+        owner: String,
+
+        /// GitHub repository name
+        #[arg(long)]
+        repo: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -537,6 +583,20 @@ async fn main() -> Result<()> {
                 repo,
                 librarian,
             } => cmd_pr_open(title, body, head, base, owner, repo, librarian).await,
+            PrAction::Branch {
+                name,
+                base,
+                owner,
+                repo,
+            } => cmd_pr_branch(name, base, owner, repo).await,
+            PrAction::Commit {
+                branch,
+                path,
+                message,
+                file,
+                owner,
+                repo,
+            } => cmd_pr_commit(branch, path, message, file, owner, repo).await,
         },
         Commands::Report { action } => match action {
             ReportAction::CrossOrg {
@@ -597,12 +657,7 @@ async fn cmd_pr_open(
     repo: String,
     librarian: bool,
 ) -> Result<()> {
-    use aivcs_core::github::GitHubClient;
-
-    let token =
-        std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN environment variable is required")?;
-
-    let client = GitHubClient::new(token, owner, repo)?;
+    let client = github_client_from_env(owner, repo)?;
 
     let pr_number = client
         .open_pr(&title, &body, &head, &base, librarian)
@@ -611,6 +666,50 @@ async fn cmd_pr_open(
     println!("Successfully opened PR #{}", pr_number);
 
     Ok(())
+}
+
+async fn cmd_pr_branch(name: String, base: String, owner: String, repo: String) -> Result<()> {
+    let client = github_client_from_env(owner, repo)?;
+    let sha = client.create_branch(&name, &base).await?;
+    println!("Created branch '{}' from '{}' ({})", name, base, sha);
+    Ok(())
+}
+
+async fn cmd_pr_commit(
+    branch: String,
+    path: String,
+    message: String,
+    file: PathBuf,
+    owner: String,
+    repo: String,
+) -> Result<()> {
+    // Read as bytes + UTF-8 validate explicitly so the operator sees an
+    // actionable message for binary files instead of the opaque default
+    // ("stream did not contain valid UTF-8"). Binary commits would need
+    // a different code path through the Contents API — tracked separately.
+    let bytes = tokio::fs::read(&file)
+        .await
+        .with_context(|| format!("Failed to read file for commit: {:?}", file))?;
+    let content = std::str::from_utf8(&bytes).map_err(|err| {
+        anyhow::anyhow!(
+            "File {file:?} is not valid UTF-8 ({err}). Binary file commits via `aivcs pr commit` are not yet supported."
+        )
+    })?;
+
+    let client = github_client_from_env(owner, repo)?;
+    let sha = client
+        .commit_file(&branch, &path, content, &message)
+        .await?;
+    println!("Committed '{path}' to branch '{branch}' ({sha})");
+    Ok(())
+}
+
+fn github_client_from_env(owner: String, repo: String) -> Result<aivcs_core::github::GitHubClient> {
+    use aivcs_core::github::GitHubClient;
+
+    let token =
+        std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN environment variable is required")?;
+    GitHubClient::new(token, owner, repo)
 }
 
 /// Initialize a new AIVCS repository
@@ -709,6 +808,14 @@ async fn cmd_snapshot(
     // Update branch head
     let branch_record = BranchRecord::new(branch, &commit_id.hash, branch == "main");
     handle.save_branch(&branch_record).await?;
+
+    aivcs_core::maybe_emit_code_committed_from_env(
+        branch,
+        &commit_id.hash,
+        vec![state_path.display().to_string()],
+        author,
+    )
+    .await;
 
     info!(
         cas_digest = %cas_digest,
@@ -935,6 +1042,14 @@ async fn cmd_merge(
     // Update target branch head
     let branch = BranchRecord::new(target, &result.merge_commit_id.hash, target == "main");
     handle.save_branch(&branch).await?;
+
+    aivcs_core::maybe_emit_code_committed_from_env(
+        target,
+        &result.merge_commit_id.hash,
+        Vec::new(),
+        "agent-git",
+    )
+    .await;
 
     println!("Merge complete: {}", result.merge_commit_id.short());
     println!("{}", result.summary);
@@ -1220,8 +1335,18 @@ async fn cmd_is_cached(hash: &str) -> Result<()> {
 
 /// Show environment system info
 async fn cmd_env_info() -> Result<()> {
+    use aivcs_core::domain::EnvValidation;
+
+    let validation = EnvValidation::check();
+
     println!("AIVCS Environment Info");
     println!("======================");
+    println!();
+    println!("Platform: {}", validation.platform);
+    println!(
+        "Nix shell: {}",
+        if validation.is_nix_shell { "yes" } else { "no" }
+    );
     println!();
 
     // Nix availability
@@ -1272,6 +1397,15 @@ async fn cmd_env_info() -> Result<()> {
         println!("  ATTIC_TOKEN: (set)");
     } else {
         println!("  ATTIC_TOKEN: (not set)");
+    }
+
+    let tips = validation.recommendations();
+    if !tips.is_empty() {
+        println!();
+        println!("Recommendations:");
+        for tip in tips {
+            println!("  - {}", tip);
+        }
     }
 
     Ok(())

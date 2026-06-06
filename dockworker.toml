@@ -1,0 +1,74 @@
+# dockworker.toml - OCI Standard Configuration for AIVCS
+# No Dockerfile required - dockworker.ai builds OCI-compliant images
+
+[package]
+name = "aivcsd"
+version = "0.3.1"
+description = "AIVCS daemon/service"
+runtime = "rust"
+
+[oci]
+spec = "1.0"
+builder = "nix"
+base = "cgr.dev/chainguard/static:latest"
+
+[oci.image]
+authors = ["Stevedores Org <engineering@stevedores.org>"]
+url = "https://github.com/stevedores-org/aivcs"
+source = "https://github.com/stevedores-org/aivcs"
+vendor = "stevedores-org"
+licenses = "Apache-2.0"
+title = "aivcsd"
+
+[oci.image.labels]
+"lornu.ai/component" = "aivcsd"
+"lornu.ai/managed-by" = "dockworker"
+"lornu.ai/runtime" = "rust"
+"lornu.ai/team" = "platform"
+
+[oci.config]
+user = "nonroot:nonroot"
+workdir = "/app"
+entrypoint = ["/app/aivcsd"]
+expose = ["8080/tcp"]
+stop_signal = "SIGTERM"
+
+[oci.config.env]
+RUST_LOG = "info"
+
+[build]
+runtime = "rust"
+engine = "nix"
+targets = [
+  { name = "aivcsd", nix_target = ".#aivcsd-image", image = "aivcsd" },
+  { name = "aivcs-cli", nix_target = ".#aivcs-cli-image", image = "aivcs" }
+]
+
+[oci.platforms]
+architectures = ["amd64", "arm64"]
+
+[oci.security]
+user = 65532
+group = 65532
+read_only_rootfs = true
+no_new_privileges = true
+drop_capabilities = ["ALL"]
+
+[oci.sbom]
+enabled = true
+format = "spdx-json"
+
+[oci.signing]
+enabled = true
+provider = "sigstore"
+keyless = true
+
+[registry]
+url = "${ACR_NAME}.azurecr.io/lornu-ai"
+name = "aivcsd"
+tags = ["latest", "v0.3.1"]
+
+[deploy]
+targets = ["kubernetes"]
+namespace = "aivcs"
+replicas = 1

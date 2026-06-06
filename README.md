@@ -13,7 +13,7 @@ AIVCS brings Git-like version control to AI agent workflows:
 
 ## Architecture
 
-```
+\`\`\`
 ┌─────────────────────────────────────────────────────┐
 │                   AIVCS-Core (CLI)                  │
 │          aivcs init | snapshot | restore            │
@@ -30,11 +30,11 @@ AIVCS brings Git-like version control to AI agent workflows:
 │ • Snapshots   │ │   hashing │ │ • LLM arbiter    │
 │ • Graph edges │ │ • Attic   │ │ • Vector merge   │
 └───────────────┘ └───────────┘ └──────────────────┘
-```
+\`\`\`
 
 ## Quick Start
 
-```bash
+\`\`\`bash
 # Build
 cargo build --release
 
@@ -53,29 +53,29 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 
 # Restore previous state
 ./target/release/aivcs restore <commit-id> --output restored.json
-```
+\`\`\`
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize a new AIVCS repository |
-| `snapshot` | Create a versioned checkpoint of agent state |
-| `restore` | Restore agent to a previous state |
-| `branch` | Manage branches (list, create, delete) |
-| `log` | Show commit history |
-| `merge` | Merge two branches with semantic resolution |
-| `diff` | Show differences between commits/branches |
-| `env` | Environment management (Nix/Attic integration) |
-| `fork` | Fork multiple parallel branches for exploration |
-| `trace` | Time-travel debugging - show reasoning trace |
-| `replay` | Replay a recorded run artifact by run ID |
-| `diff-runs` | Diff the tool-call sequences of two runs |
-| `pr open` | Open a GitHub Pull Request and request review from the Librarian Agent |
+| \`init\` | Initialize a new AIVCS repository |
+| \`snapshot\` | Create a versioned checkpoint of agent state |
+| \`restore\` | Restore agent to a previous state |
+| \`branch\` | Manage branches (list, create, delete) |
+| \`log\` | Show commit history |
+| \`merge\` | Merge two branches with semantic resolution |
+| \`diff\` | Show differences between commits/branches |
+| \`env\` | Environment management (Nix/Attic integration) |
+| \`fork\` | Fork multiple parallel branches for exploration |
+| \`trace\` | Time-travel debugging - show reasoning trace |
+| \`replay\` | Replay a recorded run artifact by run ID |
+| \`diff-runs\` | Diff the tool-call sequences of two runs |
+| \`pr open\` | Open a GitHub Pull Request and request review from the Librarian Agent |
 
 ### Environment Commands (Phase 2)
 
-```bash
+\`\`\`bash
 # Show environment hash for a Nix Flake
 aivcs env hash /path/to/flake
 
@@ -90,11 +90,11 @@ aivcs env is-cached <hash>
 
 # Show system info (Nix/Attic availability)
 aivcs env info
-```
+\`\`\`
 
 ### Parallel Simulation Commands (Phase 4)
 
-```bash
+\`\`\`bash
 # Fork 5 parallel branches from main for exploration
 aivcs fork main --count 5 --prefix experiment
 
@@ -106,32 +106,32 @@ aivcs trace main
 
 # Show trace with more depth
 aivcs trace experiment-0 --depth 50
-```
+\`\`\`
 
 ### A2A CODE_COMMITTED Events
 
-`aivcs snapshot` and `aivcs merge` can notify an A2A JSON-RPC transport after an AIVCS commit is durably stored. Emission is opt-in and best-effort: transport failures are logged and retried with bounded exponential backoff, but they do not fail the local commit operation.
+\`aivcs snapshot\` and \`aivcs merge\` can notify an A2A JSON-RPC transport after an AIVCS commit is durably stored. Emission is opt-in and best-effort: transport failures are logged and retried with bounded exponential backoff, but they do not fail the local commit operation.
 
-```bash
+\`\`\`bash
 export AIVCS_A2A_JSONRPC_URL="https://a2a.example.com/jsonrpc"
 export AIVCS_AGENT_ID="builder-agent"
 export AIVCS_JOB_ID="agent-job-123"
 aivcs snapshot --state state.json --message "Update state" --branch develop
-```
+\`\`\`
 
 Optional settings:
 
 | Variable | Description |
 |----------|-------------|
-| `AIVCS_A2A_JSONRPC_URL` | Enables JSON-RPC event emission when set |
-| `AIVCS_A2A_JSONRPC_METHOD` | Overrides the default method, `a2a.events.publish` |
-| `AIVCS_AGENT_ID` | Authoring agent ID; falls back to the snapshot author |
-| `AIVCS_JOB_ID` | Ephemeral job ID included in the event payload |
-| `GITHUB_REPOSITORY` | Repository in `owner/name` form; otherwise detected from `origin` |
+| \`AIVCS_A2A_JSONRPC_URL\` | Enables JSON-RPC event emission when set |
+| \`AIVCS_A2A_JSONRPC_METHOD\` | Overrides the default method, \`a2a.events.publish\` |
+| \`AIVCS_AGENT_ID\` | Authoring agent ID; falls back to the snapshot author |
+| \`AIVCS_JOB_ID\` | Ephemeral job ID included in the event payload |
+| \`GITHUB_REPOSITORY\` | Repository in \`owner/name\` form; otherwise detected from \`origin\` |
 
-The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the state file path in `changed_paths`; merge events may emit an empty list because they merge persisted AIVCS state rather than filesystem paths.
+The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the state file path in \`changed_paths\`; merge events may emit an empty list because they merge persisted AIVCS state rather than filesystem paths.
 
-```json
+\`\`\`json
 {
   "event": {
     "kind": "CODE_COMMITTED",
@@ -146,15 +146,29 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
     }
   }
 }
-```
+\`\`\`
 
-### GitHub Integration (`pr open`)
+### GitHub Integration (\`pr open\`, \`pr branch\`, \`pr commit\`)
 
-`aivcs pr open` creates a Pull Request via the GitHub API and, by default, requests review from the Librarian Agent so it can audit changes before downstream OCI builds. This is the canonical PR-creation path used by autonomous builder agents running in ephemeral ADK Jobs.
+Autonomous builder agents use the \`pr\` subcommands to branch, commit, and open Pull Requests via the GitHub API. Tokens are read from \`GITHUB_TOKEN\` (GitHub App installation token from ESO, or PAT for local dev).
 
-```bash
+\`\`\`bash
 export GITHUB_TOKEN="<github-app-installation-token-or-pat>"
 export RELIC_LIBRARIAN_USERNAME="librarian-bot"
+
+# 1. Create a feature branch
+aivcs pr branch --name feature/my-change --base main --owner stevedores-org --repo aivcs
+
+# 2. Commit a file to that branch
+aivcs pr commit \
+  --branch feature/my-change \
+  --path docs/example.md \
+  --file ./example.md \
+  --message "docs: add example" \
+  --owner stevedores-org \
+  --repo aivcs
+
+# 3. Open a PR (requests Librarian review by default)
 aivcs pr open \
   --owner stevedores-org \
   --repo aivcs \
@@ -162,20 +176,40 @@ aivcs pr open \
   --base main \
   --title "feat: my change" \
   --body  "Summary of what changed."
-```
+\`\`\`
+
+\`aivcs pr open\` creates a Pull Request via the GitHub API and, by default, requests review from the Librarian Agent so it can audit changes before downstream OCI builds. This is the canonical PR-creation path used by autonomous builder agents running in ephemeral ADK Jobs.
 
 Required environment:
 
 | Variable | Description |
 |----------|-------------|
-| `GITHUB_TOKEN` | Bearer token for the GitHub API. Accepts a GitHub App installation token (preferred for autonomous Jobs) or a personal access token. |
-| `RELIC_LIBRARIAN_USERNAME` | GitHub username of the Librarian Agent. Required when `--librarian` is enabled (the default). Missing or whitespace-only values are rejected eagerly so the failure surfaces before the API call rather than mid-pipeline. |
+| \`GITHUB_TOKEN\` | Bearer token for the GitHub API. Accepts a GitHub App installation token (preferred for autonomous Jobs) or a personal access token. |
+| \`RELIC_LIBRARIAN_USERNAME\` | GitHub username of the Librarian Agent. Required when \`--librarian\` is enabled (the default). Missing or whitespace-only values are rejected eagerly so the failure surfaces before the API call rather than mid-pipeline. |
 
-The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the review request in development or test contexts where the Librarian is not deployed.
+The \`--librarian\` flag defaults to \`true\`; pass \`--librarian=false\` to skip the review request in development or test contexts where the Librarian is not deployed.
+
+#### A2A \`CODE_COMMITTED\` emission
+
+\`aivcs snapshot\` and \`aivcs merge\` emit a \`CODE_COMMITTED\` Agent-to-Agent event when the JSON-RPC URL is configured. The repo is resolved from \`GITHUB_REPOSITORY\` if set, otherwise from \`git remote get-url origin\`. The emission is no-op when the URL var is absent.
+
+| Variable | Description |
+|----------|-------------|
+| \`AIVCS_A2A_JSONRPC_URL\` | JSON-RPC endpoint to POST the event to. Absent or whitespace-only ⇒ no emission. |
+| \`AIVCS_A2A_JSONRPC_METHOD\` | Override the JSON-RPC method name. Defaults to \`event.code_committed\`. |
+| \`AIVCS_AGENT_ID\` | Authoring agent identifier in the event payload. Falls back to the local commit author. |
+| \`AIVCS_JOB_ID\` | Optional job/run correlation ID. Whitespace-only values are dropped. |
+
+> ⚠️ The emission is awaited synchronously inside \`snapshot\` / \`merge\`. Transport failures retry per \`A2aRetryPolicy::default()\` before returning; the CLI blocks for that window. Pin the retry policy if you tighten snapshot-latency SLOs.
+
+#### \`pr commit\` and file content
+
+\`aivcs pr commit\` reads \`--file\` as UTF-8 text. Binary files are rejected with an actionable error before the API call. Binary commits via the Contents API require a different code path; see the inner \`commit_file\` doc.
 
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — prerequisites, install, first-run walkthrough
+- [NixOS-WSL Runbook](docs/runbooks/nixos-wsl.md) — build/import the WSL tarball, validate the environment
 - [Architecture](docs/architecture.md) — crate layers, data flow, key abstractions
 - [Local Development](docs/runbooks/local-development.md) — build, test, dev workflows
 - [Database Configuration](docs/runbooks/database-configuration.md) — in-memory, local, cloud setup
@@ -195,7 +229,7 @@ The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the 
 
 ## Development
 
-```bash
+\`\`\`bash
 # Run tests
 cargo test --all
 
@@ -204,7 +238,7 @@ cargo test test_snapshot_is_atomic
 
 # Build with verbose output
 cargo build --release -v
-```
+\`\`\`
 
 ## Database Configuration
 
@@ -216,24 +250,24 @@ No configuration needed - uses in-memory SurrealDB automatically.
 
 ### SurrealDB Cloud
 
-1. Create an account at [SurrealDB Cloud](https://surrealdb.com/cloud)
-2. Create a database user with Editor/Owner role at `Authentication > Database Users`
-3. Copy `.env.example` to `.env` and configure:
+1. Create an account at [SurrealDB Cloud](https://surrealdb.com)
+2. Create a database user with Editor/Owner role at \`Authentication > Database Users\`
+3. Copy \`.env.example\` to \`.env\` and configure:
 
-```bash
+\`\`\`bash
 cp .env.example .env
-```
+\`\`\`
 
-```env
+\`\`\`env
 SURREALDB_ENDPOINT=wss://YOUR_INSTANCE.aws-use1.surrealdb.cloud
 SURREALDB_USERNAME=your_username
 SURREALDB_PASSWORD=your_password
 SURREALDB_NAMESPACE=aivcs
 SURREALDB_DATABASE=main
-```
+\`\`\`
 
 The library automatically detects cloud credentials:
-- If `SURREALDB_ENDPOINT` is set, connects to cloud
+- If \`SURREALDB_ENDPOINT\` is set, connects to cloud
 - Otherwise, falls back to in-memory database
 
 ## Tech Stack

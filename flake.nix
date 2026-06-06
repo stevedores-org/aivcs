@@ -23,77 +23,96 @@
     };
 
     crane.url = "github:ipetkov/crane";
+
+    nixos-wsl = {
+      url = "github:nix-community/NixOS-WSL";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, crane, ... }:
+  outputs = inputs@{ self, nixpkgs, flake-utils, rust-overlay, crane, nixos-wsl, ... }:
+    let
+      mkSystemPackages = system:
+        let
+          overlays = [ (import rust-overlay) ];
+          pkgs = import nixpkgs { inherit system overlays; config.allowUnfree = true; };
+
+          rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+            extensions = [ "rust-src" "rust-analyzer" "rustfmt" "clippy" ];
+          };
+
+          craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+
+          cargoSrc = craneLib.cleanCargoSource ./.;
+
+          testSrc = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            name = "test-source";
+            filter = path: type:
+              let p = toString path; in
+              (craneLib.filterCargoSources path type)
+              || (type == "directory"
+                  && (pkgs.lib.hasSuffix "/.github" p
+                      || pkgs.lib.hasSuffix "/.github/workflows" p))
+              || (type == "regular"
+                  && pkgs.lib.hasInfix "/.github/workflows/" p
+                  && pkgs.lib.hasSuffix ".yml" p);
+          };
+
+          commonArgs = {
+            src = cargoSrc;
+            strictDeps = true;
+            buildInputs = with pkgs; [
+              openssl
+            ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              pkgs.darwin.apple_sdk.frameworks.Security
+              pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+            ];
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+              git
+            ];
+          };
+
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+          workspace = craneLib.buildPackage (commonArgs // {
+            inherit cargoArtifacts;
+            doCheck = false;
+          });
+
+          aivcs = craneLib.buildPackage (commonArgs // {
+            inherit cargoArtifacts;
+            cargoExtraArgs = "-p aivcs-cli";
+            pname = "aivcs";
+            meta.mainProgram = "aivcs";
+          });
+
+          aivcsd = craneLib.buildPackage (commonArgs // {
+            inherit cargoArtifacts;
+            cargoExtraArgs = "-p aivcsd";
+            pname = "aivcsd";
+            meta.mainProgram = "aivcsd";
+          });
+        in
+        {
+          inherit pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd;
+        };
+
+      linuxPackages = mkSystemPackages "x86_64-linux";
+    in
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; config.allowUnfree = true; };
-
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" "rustfmt" "clippy" ];
-        };
-
-        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
-
-        # Narrow source for cargo work (build, clippy, fmt, dep cache). Keeping
-        # this filter unchanged means buildDepsOnly's cache is not invalidated
-        # by edits to .github/workflows/*.yml.
-        cargoSrc = craneLib.cleanCargoSource ./.;
-
-        # Wider source for tests only: cargo sources plus .github/workflows/*.yml
-        # so the workflow-validation tests in crates/aivcs-core
-        # (eval_workflow.rs, ci_workflow.rs) can read those YAMLs at runtime.
-        # Without this, those tests panic inside the nix sandbox.
-        #
-        # cleanSourceWith requires every ancestor directory of an included file
-        # to also pass the filter, so the `.github` and `.github/workflows`
-        # dirs are matched explicitly — not just the YAML leaves. The leaf
-        # match restricts to regular `.yml` files so the filter never picks up
-        # symlinks, sockets, or stray `.yaml`/swap files in that path.
-        testSrc = pkgs.lib.cleanSourceWith {
-          src = ./.;
-          name = "test-source";
-          filter = path: type:
-            let p = toString path; in
-            (craneLib.filterCargoSources path type)
-            || (type == "directory"
-                && (pkgs.lib.hasSuffix "/.github" p
-                    || pkgs.lib.hasSuffix "/.github/workflows" p))
-            || (type == "regular"
-                && pkgs.lib.hasInfix "/.github/workflows/" p
-                && pkgs.lib.hasSuffix ".yml" p);
-        };
-
-        # Common args for crane builds
-        commonArgs = {
-          src = cargoSrc;
-          strictDeps = true;
-          buildInputs = with pkgs; [
-            openssl
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.darwin.apple_sdk.frameworks.Security
-            pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
-          ];
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-            git
-          ];
-        };
-
-        # Build workspace deps first (for caching)
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-
-        # Build the full workspace. Tests are run separately by the `tests`
-        # check (cargoNextest with `testSrc` that includes .github/workflows/);
-        # disabling `doCheck` here avoids a duplicate `cargo test` against
-        # `cargoSrc`, which lacks the workflow YAML files and would fail the
-        # workflow-validation tests.
-        workspace = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
-          doCheck = false;
-        });
+        inherit (mkSystemPackages system) pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd;
+        wslChecks =
+          if system == "x86_64-linux" then {
+            aivcs-wsl = self.nixosConfigurations.aivcs-wsl.config.system.build.toplevel;
+            aivcs-wsl-e2e = import ./nix/tests/aivcs-wsl-e2e.nix {
+              inherit pkgs;
+              aivcsPackage = aivcs;
+              aivcsdPackage = aivcsd;
+            };
+          } else { };
       in
       {
         checks = {
@@ -114,29 +133,20 @@
             partitions = 1;
             partitionType = "count";
           });
-        };
+        } // wslChecks;
 
         packages = {
           default = workspace;
-
-          aivcs = craneLib.buildPackage (commonArgs // {
-            inherit cargoArtifacts;
-            cargoExtraArgs = "-p aivcs-cli";
-          });
+          inherit aivcs aivcsd;
         };
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
 
           packages = with pkgs; [
-            # Rust extras
             cargo-watch
             cargo-nextest
-
-            # SurrealDB
             surrealdb
-
-            # Tools
             just
             git
           ];
@@ -150,9 +160,24 @@
             echo "  cargo test --workspace        # Run all tests"
             echo "  cargo run -p aivcs-cli        # Run CLI"
             echo "  surreal start memory           # Start SurrealDB (in-memory)"
+            echo "  nix build .#nixosConfigurations.aivcs-wsl.config.system.build.tarballBuilder"
             echo ""
           '';
         };
       }
-    );
+    )
+    // {
+      nixosConfigurations.aivcs-wsl = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        specialArgs = {
+          inherit inputs;
+          aivcsPackage = linuxPackages.aivcs;
+          aivcsdPackage = linuxPackages.aivcsd;
+        };
+        modules = [
+          nixos-wsl.nixosModules.default
+          ./nix/nixos/aivcs-wsl.nix
+        ];
+      };
+    };
 }
