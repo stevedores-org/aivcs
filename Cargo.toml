@@ -58,6 +58,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 octocrab = "0.41"
 
 # Utilities
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 sha2 = "0.10"

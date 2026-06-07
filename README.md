@@ -222,7 +222,7 @@ See [Zero-Touch PR Pipeline](docs/runbooks/zero-touch-pr-pipeline.md) for the fu
 
 #### `pr commit` and file content
 
-`aivcs pr commit` reads `--file` as UTF-8 text. Binary files are rejected with an actionable error before the API call. Binary commits via the Contents API require a different code path; see the inner `commit_file` doc.
+The `pr commit` and `pr pipeline` commands support both text and binary files. Content is base64-encoded and sent via the GitHub Contents API. This allows committing generated diagrams (PNG), compiled artifacts, or other non-UTF-8 assets.
 
 ## Documentation
 

@@ -41,6 +41,7 @@ tracing-subscriber.workspace = true
 octocrab.workspace = true
 
 # Utilities
+base64.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 sha2.workspace = true
