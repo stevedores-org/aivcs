@@ -1816,14 +1816,10 @@ async fn cmd_ci_run(
     fix: bool,
 ) -> Result<()> {
     if no_cache {
-        eprintln!(
-            "warning: --no-cache is not yet implemented; proceeding without caching changes"
-        );
+        eprintln!("warning: --no-cache is not yet implemented; proceeding without caching changes");
     }
     if fix {
-        eprintln!(
-            "warning: --fix is not yet implemented; stages will run in check-only mode"
-        );
+        eprintln!("warning: --fix is not yet implemented; stages will run in check-only mode");
     }
 
     // Get git SHA
