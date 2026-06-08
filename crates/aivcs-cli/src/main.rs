@@ -1812,9 +1812,16 @@ async fn cmd_diff_runs(ledger: &dyn RunLedger, id_a: &str, id_b: &str) -> Result
 async fn cmd_ci_run(
     workspace: &PathBuf,
     stages_str: &str,
-    _no_cache: bool,
-    _fix: bool,
+    no_cache: bool,
+    fix: bool,
 ) -> Result<()> {
+    if no_cache {
+        eprintln!("warning: --no-cache is not yet implemented; proceeding without caching changes");
+    }
+    if fix {
+        eprintln!("warning: --fix is not yet implemented; stages will run in check-only mode");
+    }
+
     // Get git SHA
     let git_sha = if let Ok(output) = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
