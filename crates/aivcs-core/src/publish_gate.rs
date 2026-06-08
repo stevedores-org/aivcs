@@ -231,8 +231,30 @@ fn check_rule(rule: &PublishRule, candidate: &PublishCandidate) -> Option<Publis
                 Some(l) if !l.is_empty() => l,
                 _ => return None, // no previous → skip
             };
-            let current = Semver::parse(current_label)?;
-            let previous = Semver::parse(prev_label)?;
+            let current = match Semver::parse(current_label) {
+                Some(s) => s,
+                None => {
+                    return Some(PublishViolation {
+                        rule: rule.clone(),
+                        reason: format!(
+                            "version '{}' is not valid semver (cannot compare to previous '{}')",
+                            current_label, prev_label,
+                        ),
+                    });
+                }
+            };
+            let previous = match Semver::parse(prev_label) {
+                Some(s) => s,
+                None => {
+                    return Some(PublishViolation {
+                        rule: rule.clone(),
+                        reason: format!(
+                            "previous_version '{}' is not valid semver (cannot compare to '{}')",
+                            prev_label, current_label,
+                        ),
+                    });
+                }
+            };
             if current.cmp_version(&previous) != std::cmp::Ordering::Greater {
                 Some(PublishViolation {
                     rule: rule.clone(),

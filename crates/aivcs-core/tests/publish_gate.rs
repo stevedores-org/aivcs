@@ -107,6 +107,42 @@ fn version_bump_skipped_no_previous() {
     assert!(v.passed);
 }
 
+#[test]
+fn version_bump_rejects_unparseable_previous() {
+    let rs = PublishRuleSet {
+        rules: vec![PublishRule::VersionBump],
+        fail_fast: false,
+    };
+    let c = candidate(Some("1.0.0"), Some("not-a-version"), &[], None, "abc");
+    let v = evaluate_publish_gate(&rs, &c);
+    assert!(
+        !v.passed,
+        "unparseable previous_version must not silently pass"
+    );
+    assert!(v
+        .violations
+        .iter()
+        .any(|viol| matches!(&viol.rule, PublishRule::VersionBump)));
+}
+
+#[test]
+fn version_bump_rejects_unparseable_current() {
+    let rs = PublishRuleSet {
+        rules: vec![PublishRule::VersionBump],
+        fail_fast: false,
+    };
+    let c = candidate(Some("not-a-version"), Some("1.0.0"), &[], None, "abc");
+    let v = evaluate_publish_gate(&rs, &c);
+    assert!(
+        !v.passed,
+        "unparseable version_label must not silently pass VersionBump"
+    );
+    assert!(v
+        .violations
+        .iter()
+        .any(|viol| matches!(&viol.rule, PublishRule::VersionBump)));
+}
+
 // ---- UniqueVersion ----
 
 #[test]
