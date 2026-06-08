@@ -200,8 +200,13 @@ func filesystemSourceHash(root string) (string, error) {
 					continue
 				}
 				h := sha256.New()
-				io.Copy(h, f)
+				_, copyErr := io.Copy(h, f)
 				f.Close()
+				if copyErr != nil {
+					// Skip on read failure — a partial hash would silently
+					// invalidate the cache key for this file's content.
+					continue
+				}
 				results <- result{path: path, hash: h.Sum(nil)}
 			}
 		}()
