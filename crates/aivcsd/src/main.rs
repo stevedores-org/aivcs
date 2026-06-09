@@ -1,20 +1,50 @@
 use anyhow::Result;
-use tracing::Level;
+use axum::{routing::get, Json, Router};
+use serde_json::{json, Value};
+use std::net::SocketAddr;
+use tracing::{info, Level};
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     aivcs_core::init_tracing(false, Level::INFO);
 
-    tracing::info!("aivcsd stub started");
-    // Stub daemon: stay alive until systemd sends SIGTERM on stop.
-    std::thread::park();
+    info!("🚀 aivcsd starting");
+
+    let app = Router::new()
+        .route("/health", get(health_check))
+        .route("/version", get(version_info));
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("📡 listening on {}", addr);
+
+    axum::serve(listener, app).await?;
+
     Ok(())
+}
+
+async fn health_check() -> Json<Value> {
+    Json(json!({
+        "status": "healthy",
+        "timestamp": chrono::Utc::now()
+    }))
+}
+
+async fn version_info() -> Json<Value> {
+    Json(json!({
+        "name": "aivcsd",
+        "version": env!("CARGO_PKG_VERSION"),
+        "platform": aivcs_core::domain::Platform::detect().to_string()
+    }))
 }
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn aivcsd_smoke_compiles() {
-        // Compile-time check: main exists and returns Result
-        let _: fn() -> anyhow::Result<()> = super::main;
+    use super::*;
+
+    #[tokio::test]
+    async fn test_health_check() {
+        let res = health_check().await;
+        assert_eq!(res.0["status"], "healthy");
     }
 }

@@ -109,6 +109,7 @@ version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "hex",
  "nix-env-manager",
@@ -135,6 +136,10 @@ version = "0.3.1"
 dependencies = [
  "aivcs-core",
  "anyhow",
+ "axum",
+ "chrono",
+ "serde_json",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]

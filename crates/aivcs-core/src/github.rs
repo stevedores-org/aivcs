@@ -15,7 +15,7 @@ pub struct GitHubClient {
 }
 
 impl GitHubClient {
-    /// Create a new GitHub client using a personal access token.
+    /// Create a new GitHub client using a bearer token (PAT or GitHub App installation token).
     pub fn new(token: String, owner: String, repo: String) -> Result<Self> {
         let octocrab = Octocrab::builder()
             .personal_token(token)
@@ -64,30 +64,56 @@ impl GitHubClient {
 
     /// Commit a single file to a specific branch. Returns the resulting commit SHA.
     ///
-    /// Currently UTF-8 text only — octocrab's `create_file` takes `String`
-    /// content. Binary commits need a different API path; see the inline
-    /// reject in `cmd_pr_commit`.
+    /// Supports both text and binary files by base64-encoding the content for
+    /// the GitHub Contents API.
     pub async fn commit_file(
         &self,
         branch: &str,
         path: &str,
-        content: &str,
+        content: &[u8],
         message: &str,
     ) -> Result<String> {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
         info!("Committing file '{}' to branch '{}'", path, branch);
 
-        let update = self
+        // We use a manual PUT request to the Contents API to support binary data
+        // and ensure we don't have UTF-8 overhead or double-encoding issues.
+        let url = format!("/repos/{}/{}/contents/{}", self.owner, self.repo, path);
+
+        let mut body = serde_json::json!({
+            "message": message,
+            "content": STANDARD.encode(content),
+            "branch": branch,
+        });
+
+        // Check if file exists to get its SHA for an update
+        if let Ok(content) = self
             .octocrab
             .repos(&self.owner, &self.repo)
-            .create_file(path, message, content)
-            .branch(branch)
+            .get_content()
+            .path(path)
+            .r#ref(branch)
             .send()
             .await
-            .context(format!("failed to commit file '{}'", path))?;
+        {
+            if let Some(item) = content.items.first() {
+                body["sha"] = serde_json::json!(item.sha);
+            }
+        }
 
-        update.commit.sha.ok_or_else(|| {
-            anyhow::anyhow!("GitHub Contents API returned no commit SHA for '{}'", path)
-        })
+        let update: serde_json::Value = self
+            .octocrab
+            .put(url, Some(&body))
+            .await
+            .context(format!("failed to commit file '{}' via Contents API", path))?;
+
+        let sha = update["commit"]["sha"].as_str().ok_or_else(|| {
+            anyhow::anyhow!("GitHub API response missing commit SHA for '{}'", path)
+        })?;
+
+        Ok(sha.to_string())
     }
 
     /// Open a Pull Request and optionally request review from the Librarian Agent.
@@ -157,6 +183,33 @@ impl GitHubClient {
 
         Ok(())
     }
+}
+
+/// Resolve a GitHub bearer token for autonomous agent Jobs.
+///
+/// Prefers `GITHUB_TOKEN` (typical ESO projected env var). Falls back to
+/// `GITHUB_TOKEN_FILE` (Kubernetes secret volume mount path) so tokens never
+/// need to be written to shell history.
+pub fn resolve_github_token() -> Result<String> {
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        let trimmed = token.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+
+    if let Ok(path) = std::env::var("GITHUB_TOKEN_FILE") {
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read GITHUB_TOKEN_FILE at '{path}'"))?;
+        let trimmed = content.trim();
+        anyhow::ensure!(
+            !trimmed.is_empty(),
+            "GITHUB_TOKEN_FILE at '{path}' is empty"
+        );
+        return Ok(trimmed.to_string());
+    }
+
+    anyhow::bail!("GITHUB_TOKEN or GITHUB_TOKEN_FILE must be set for GitHub API access")
 }
 
 /// Validate the raw `RELIC_LIBRARIAN_USERNAME` env-var lookup result.
@@ -242,5 +295,99 @@ mod tests {
             !rendered.contains("must be set"),
             "non-UTF-8 error must not claim the variable is unset, got: {rendered}"
         );
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            // SAFETY: tests run serially within this module; each guard restores on drop.
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    struct EnvUnsetGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvUnsetGuard {
+        fn unset(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvUnsetGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_github_token_scenarios() {
+        // Prefer env var over file path.
+        {
+            let _token = EnvGuard::set("GITHUB_TOKEN", "ghp_from_env");
+            let _file = EnvGuard::set("GITHUB_TOKEN_FILE", "/should/not/read");
+            assert_eq!(resolve_github_token().unwrap(), "ghp_from_env");
+        }
+
+        // Fall back to file when env var is whitespace-only.
+        {
+            let _token = EnvGuard::set("GITHUB_TOKEN", "   ");
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("token");
+            std::fs::write(&path, "ghp_from_file\n").unwrap();
+            let _file = EnvGuard::set("GITHUB_TOKEN_FILE", path.to_str().unwrap());
+            assert_eq!(resolve_github_token().unwrap(), "ghp_from_file");
+        }
+
+        // Reject when neither source is usable.
+        {
+            let _token = EnvUnsetGuard::unset("GITHUB_TOKEN");
+            let _file = EnvUnsetGuard::unset("GITHUB_TOKEN_FILE");
+            let err = resolve_github_token().unwrap_err();
+            assert!(
+                format!("{err:#}").contains("GITHUB_TOKEN or GITHUB_TOKEN_FILE"),
+                "expected missing-token error, got: {err:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_base64_encoding_for_binary_files() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+        // PNG header
+        let data = b"\x89PNG\r\n\x1a\n";
+        let encoded = STANDARD.encode(data);
+        assert_eq!(encoded, "iVBORw0KGgo=");
     }
 }

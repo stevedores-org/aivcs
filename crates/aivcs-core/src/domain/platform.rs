@@ -67,6 +67,7 @@ pub struct EnvValidation {
     pub nix_available: bool,
     pub attic_available: bool,
     pub is_nix_shell: bool,
+    pub tmpdir: Option<String>,
 }
 
 impl EnvValidation {
@@ -80,6 +81,11 @@ impl EnvValidation {
                     && std::env::var("PATH")
                         .map(|v| v.contains("/nix/store"))
                         .unwrap_or(false)),
+            tmpdir: std::env::var("TMPDIR").ok().or_else(|| {
+                std::env::var("TEMP")
+                    .ok()
+                    .or_else(|| std::env::var("TMP").ok())
+            }),
         }
     }
 
@@ -91,6 +97,15 @@ impl EnvValidation {
             tips.push(
                 "Keep AIVCS CAS and .aivcs/ state on the Linux filesystem (/home/...), not /mnt/c, to avoid WSL 9p rename errors.".into(),
             );
+
+            if let Some(tmp) = &self.tmpdir {
+                if tmp.starts_with("/mnt/") || tmp.contains(':') {
+                    tips.push(
+                        format!("TMPDIR is currently '{}'. Using a Windows-hosted temp directory in WSL is extremely slow and causes Nix build failures. Run `export TMPDIR=/tmp`.", tmp)
+                    );
+                }
+            }
+
             if !self.is_nix_shell {
                 tips.push(
                     "Enter a Nix shell (`nix develop`) or install the NixOS-WSL tarball before running CI locally.".into(),
@@ -146,9 +161,13 @@ mod tests {
             nix_available: true,
             attic_available: false,
             is_nix_shell: false,
+            tmpdir: Some("/mnt/c/Temp".to_string()),
         };
         let tips = validation.recommendations();
         assert!(tips.iter().any(|t| t.contains("/mnt/c")));
+        assert!(tips
+            .iter()
+            .any(|t| t.contains("TMPDIR is currently '/mnt/c/Temp'")));
         assert!(tips.iter().any(|t| t.contains("nix develop")));
     }
 }
