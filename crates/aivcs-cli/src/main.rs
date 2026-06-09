@@ -213,6 +213,13 @@ enum Commands {
         #[command(subcommand)]
         action: ReportAction,
     },
+
+    /// Generate a summary note linking GitHub PR to aivcs CommitId
+    PrNote {
+        /// Branch name (defaults to current git branch if omitted)
+        #[arg(short, long)]
+        branch: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -683,6 +690,7 @@ async fn main() -> Result<()> {
                 output,
             } => cmd_report_cross_org(graph, &objective, output).await,
         },
+        Commands::PrNote { branch } => cmd_pr_note(&handle, branch.as_deref()).await,
     }
 }
 
@@ -782,6 +790,7 @@ async fn cmd_pr_commit(
         vec![path.clone()],
         "github-pr-commit",
         Some(&github_repo),
+        None,
     )
     .await;
 
@@ -838,6 +847,7 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         vec![path.clone()],
         "github-pr-pipeline",
         Some(&github_repo),
+        None,
     )
     .await;
 
@@ -955,10 +965,11 @@ async fn cmd_snapshot(
 
     aivcs_core::maybe_emit_code_committed_from_env(
         branch,
-        &commit_id.hash,
+        &git_sha,
         vec![state_path.display().to_string()],
         author,
         None,
+        Some(&commit_id.hash),
     )
     .await;
 
@@ -1187,13 +1198,17 @@ async fn cmd_merge(
     // Update target branch head
     let branch = BranchRecord::new(target, &result.merge_commit_id.hash, target == "main");
     handle.save_branch(&branch).await?;
+    let cwd = std::env::current_dir().context("Failed to get current directory")?;
+    let git_sha = aivcs_core::capture_head_sha(&cwd)
+        .unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string());
 
     aivcs_core::maybe_emit_code_committed_from_env(
         target,
-        &result.merge_commit_id.hash,
+        &git_sha,
         Vec::new(),
         "agent-git",
         None,
+        Some(&result.merge_commit_id.hash),
     )
     .await;
 
@@ -1943,6 +1958,57 @@ async fn cmd_ci_run(
     }
 }
 
+async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> Result<()> {
+    let branch_name = match branch_name_opt {
+        Some(name) => name.to_string(),
+        None => {
+            let cwd = std::env::current_dir().context("Failed to get current directory")?;
+            aivcs_core::detect_current_branch(&cwd)
+                .context("Failed to auto-detect current git branch")?
+        }
+    };
+
+    let branch = handle
+        .get_branch(&branch_name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Branch '{}' not found in AIVCS database", branch_name))?;
+
+    let commit = handle
+        .get_commit(&branch.head_commit_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Commit '{}' not found in AIVCS database", branch.head_commit_id))?;
+
+    // Format output matching acceptance criteria
+    println!("<!-- aivcs-linkage -->");
+    println!("aivcs-commit: {}", commit.commit_id.hash);
+    if let Some(intent_id) = read_objective_id() {
+        println!("intent-id: {}", intent_id);
+    }
+    println!("\n### AIVCS Commit Summary");
+    println!("- **Message**: {}", commit.message);
+    println!("- **Author**: {}", commit.author);
+    println!("- **Created**: {}", commit.created_at);
+    println!("- **State Hash**: {}", commit.commit_id.state_hash);
+    if let Some(logic) = &commit.commit_id.logic_hash {
+        println!("- **Logic Hash**: {}", logic);
+    }
+    if let Some(env) = &commit.commit_id.env_hash {
+        println!("- **Env Hash**: {}", env);
+    }
+
+    Ok(())
+}
+
+fn read_objective_id() -> Option<String> {
+    let content = std::fs::read_to_string("intent/current.yaml").ok()?;
+    for line in content.lines() {
+        if let Some(rest) = line.trim().strip_prefix("objective_id:") {
+            return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1977,6 +2043,33 @@ mod tests {
         // Verify we can get the branch head
         let head = handle.get_branch_head("main").await.unwrap();
         assert!(!head.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_pr_note_command() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
+
+        // Create a snapshot to produce a commit and update the branch
+        let temp_dir = tempfile::tempdir().unwrap();
+        let state_path = temp_dir.path().join("state.json");
+        std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
+
+        cmd_snapshot(
+            &handle,
+            &state_path,
+            "Initial commit",
+            "test-author",
+            "main",
+            Some("1234567890abcdef1234567890abcdef12345678"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Run the pr-note command
+        let res = cmd_pr_note(&handle, Some("main")).await;
+        assert!(res.is_ok());
     }
 
     #[tokio::test]

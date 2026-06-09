@@ -91,6 +91,33 @@ fn is_owner_repo(value: &str) -> bool {
     )
 }
 
+/// Detect the current local git branch name.
+///
+/// Runs `git rev-parse --abbrev-ref HEAD` in the given directory.
+pub fn detect_current_branch(repo_dir: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_dir)
+        .output()
+        .map_err(|e| AivcsError::GitError(format!("failed to run git: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AivcsError::GitError(format!(
+            "git rev-parse --abbrev-ref HEAD failed: {stderr}"
+        )));
+    }
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() {
+        return Err(AivcsError::GitError(
+            "git rev-parse --abbrev-ref HEAD returned empty output".to_string(),
+        ));
+    }
+
+    Ok(branch)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +205,13 @@ mod tests {
     fn parse_github_remote_rejects_invalid_values() {
         assert_eq!(parse_github_remote("https://gitlab.com/org/repo"), None);
         assert_eq!(parse_github_remote("not-a-url"), None);
+    }
+
+    #[test]
+    fn detect_current_branch_returns_branch_name() {
+        let repo = make_git_repo();
+        let branch = detect_current_branch(repo.path()).unwrap();
+        assert!(!branch.is_empty());
+        assert!(branch == "master" || branch == "main");
     }
 }
