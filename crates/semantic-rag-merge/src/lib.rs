@@ -189,8 +189,20 @@ pub async fn resolve_conflict_state(
 /// 2. Recency (newer memories reflect latest state)
 /// 3. Metadata richness (more context is better)
 fn conflict_score(record: &MemoryRecord) -> f32 {
+    conflict_score_at(record, chrono::Utc::now())
+}
+
+/// Same as `conflict_score` but with the "now" reference injected, so the
+/// function is pure and unit-testable.
+fn conflict_score_at(record: &MemoryRecord, now: chrono::DateTime<chrono::Utc>) -> f32 {
     let length_score = (record.content.len() as f32).ln().max(0.0);
-    let recency_score = record.created_at.timestamp() as f32 / 1_000_000_000.0;
+    // Recency: bounded in [0, 1], decays with age. ~1.0 for "just now",
+    // ~0.5 at 30 days, ~0.1 at ~9 months. The previous version divided a
+    // raw Unix-seconds timestamp by 1e9, which produced a near-constant
+    // ~1.7 for every recently-created memory — i.e. zero discriminative
+    // power between any two candidates.
+    let age_secs = (now - record.created_at).num_seconds().max(0) as f32;
+    let recency_score = 1.0 / (1.0 + age_secs / (30.0 * 86_400.0));
     let meta_score = metadata_field_count(&record.metadata) as f32;
     length_score + recency_score + meta_score
 }
@@ -361,6 +373,47 @@ mod tests {
 
         assert_eq!(delta.conflicts.len(), 1);
         assert_eq!(delta.conflicts[0].key, "conflict-key");
+    }
+
+    #[test]
+    fn test_recency_discriminates_between_memories() {
+        // Two memories with identical content/metadata but different ages.
+        // Without the fix, recency_score divides Unix seconds by 1e9, so
+        // any two recent memories score ~equally on recency. With the fix,
+        // a newer memory must score strictly higher than an older one.
+        let now = chrono::Utc::now();
+        let old_record = MemoryRecord {
+            id: None,
+            commit_id: "c".to_string(),
+            key: "k".to_string(),
+            content: "same".to_string(),
+            embedding: None,
+            metadata: serde_json::Value::Null,
+            created_at: now - chrono::Duration::days(60),
+        };
+        let new_record = MemoryRecord {
+            id: None,
+            commit_id: "c".to_string(),
+            key: "k".to_string(),
+            content: "same".to_string(),
+            embedding: None,
+            metadata: serde_json::Value::Null,
+            created_at: now,
+        };
+
+        let old_score = conflict_score_at(&old_record, now);
+        let new_score = conflict_score_at(&new_record, now);
+
+        assert!(
+            new_score > old_score,
+            "newer memory must score higher; got new={new_score} old={old_score}",
+        );
+        // And the gap should be meaningful (≥0.3, since recency is bounded
+        // in [0, 1] and 60 days ago gives ~0.33 while now gives ~1.0).
+        assert!(
+            (new_score - old_score) > 0.3,
+            "recency gap too small: new={new_score} old={old_score}",
+        );
     }
 
     #[tokio::test]
