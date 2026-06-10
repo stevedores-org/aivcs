@@ -1,4 +1,4 @@
-.PHONY: lci-build lci lci-install hooks
+.PHONY: lci-build lci lci-install hooks bench bench-build
 
 # Build the local CI runner
 lci-build:
@@ -13,6 +13,16 @@ lci-install: lci-build
 	mkdir -p $(HOME)/.local/bin
 	cp tools/lci/lci $(HOME)/.local/bin/local-ci
 	@echo "Installed local-ci to ~/.local/bin/local-ci"
+
+# Build the release binary the bench harness drives. Separate target so CI can
+# cache the build and only re-bench on rebuild.
+bench-build:
+	cargo build --release -p aivcs-cli
+
+# Wall-clock bench of aivcs-cli hot paths via hyperfine.
+# See tools/bench/aivcs-cli.sh for env overrides (AIVCS, BENCH_OUT, BENCH_RUNS).
+bench: bench-build
+	./tools/bench/aivcs-cli.sh
 
 # Install git pre-commit hook
 hooks:
