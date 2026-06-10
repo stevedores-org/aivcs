@@ -193,6 +193,28 @@ aivcs pr open \
   --body  "Summary of what changed."
 ```
 
+## **Development Standards**
+
+### **The 7-File Rule (Documentation as Infrastructure)**
+
+Treating documentation as infrastructure ensures all AI assistants (Cursor, Windsurf, Copilot) operate with synchronized context, preventing schema drift and maintaining the **Sovereign Knowledge Fabric.**
+
+**Mandatory Context Files:**
+1. **`.cursorrules`**: Local IDE rules.
+2. **`AGENTS.md`**: A2A Protocol and Agent capabilities.
+3. **`CLAUDE.md`**: Build/test commands and project context.
+4. **`README.md`**: High-level project map.
+5. **`ARCH_PRESERVE.md`**: Architectural preservation rules.
+6. **`.github/copilot-instructions.md`**: GitHub Copilot context.
+7. **`.github/system-instruction.md`**: Global "Sovereign Intelligence" standards.
+
+**When to update:**
+- New features added to `apps/` or `app-agents/`
+- Changes to deployment patterns, build commands, or infrastructure
+- New standards, conventions, or governance policies
+
+### **Agent Workflow (Autonomous Operation Loop)**
+
 `aivcs pr open` creates a Pull Request via the GitHub API and, by default, requests review from the Librarian Agent so it can audit changes before downstream OCI builds. This is the canonical PR-creation path used by autonomous builder agents running in ephemeral ADK Jobs.
 
 Required environment:
@@ -202,6 +224,8 @@ Required environment:
 | `GITHUB_TOKEN` | Bearer token for the GitHub API. Accepts a GitHub App installation token (preferred for autonomous Jobs) or a personal access token. |
 | `GITHUB_TOKEN_FILE` | Alternative token source: path to a file containing the bearer token (typical ESO secret volume mount). Used when `GITHUB_TOKEN` is unset or whitespace-only. |
 | `RELIC_LIBRARIAN_USERNAME` | GitHub username of the Librarian Agent. Required when `--librarian` is enabled (the default). Missing or whitespace-only values are rejected eagerly so the failure surfaces before the API call rather than mid-pipeline. |
+
+### **Pull Request Requirements**
 
 The `--librarian` flag defaults to `true`; pass `--librarian=false` to skip the review request in development or test contexts where the Librarian is not deployed.
 
@@ -219,6 +243,17 @@ See [Zero-Touch PR Pipeline](docs/runbooks/zero-touch-pr-pipeline.md) for the fu
 | `AIVCS_JOB_ID` | Optional job/run correlation ID. Whitespace-only values are dropped. |
 
 > ⚠️ The emission is awaited synchronously inside `snapshot` / `merge` / `pr commit` / `pr pipeline`. Transport failures retry per `A2aRetryPolicy::default()` before returning; the CLI blocks for that window. Pin the retry policy if you tighten snapshot-latency SLOs.
+
+## **Infrastructure & Deployment**
+
+### **GitOps Architecture (Flux + ArgoCD + Crossplane + ESO)**
+
+Grow Without Limits uses a **declarative GitOps model** with clear separation of concerns:
+
+- **Flux CD**: Primary GitOps engine for cluster bootstrapping and application delivery.
+- **ArgoCD**: Visual orchestrator for multi-cluster workload management.
+- **Crossplane**: Control plane for managing cloud resources (AWS, GCP, Azure) as Kubernetes objects.
+- **External Secrets Operator (ESO)**: Secure secret injection from AWS Secrets Manager/Azure Key Vault.
 
 #### `pr commit` and file content
 
@@ -309,6 +344,11 @@ The library automatically detects cloud credentials:
 
 - [AgentGit Paper](https://arxiv.org/abs/...) - Original research on Git-like rollback for LLM agents
 - [Issue #1-4](https://github.com/stevedores-org/aivcs/issues) - Architecture and TDD plans
+
+## **Official Contact Information**
+
+- **Contact**: `contact@lornu.ai` - Official email for all external communications
+- **Policy**: Only publish `contact@lornu.ai` in documentation and UI. Never publish personal or alternative email addresses.
 
 ## License
 
