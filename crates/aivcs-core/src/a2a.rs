@@ -52,7 +52,6 @@ impl CodeCommittedEvent {
     }
 }
 
-
 /// JSON-RPC request body sent to the A2A transport.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct JsonRpcRequest {

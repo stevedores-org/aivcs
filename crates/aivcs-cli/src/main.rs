@@ -1976,7 +1976,12 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
     let commit = handle
         .get_commit(&branch.head_commit_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("Commit '{}' not found in AIVCS database", branch.head_commit_id))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Commit '{}' not found in AIVCS database",
+                branch.head_commit_id
+            )
+        })?;
 
     // Format output matching acceptance criteria
     println!("<!-- aivcs-linkage -->");
