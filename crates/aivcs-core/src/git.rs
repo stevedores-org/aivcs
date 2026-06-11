@@ -114,6 +114,16 @@ pub fn detect_current_branch(repo_dir: &Path) -> Result<String> {
             "git rev-parse --abbrev-ref HEAD returned empty output".to_string(),
         ));
     }
+    // `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD" when
+    // the working tree is in detached-HEAD state (common in CI checkouts of
+    // tag/PR refs). Returning that to callers caused `aivcs pr-note` to look
+    // up a branch literally named "HEAD" in the DB and emit a confusing
+    // "Branch 'HEAD' not found" error. Surface the state explicitly instead.
+    if branch == "HEAD" {
+        return Err(AivcsError::GitError(
+            "git is in detached-HEAD state; pass --branch explicitly".to_string(),
+        ));
+    }
 
     Ok(branch)
 }
@@ -205,6 +215,24 @@ mod tests {
     fn parse_github_remote_rejects_invalid_values() {
         assert_eq!(parse_github_remote("https://gitlab.com/org/repo"), None);
         assert_eq!(parse_github_remote("not-a-url"), None);
+    }
+
+    #[test]
+    fn detect_current_branch_detached_head_returns_err() {
+        let repo = make_git_repo();
+        // Detach HEAD by checking out the commit SHA directly.
+        let sha = capture_head_sha(repo.path()).unwrap();
+        let status = Command::new("git")
+            .args(["checkout", "--detach", &sha])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "git checkout --detach failed");
+        let err = detect_current_branch(repo.path()).expect_err("detached HEAD must error");
+        assert!(
+            err.to_string().contains("detached-HEAD"),
+            "error must name the state: {err}"
+        );
     }
 
     #[test]
