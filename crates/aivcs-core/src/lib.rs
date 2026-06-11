@@ -34,6 +34,7 @@ pub mod self_healing;
 pub mod telemetry;
 pub mod tooling;
 pub mod trace_artifact;
+pub mod ci_snapshot;
 
 pub use domain::{
     validate_run_event, AgentSpec, AgentSpecFields, AivcsError, DeterministicEvalRunner,
@@ -52,6 +53,8 @@ pub use a2a::{
 pub use git::{capture_head_sha, detect_github_repository, is_git_repo, parse_github_remote};
 
 pub use memory::{DecisionRecorder, DecisionRecorderConfig};
+
+pub use ci_snapshot::{build_ci_snapshot, compute_workspace_hash, find_repo_root, run_local_ci};
 
 pub use oxidized_state::{
     BranchRecord, CommitId, CommitRecord, DecisionRecord, MemoryProvenanceRecord, MemoryRecord,
