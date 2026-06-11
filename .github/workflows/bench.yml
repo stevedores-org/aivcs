@@ -1,0 +1,66 @@
+name: bench
+
+# Manual trigger only — bench wall-clock is sensitive to runner contention,
+# so we don't burn it on every PR. Operators dispatch this to capture a
+# baseline or to A/B a candidate fix.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "hyperfine --runs count"
+        required: false
+        default: "10"
+      warmup:
+        description: "hyperfine --warmup count"
+        required: false
+        default: "3"
+
+concurrency:
+  group: bench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "workspace"
+          cache-targets: true
+          save-if: false
+
+      - name: Install hyperfine
+        uses: taiki-e/install-action@v2
+        with:
+          tool: hyperfine
+
+      - name: Build release binary
+        run: make bench-build
+
+      - name: Run bench
+        env:
+          BENCH_OUT: bench-results
+          BENCH_RUNS: ${{ inputs.runs }}
+          BENCH_WARMUP: ${{ inputs.warmup }}
+        run: make bench
+
+      - name: Upload markdown summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aivcs-cli-bench-${{ github.run_id }}
+          path: bench-results/
+          if-no-files-found: warn
