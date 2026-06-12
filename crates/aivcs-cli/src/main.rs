@@ -662,7 +662,7 @@ async fn main() -> Result<()> {
                 librarian,
                 require_local_ci,
             } => {
-                cmd_pr_open(
+                cmd_pr_open(PrOpenArgs {
                     title,
                     body,
                     head,
@@ -671,7 +671,7 @@ async fn main() -> Result<()> {
                     repo,
                     librarian,
                     require_local_ci,
-                )
+                })
                 .await
             }
             PrAction::Branch {
@@ -771,16 +771,29 @@ async fn cmd_report_cross_org(
     Ok(())
 }
 
-async fn cmd_pr_open(
+struct PrOpenArgs {
     title: String,
-    mut body: String,
+    body: String,
     head: String,
     base: String,
     owner: String,
     repo: String,
     librarian: bool,
     require_local_ci: bool,
-) -> Result<()> {
+}
+
+async fn cmd_pr_open(args: PrOpenArgs) -> Result<()> {
+    let PrOpenArgs {
+        title,
+        mut body,
+        head,
+        base,
+        owner,
+        repo,
+        librarian,
+        require_local_ci,
+    } = args;
+
     let repo_root = aivcs_core::find_repo_root();
 
     if require_local_ci {
