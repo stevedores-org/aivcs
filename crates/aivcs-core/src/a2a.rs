@@ -35,8 +35,10 @@ pub struct CodeCommittedEvent {
     pub job_id: Option<String>,
     /// Event creation timestamp.
     pub timestamp: DateTime<Utc>,
-    /// Associated AIVCS commit ID, if present.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Associated AIVCS commit ID, if present. `serde(default)` so historical
+    /// payloads emitted before this field existed deserialize cleanly into the
+    /// current struct — `skip_serializing_if` alone is one-way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aivcs_commit_id: Option<String>,
 }
 
