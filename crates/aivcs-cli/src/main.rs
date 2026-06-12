@@ -214,7 +214,13 @@ enum Commands {
         action: ReportAction,
     },
 
-    /// Generate a summary note linking GitHub PR to aivcs CommitId
+    /// Generate a summary note linking GitHub PR to aivcs CommitId.
+    ///
+    /// Emits the head commit of the named branch only. If the branch
+    /// holds multiple aivcs commits (a multi-step agent run), only the
+    /// tip is surfaced in the PR linkage. Intermediate states remain
+    /// reachable via `aivcs log` against the CommitId; Phase 1 will
+    /// surface them on the GitHub side. See stevedores-org/aivcs#231.
     PrNote {
         /// Branch name (defaults to current git branch if omitted)
         #[arg(short, long)]
@@ -2130,7 +2136,19 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
             )
         })?;
 
-    // Format output matching acceptance criteria
+    // Format output matching acceptance criteria.
+    //
+    // The `<!-- aivcs-linkage -->` HTML comment is a *visible section
+    // header* for the metadata that follows. The lines underneath
+    // (`aivcs-commit:`, `intent-id:`) are human-readable plain text and
+    // are the durable index into the aivcs ledger — the comment marker
+    // is just an anchor that reviewers (and the Phase 1 verifier) can
+    // locate without parsing markdown headings. This is a different
+    // pattern from `<!-- aivcs-ci-snapshot: sha256:... -->` over in
+    // `ci_snapshot`, where the comment itself buries an opaque
+    // workspace digest as the payload. Here the comment is metadata
+    // *about* the section, not the metadata payload.
+    // See stevedores-org/aivcs#231 (M2).
     println!("<!-- aivcs-linkage -->");
     println!("aivcs-commit: {}", commit.commit_id.hash);
     if let Some(intent_id) = read_objective_id() {
