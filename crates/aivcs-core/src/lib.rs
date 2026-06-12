@@ -4,6 +4,7 @@
 
 pub mod a2a;
 pub mod cas;
+pub mod ci_snapshot;
 pub mod compat;
 pub mod deploy;
 pub mod deploy_runner;
@@ -34,7 +35,6 @@ pub mod self_healing;
 pub mod telemetry;
 pub mod tooling;
 pub mod trace_artifact;
-pub mod ci_snapshot;
 
 pub use domain::{
     validate_run_event, AgentSpec, AgentSpecFields, AivcsError, DeterministicEvalRunner,
