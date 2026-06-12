@@ -286,6 +286,10 @@ enum PrAction {
         /// Request review from the Librarian Agent
         #[arg(long, default_value_t = true)]
         librarian: bool,
+
+        /// Require local-ci validation before opening PR
+        #[arg(long, default_value_t = true)]
+        require_local_ci: bool,
     },
 
     /// Create a GitHub branch from a base ref
@@ -382,6 +386,17 @@ enum PrAction {
         /// Skip branch creation (for retries when the branch already exists)
         #[arg(long, default_value_t = false)]
         skip_branch: bool,
+
+        /// Require local-ci validation before opening PR
+        #[arg(long, default_value_t = true)]
+        require_local_ci: bool,
+    },
+
+    /// Verify aivcs-ci-snapshot against HEAD
+    VerifySnapshot {
+        /// Optional PR body text. If omitted, it will try to find it via GITHUB_EVENT_PATH.
+        #[arg(long)]
+        pr_body: Option<String>,
     },
 }
 
@@ -632,7 +647,8 @@ async fn main() -> Result<()> {
                 owner,
                 repo,
                 librarian,
-            } => cmd_pr_open(title, body, head, base, owner, repo, librarian).await,
+                require_local_ci,
+            } => cmd_pr_open(title, body, head, base, owner, repo, librarian, require_local_ci).await,
             PrAction::Branch {
                 name,
                 base,
@@ -659,6 +675,7 @@ async fn main() -> Result<()> {
                 repo,
                 librarian,
                 skip_branch,
+                require_local_ci,
             } => {
                 cmd_pr_pipeline(PrPipelineArgs {
                     branch,
@@ -672,9 +689,11 @@ async fn main() -> Result<()> {
                     repo,
                     librarian,
                     skip_branch,
+                    require_local_ci,
                 })
                 .await
             }
+            PrAction::VerifySnapshot { pr_body } => cmd_pr_verify_snapshot(pr_body).await,
         },
         Commands::Report { action } => match action {
             ReportAction::CrossOrg {
@@ -728,13 +747,30 @@ async fn cmd_report_cross_org(
 
 async fn cmd_pr_open(
     title: String,
-    body: String,
+    mut body: String,
     head: String,
     base: String,
     owner: String,
     repo: String,
     librarian: bool,
+    require_local_ci: bool,
 ) -> Result<()> {
+    let repo_root = aivcs_core::find_repo_root();
+
+    if require_local_ci {
+        aivcs_core::run_local_ci(&repo_root)?;
+    }
+
+    // Always generate snapshot and embed in body
+    let snapshot = aivcs_core::build_ci_snapshot(&repo_root)?;
+    let digest = snapshot.digest();
+    body = format!(
+        "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
+        body,
+        digest,
+        snapshot.local_ci_config_hash
+    );
+
     let client = github_client_from_env(owner, repo)?;
 
     let pr_number = client
@@ -800,6 +836,7 @@ struct PrPipelineArgs {
     repo: String,
     librarian: bool,
     skip_branch: bool,
+    require_local_ci: bool,
 }
 
 async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
@@ -810,12 +847,29 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         file,
         message,
         title,
-        body,
+        mut body,
         owner,
         repo,
         librarian,
         skip_branch,
+        require_local_ci,
     } = args;
+
+    let repo_root = aivcs_core::find_repo_root();
+
+    if require_local_ci {
+        aivcs_core::run_local_ci(&repo_root)?;
+    }
+
+    // Always generate snapshot and embed in body
+    let snapshot = aivcs_core::build_ci_snapshot(&repo_root)?;
+    let digest = snapshot.digest();
+    body = format!(
+        "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
+        body,
+        digest,
+        snapshot.local_ci_config_hash
+    );
 
     let github_repo = format!("{owner}/{repo}");
     let client = github_client_from_env(owner.clone(), repo.clone())?;
@@ -847,6 +901,56 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
     println!("Successfully opened PR #{pr_number}");
 
     Ok(())
+}
+
+async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
+    let repo_root = aivcs_core::find_repo_root();
+
+    // 1. Get PR body
+    let body = if let Some(b) = pr_body {
+        b
+    } else if let Ok(event_path) = std::env::var("GITHUB_EVENT_PATH") {
+        let content = std::fs::read_to_string(event_path)
+            .context("Failed to read GITHUB_EVENT_PATH")?;
+        let event: serde_json::Value = serde_json::from_str(&content)
+            .context("Failed to parse GITHUB_EVENT_PATH JSON")?;
+
+        if let Some(body_val) = event.pointer("/pull_request/body") {
+            body_val.as_str().unwrap_or_default().to_string()
+        } else {
+            anyhow::bail!("Could not find pull_request.body in GITHUB_EVENT_PATH");
+        }
+    } else {
+        anyhow::bail!("No PR body provided and GITHUB_EVENT_PATH is not set");
+    };
+
+    // 2. Extract snapshot digest from PR body
+    // Look for: <!-- aivcs-ci-snapshot: sha256:<digest> config-hash:<hash> -->
+    let pattern = "<!-- aivcs-ci-snapshot: sha256:";
+    let idx = body.find(pattern).context("No aivcs-ci-snapshot digest found in PR body. Did you open this PR using 'aivcs pr pipeline'?")?;
+    let start = idx + pattern.len();
+    let rest = &body[start..];
+    let end_idx = rest.find(' ').or_else(|| rest.find("-->")).context("Malformed aivcs-ci-snapshot in PR body")?;
+    let expected_digest = rest[..end_idx].trim().to_string();
+
+    println!("Extracted snapshot digest from PR body: {}", expected_digest);
+
+    // 3. Recompute snapshot
+    let snapshot = aivcs_core::build_ci_snapshot(&repo_root)?;
+    let computed_digest = snapshot.digest();
+    println!("Computed snapshot digest from HEAD: {}", computed_digest);
+
+    if expected_digest == computed_digest {
+        println!("✓ Snapshot verification successful!");
+        Ok(())
+    } else {
+        println!("Expected snapshot details:");
+        println!("  repo_sha: {}", snapshot.repo_sha);
+        println!("  workspace_hash: {}", snapshot.workspace_hash);
+        println!("  local_ci_config_hash: {}", snapshot.local_ci_config_hash);
+        println!("  env_hash: {}", snapshot.env_hash);
+        anyhow::bail!("✗ Snapshot verification failed! The current HEAD state does not match the local-ci snapshot in the PR body. Did you push unstaged/untested changes without using aivcs pr pipeline?")
+    }
 }
 
 fn github_client_from_env(owner: String, repo: String) -> Result<aivcs_core::github::GitHubClient> {
