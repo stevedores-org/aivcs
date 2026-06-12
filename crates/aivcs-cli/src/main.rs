@@ -696,20 +696,23 @@ async fn main() -> Result<()> {
                 skip_branch,
                 require_local_ci,
             } => {
-                cmd_pr_pipeline(&handle, PrPipelineArgs {
-                    branch,
-                    base,
-                    path,
-                    file,
-                    message,
-                    title,
-                    body,
-                    owner,
-                    repo,
-                    librarian,
-                    skip_branch,
-                    require_local_ci,
-                })
+                cmd_pr_pipeline(
+                    &handle,
+                    PrPipelineArgs {
+                        branch,
+                        base,
+                        path,
+                        file,
+                        message,
+                        title,
+                        body,
+                        owner,
+                        repo,
+                        librarian,
+                        skip_branch,
+                        require_local_ci,
+                    },
+                )
                 .await
             }
             PrAction::VerifySnapshot { pr_body } => cmd_pr_verify_snapshot(pr_body).await,
