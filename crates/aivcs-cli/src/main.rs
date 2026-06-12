@@ -667,19 +667,22 @@ async fn main() -> Result<()> {
                 librarian,
                 skip_branch,
             } => {
-                cmd_pr_pipeline(&handle, PrPipelineArgs {
-                    branch,
-                    base,
-                    path,
-                    file,
-                    message,
-                    title,
-                    body,
-                    owner,
-                    repo,
-                    librarian,
-                    skip_branch,
-                })
+                cmd_pr_pipeline(
+                    &handle,
+                    PrPipelineArgs {
+                        branch,
+                        base,
+                        path,
+                        file,
+                        message,
+                        title,
+                        body,
+                        owner,
+                        repo,
+                        librarian,
+                        skip_branch,
+                    },
+                )
                 .await
             }
         },
