@@ -91,6 +91,43 @@ fn is_owner_repo(value: &str) -> bool {
     )
 }
 
+/// Detect the current local git branch name.
+///
+/// Runs `git rev-parse --abbrev-ref HEAD` in the given directory.
+pub fn detect_current_branch(repo_dir: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(repo_dir)
+        .output()
+        .map_err(|e| AivcsError::GitError(format!("failed to run git: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AivcsError::GitError(format!(
+            "git rev-parse --abbrev-ref HEAD failed: {stderr}"
+        )));
+    }
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() {
+        return Err(AivcsError::GitError(
+            "git rev-parse --abbrev-ref HEAD returned empty output".to_string(),
+        ));
+    }
+    // `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD" when
+    // the working tree is in detached-HEAD state (common in CI checkouts of
+    // tag/PR refs). Returning that to callers caused `aivcs pr-note` to look
+    // up a branch literally named "HEAD" in the DB and emit a confusing
+    // "Branch 'HEAD' not found" error. Surface the state explicitly instead.
+    if branch == "HEAD" {
+        return Err(AivcsError::GitError(
+            "git is in detached-HEAD state; pass --branch explicitly".to_string(),
+        ));
+    }
+
+    Ok(branch)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +215,31 @@ mod tests {
     fn parse_github_remote_rejects_invalid_values() {
         assert_eq!(parse_github_remote("https://gitlab.com/org/repo"), None);
         assert_eq!(parse_github_remote("not-a-url"), None);
+    }
+
+    #[test]
+    fn detect_current_branch_detached_head_returns_err() {
+        let repo = make_git_repo();
+        // Detach HEAD by checking out the commit SHA directly.
+        let sha = capture_head_sha(repo.path()).unwrap();
+        let status = Command::new("git")
+            .args(["checkout", "--detach", &sha])
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "git checkout --detach failed");
+        let err = detect_current_branch(repo.path()).expect_err("detached HEAD must error");
+        assert!(
+            err.to_string().contains("detached-HEAD"),
+            "error must name the state: {err}"
+        );
+    }
+
+    #[test]
+    fn detect_current_branch_returns_branch_name() {
+        let repo = make_git_repo();
+        let branch = detect_current_branch(repo.path()).unwrap();
+        assert!(!branch.is_empty());
+        assert!(branch == "master" || branch == "main");
     }
 }
