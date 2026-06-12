@@ -1104,7 +1104,7 @@ async fn cmd_snapshot(
 
     info!(
         cas_digest = %cas_digest,
-        git_sha = ?git_sha,
+        git_sha = %git_sha.as_deref().unwrap_or("(unavailable)"),
         "snapshot stored in CAS"
     );
 
