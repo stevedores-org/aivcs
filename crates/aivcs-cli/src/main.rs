@@ -25,7 +25,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 
 use aivcs_ci::{BuiltinStage, CiGate, CiPipeline, CiSpec, StageConfig};
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
@@ -1096,7 +1096,7 @@ async fn cmd_snapshot(
         )
         .await;
     } else {
-        tracing::warn!(
+        warn!(
             aivcs_commit_id = %commit_id.hash,
             "skipping CODE_COMMITTED emission for snapshot: git SHA unavailable"
         );
@@ -1351,7 +1351,7 @@ async fn cmd_merge(
             .await;
         }
         Err(e) => {
-            tracing::warn!(
+            warn!(
                 aivcs_commit_id = %result.merge_commit_id.hash,
                 error = %e,
                 "skipping CODE_COMMITTED emission for merge: git SHA unavailable"
@@ -2171,11 +2171,15 @@ mod tests {
     async fn test_agent_git_snapshot_cli_returns_valid_id() {
         let handle = SurrealHandle::setup_db().await.unwrap();
 
-        // Initialize first
-        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
-
-        // Create a temp state file
+        // Hermetic init: use tempdir so the test doesn't write into whatever
+        // cwd `cargo test` happened to run from. Matches the pattern in
+        // `test_pr_note_command`.
         let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
+        // Create a temp state file in the same tempdir.
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
 
@@ -2234,11 +2238,13 @@ mod tests {
     async fn test_cmd_fork_creates_branches_in_same_db() {
         let handle = SurrealHandle::setup_db().await.unwrap();
 
-        // Initialize repo
-        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
-
-        // Create a snapshot to fork from
+        // Hermetic init: see `test_pr_note_command` for the pattern.
         let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
+        // Create a snapshot to fork from in the same tempdir.
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
         cmd_snapshot(
@@ -2275,9 +2281,12 @@ mod tests {
     #[tokio::test]
     async fn test_snapshot_linked_to_git_sha() {
         let handle = SurrealHandle::setup_db().await.unwrap();
-        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
-
+        // Hermetic init: see `test_pr_note_command` for the pattern.
         let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"model": "gpt-4", "step": 42}"#).unwrap();
 
