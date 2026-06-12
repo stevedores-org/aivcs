@@ -655,7 +655,19 @@ async fn main() -> Result<()> {
                 repo,
                 librarian,
                 require_local_ci,
-            } => cmd_pr_open(title, body, head, base, owner, repo, librarian, require_local_ci).await,
+            } => {
+                cmd_pr_open(
+                    title,
+                    body,
+                    head,
+                    base,
+                    owner,
+                    repo,
+                    librarian,
+                    require_local_ci,
+                )
+                .await
+            }
             PrAction::Branch {
                 name,
                 base,
@@ -774,9 +786,7 @@ async fn cmd_pr_open(
     let digest = snapshot.digest();
     body = format!(
         "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
-        body,
-        digest,
-        snapshot.local_ci_config_hash
+        body, digest, snapshot.local_ci_config_hash
     );
 
     let client = github_client_from_env(owner, repo)?;
@@ -875,9 +885,7 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
     let digest = snapshot.digest();
     body = format!(
         "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
-        body,
-        digest,
-        snapshot.local_ci_config_hash
+        body, digest, snapshot.local_ci_config_hash
     );
 
     let github_repo = format!("{owner}/{repo}");
@@ -920,10 +928,10 @@ async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
     let body = if let Some(b) = pr_body {
         b
     } else if let Ok(event_path) = std::env::var("GITHUB_EVENT_PATH") {
-        let content = std::fs::read_to_string(event_path)
-            .context("Failed to read GITHUB_EVENT_PATH")?;
-        let event: serde_json::Value = serde_json::from_str(&content)
-            .context("Failed to parse GITHUB_EVENT_PATH JSON")?;
+        let content =
+            std::fs::read_to_string(event_path).context("Failed to read GITHUB_EVENT_PATH")?;
+        let event: serde_json::Value =
+            serde_json::from_str(&content).context("Failed to parse GITHUB_EVENT_PATH JSON")?;
 
         if let Some(body_val) = event.pointer("/pull_request/body") {
             body_val.as_str().unwrap_or_default().to_string()
@@ -940,10 +948,16 @@ async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
     let idx = body.find(pattern).context("No aivcs-ci-snapshot digest found in PR body. Did you open this PR using 'aivcs pr pipeline'?")?;
     let start = idx + pattern.len();
     let rest = &body[start..];
-    let end_idx = rest.find(' ').or_else(|| rest.find("-->")).context("Malformed aivcs-ci-snapshot in PR body")?;
+    let end_idx = rest
+        .find(' ')
+        .or_else(|| rest.find("-->"))
+        .context("Malformed aivcs-ci-snapshot in PR body")?;
     let expected_digest = rest[..end_idx].trim().to_string();
 
-    println!("Extracted snapshot digest from PR body: {}", expected_digest);
+    println!(
+        "Extracted snapshot digest from PR body: {}",
+        expected_digest
+    );
 
     // 3. Recompute snapshot
     let snapshot = aivcs_core::build_ci_snapshot(&repo_root)?;
@@ -1016,12 +1030,13 @@ async fn cmd_snapshot(
     let state: serde_json::Value =
         serde_json::from_str(&state_content).context("Failed to parse state as JSON")?;
 
-    // Resolve git SHA: use override, or auto-detect from cwd (optional)
+    // Resolve git SHA: use override, or auto-detect from cwd. Sentinel
+    // `None` means "no git context" — used by the local-print path and the
+    // A2A emit gate below. See the matching block on the emit site.
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    let git_sha = match git_sha_override {
-        Some(sha) => sha.to_string(),
-        None => aivcs_core::capture_head_sha(&cwd)
-            .unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string()),
+    let git_sha: Option<String> = match git_sha_override {
+        Some(sha) => Some(sha.to_string()),
+        None => aivcs_core::capture_head_sha(&cwd).ok(),
     };
 
     // Generate logic and environment hashes for composite CommitId
@@ -1067,25 +1082,38 @@ async fn cmd_snapshot(
     let branch_record = BranchRecord::new(branch, &commit_id.hash, branch == "main");
     handle.save_branch(&branch_record).await?;
 
-    aivcs_core::maybe_emit_code_committed_from_env(
-        branch,
-        &git_sha,
-        vec![state_path.display().to_string()],
-        author,
-        None,
-        Some(&commit_id.hash),
-    )
-    .await;
+    // Same A2A gate as `cmd_merge`: only emit CODE_COMMITTED when we have
+    // a real git SHA. Emitting with a placeholder hash would be a lie to
+    // any consumer that joins on `commit_sha`.
+    if let Some(sha) = &git_sha {
+        aivcs_core::maybe_emit_code_committed_from_env(
+            branch,
+            sha,
+            vec![state_path.display().to_string()],
+            author,
+            None,
+            Some(&commit_id.hash),
+        )
+        .await;
+    } else {
+        tracing::warn!(
+            aivcs_commit_id = %commit_id.hash,
+            "skipping CODE_COMMITTED emission for snapshot: git SHA unavailable"
+        );
+    }
 
     info!(
         cas_digest = %cas_digest,
-        git_sha = %git_sha,
+        git_sha = %git_sha.as_deref().unwrap_or("(unavailable)"),
         "snapshot stored in CAS"
     );
 
     println!("[{}] {} ({})", branch, message, commit_id.short());
     println!("Commit:    {}", commit_id);
-    println!("Git SHA:   {}", git_sha);
+    println!(
+        "Git SHA:   {}",
+        git_sha.as_deref().unwrap_or("(unavailable)")
+    );
     println!("CAS digest: {}", cas_digest);
 
     Ok(())
@@ -1302,19 +1330,34 @@ async fn cmd_merge(
     // Update target branch head
     let branch = BranchRecord::new(target, &result.merge_commit_id.hash, target == "main");
     handle.save_branch(&branch).await?;
-    let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    let git_sha = aivcs_core::capture_head_sha(&cwd)
-        .unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string());
 
-    aivcs_core::maybe_emit_code_committed_from_env(
-        target,
-        &git_sha,
-        Vec::new(),
-        "agent-git",
-        None,
-        Some(&result.merge_commit_id.hash),
-    )
-    .await;
+    // CODE_COMMITTED carries a `commit_sha` (git) AND an optional
+    // `aivcs_commit_id` (this merge's aivcs hash). The git side has no
+    // meaningful value if git isn't available, and emitting a 40-char
+    // string of zeros is indistinguishable from a real SHA to downstream
+    // consumers — strictly worse than not emitting at all. Skip the A2A
+    // side-effect and log; the aivcs merge itself is already durable.
+    let cwd = std::env::current_dir().context("Failed to get current directory")?;
+    match aivcs_core::capture_head_sha(&cwd) {
+        Ok(git_sha) => {
+            aivcs_core::maybe_emit_code_committed_from_env(
+                target,
+                &git_sha,
+                Vec::new(),
+                "agent-git",
+                None,
+                Some(&result.merge_commit_id.hash),
+            )
+            .await;
+        }
+        Err(e) => {
+            tracing::warn!(
+                aivcs_commit_id = %result.merge_commit_id.hash,
+                error = %e,
+                "skipping CODE_COMMITTED emission for merge: git SHA unavailable"
+            );
+        }
+    }
 
     println!("Merge complete: {}", result.merge_commit_id.short());
     println!("{}", result.summary);
@@ -2093,7 +2136,8 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
     if let Some(intent_id) = read_objective_id() {
         println!("intent-id: {}", intent_id);
     }
-    println!("\n### AIVCS Commit Summary");
+    println!();
+    println!("### AIVCS Commit Summary");
     println!("- **Message**: {}", commit.message);
     println!("- **Author**: {}", commit.author);
     println!("- **Created**: {}", commit.created_at);
@@ -2157,10 +2201,15 @@ mod tests {
     #[tokio::test]
     async fn test_pr_note_command() {
         let handle = SurrealHandle::setup_db().await.unwrap();
-        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
-
-        // Create a snapshot to produce a commit and update the branch
+        // Use a temp dir for cmd_init so the test is hermetic. Previously
+        // this called `cmd_init(&handle, &PathBuf::from("."))`, which leaked
+        // init artifacts into whatever cwd `cargo test` ran from.
         let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
+        // Create a snapshot to produce a commit and update the branch.
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
 
@@ -2171,7 +2220,7 @@ mod tests {
             "test-author",
             "main",
             Some("1234567890abcdef1234567890abcdef12345678"),
-            None,
+            Some(&temp_dir.path().join("cas")),
         )
         .await
         .unwrap();
