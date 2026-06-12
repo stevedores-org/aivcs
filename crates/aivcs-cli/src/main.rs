@@ -653,7 +653,7 @@ async fn main() -> Result<()> {
                 file,
                 owner,
                 repo,
-            } => cmd_pr_commit(branch, path, message, file, owner, repo).await,
+            } => cmd_pr_commit(&handle, branch, path, message, file, owner, repo).await,
             PrAction::Pipeline {
                 branch,
                 base,
@@ -667,7 +667,7 @@ async fn main() -> Result<()> {
                 librarian,
                 skip_branch,
             } => {
-                cmd_pr_pipeline(PrPipelineArgs {
+                cmd_pr_pipeline(&handle, PrPipelineArgs {
                     branch,
                     base,
                     path,
@@ -768,6 +768,7 @@ async fn read_file_for_github_commit(file: &PathBuf) -> Result<Vec<u8>> {
 }
 
 async fn cmd_pr_commit(
+    handle: &SurrealHandle,
     branch: String,
     path: String,
     message: String,
@@ -784,13 +785,18 @@ async fn cmd_pr_commit(
         .await?;
     println!("Committed '{path}' to branch '{branch}' ({sha})");
 
+    let aivcs_commit_id = match handle.get_branch(&branch).await {
+        Ok(Some(b)) => Some(b.head_commit_id),
+        _ => None,
+    };
+
     aivcs_core::maybe_emit_code_committed_from_env(
         &branch,
         &sha,
         vec![path.clone()],
         "github-pr-commit",
         Some(&github_repo),
-        None,
+        aivcs_commit_id.as_deref(),
     )
     .await;
 
@@ -811,7 +817,7 @@ struct PrPipelineArgs {
     skip_branch: bool,
 }
 
-async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
+async fn cmd_pr_pipeline(handle: &SurrealHandle, args: PrPipelineArgs) -> Result<()> {
     let PrPipelineArgs {
         branch,
         base,
@@ -841,13 +847,18 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         .await?;
     println!("Committed '{path}' to branch '{branch}' ({sha})");
 
+    let aivcs_commit_id = match handle.get_branch(&branch).await {
+        Ok(Some(b)) => Some(b.head_commit_id),
+        _ => None,
+    };
+
     aivcs_core::maybe_emit_code_committed_from_env(
         &branch,
         &sha,
         vec![path.clone()],
         "github-pr-pipeline",
         Some(&github_repo),
-        None,
+        aivcs_commit_id.as_deref(),
     )
     .await;
 
