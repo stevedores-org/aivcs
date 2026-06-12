@@ -64,6 +64,16 @@
             strictDeps = true;
             buildInputs = with pkgs; [
               openssl
+            ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              # Required on macOS for the OpenSSL / reqwest / git2 chain that
+              # aivcs-core depends on. Removed in #223 without an explanation;
+              # restoring because the CI matrix is Linux-only, so removing
+              # silently broke `nix develop` and `nix build` for any macOS
+              # contributor. If a future refactor genuinely removes the
+              # dependency on these frameworks, drop these AND add a darwin
+              # builder to CI to prove the removal is safe.
+              pkgs.darwin.apple_sdk.frameworks.Security
+              pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
             ];
             nativeBuildInputs = with pkgs; [
               pkg-config
