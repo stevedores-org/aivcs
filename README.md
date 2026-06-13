@@ -119,6 +119,131 @@ export AIVCS_JOB_ID="agent-job-123"
 aivcs snapshot --state state.json --message "Update state" --branch develop
 ```
 
+1. **Level 1: Syntactic Build Test**: Validates that all Kustomize overlays can be built successfully (`kustomize build`).
+2. **Level 2: Schema Validation**: Uses `kubeconform` to validate Kubernetes resources against official schemas.
+3. **Level 3: Security & Policy Guardrails**: Uses `Checkov` to scan for security misconfigurations and policy violations.
+4. **Secret Scanning**: Uses `Gitleaks` to prevent sensitive data from being committed.
+5. **Label Compliance**: Ensures all resources have mandatory `lornu.ai/environment`, `lornu.ai/managed-by`, and `lornu.ai/asset-id` labels.
+6. **Gemini Code Review**: Automated AI code review for all Pull Requests (Issue #695).
+7. **PR Merge Policy**: NO pull requests may be merged if there are failing CI checks or unresolved merge conflicts.
+8. **Unit Test Coverage**: Coverage is enforced with a phased rollout via `.github/workflows/rust-coverage.yml` (75% threshold: warn on PRs/non-main pushes, block on `main` push).
+
+**Declarative GitOps Policy**: All infrastructure changes must follow the declarative GitOps workflow. Imperative commands are prohibited. See [docs/DECLARATIVE_GITOPS_POLICY.md](docs/DECLARATIVE_GITOPS_POLICY.md).
+
+## **Zero-Trust OIDC Authentication**
+
+Lornu AI implements **universal OIDC federation** for sovereign, zero-secret authentication across all environments:
+
+### **AWS Hub (EKS) - IRSA**
+- **IAM OIDC Provider**: GitHub Actions + EKS service accounts
+- **Roles**: `lornu-ai-github-actions-role`, `lornu-ai-flux-controller-role`
+- **Annotation**: `eks.amazonaws.com/role-arn: arn:aws:iam::${AWS_ACCOUNT_ID}:role/...`
+
+### **GCP Spoke (GKE) - Workload Identity**
+- **Workload Identity Pool**: `github-pool` with GitHub + EKS providers
+- **Service Account**: `lornu-ai-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com`
+- **Annotation**: `iam.gke.io/gcp-service-account: ...`
+
+### **GitOps Flow**
+1. **GitHub Actions** → OIDC → IAM Roles → Temporary Credentials
+2. **EKS/GKE Pods** → IRSA/Workload Identity → Cloud Resources
+3. **Zero Static Secrets** - All authentication is federated
+
+### **Zero-Trust MCP Agent Authentication**
+
+This repository ships the MCP identity stack for repo-scoped agent tools:
+
+| Crate | Port | Role |
+|-------|------|------|
+| `aivcs-auth` | 8081 | Workload bootstrap → JWT |
+| `aivcs-mcp-gateway` | 8082 | Scope/risk, HITL approvals, revocation |
+
+- **Canonical guide:** [docs/mcp-auth-guide.md](docs/mcp-auth-guide.md)
+- **Agent skill:** `.cursor/skills/mcp-auth/SKILL.md`
+- **Run locally:** `cargo run -p aivcs-auth` and `cargo run -p aivcs-mcp-gateway`
+
+These gates are enforced on every Pull Request to `develop` and `staging`.
+
+## **Global Low-Cost Data Fabric (GLCDF)**
+
+The **GLCDF** is a unified, globally distributed persistence layer designed for autonomous agents, optimized for extreme cost-efficiency and sovereign data control (Issue #541).
+
+- **Storage Engine**: Azure Cosmos DB (Serverless/Provisioned Multi-region) + Azure Blob Storage.
+- **Architecture**: Decoupled compute/storage with zero-copy ingest and local-first caching.
+- **Cost Optimization**: 50-70% reduction in state storage costs compared to traditional NoSQL.
+- **Latency Sovereignty**: Global distribution ensuring <100ms state retrieval for agents worldwide.
+- **Governance**: Integrated with `warden` for PII/Secret scrubbing and `zen` for governance.
+- **Client Library**: `packages/glcdf-client/` - Python async client with lazy loading and local caching.
+
+### Quick Start (glcdf-client)
+Client libraries available in Rust and TypeScript for agent state management.
+
+- **Build Once, Promote Often**: All container images are built and mirrored to all clouds by Dockworker.ai, ensuring a single cryptographic digest. Production is promoted by SHA.
+- **Target Branch**: All development PRs must target the `develop` branch.
+- `.github/workflows/`: Consolidated intelligent orchestrators (Issue #440)
+- `dockworker.toml`: Sovereign Build Manifest (Issue #439)
+- `crossplane/hub/deploy/overlays/gcp/`: GCP hub control-plane + infra (PRIMARY Operational Hub)
+- `crossplane/hub/deploy/overlays/azure/`: Azure hub control-plane + infra (In Provisioning)
+- **Production**: Updates to `main` are for production stabilization and promotion.
+
+* **Control Plane (Private Hub)**: `private-lornu-ai` (Zero-Secret, SOPS-Encrypted).
+* **Workload Plane (Public Spoke)**: `lornu-ai` (Application Manifests, Open-Source compatible).
+* **Sync Mechanism**: Flux CD bootstrapped to `private-lornu-ai`.
+* **Single EKS/GKE cluster** with `lornu-ai-dev`, `lornu-ai-staging`, and `lornu-ai-prod` namespaces.
+* **Kustomize overlays** per environment (Spoke-managed).
+* **Crossplane** as infrastructure control plane.
+* **Modern runtimes**: Rust (Backend/Core), Bun (Frontend).
+* **Tooling**: Rust (MANDATORY - Rust-or-Bust policy for all backend components), Bun (Frontend), Infrastructure Cleanup (`scripts/aws-cleanup.sh`).
+* **Performance Sovereignty**: Bolt ⚡ persona ensures sub-100ms latency and maximum cost-efficiency.
+* **Unified Organization**: High-value AI/Agentic repositories consolidated from legacy orgs (see [Repository Migration Audit](docs/STEVEI101_REPO_MIGRATION_AUDIT.md)).
+* **Global Low-Cost Data Fabric (GLCDF)**: Multi-region, Azure-optimized persistence layer for sovereign agent state and long-term memory (Issue #541).
+
+## **Key Operational Agents**
+
+Lornu AI includes several autonomous agents for operational excellence:
+
+- **SRE Auto-Remediation Agent** (`ai-agents/sre-agent-rs/`): Rust-based Kubernetes pod failure detection with AI-driven remediation using GPT-4o via Rig framework
+- **Drift Enforcer Agent** (`ai-agents/drift-enforcer/`): Multi-cloud resource sprawl detection and automated decommissioning
+- **Workflow Sentinel** (`ai-agents/workflow-sentinel-rs/`): High-performance GitHub Actions linter implemented in Rust
+- **PR Review Agent** (`ai-agents/ai-agent-pr-review/`): Automated code review with Gemini integration
+- **Cloudflare DNS Agent** (`ai-agents/cloudflare-dns-agent/`): Multi-cloud DNS synchronization across AWS Route53, GCP Cloud DNS, and Azure DNS
+
+For complete agent documentation, see [AGENTS.md](AGENTS.md).
+
+## **Directory Structure**
+
+```plaintext
+crossplane/hub/deploy/          # Unified hub infrastructure (Issue #472)
+  ├── base/                     # Shared infrastructure APIs
+  └── overlays/{aws,azure,gcp}/ # Cloud-specific + app-agents
+crossplane/spoke/apps/          # Spoke workloads (23 apps + 5 hub agents)
+apps/                           # Deployable applications (23 total)
+  ├── automation-hub/           # Cloudflare Workers (OIDC hub + CI automation)
+  ├── lornu-ai/                 # Lornu AI application parent
+  │   ├── frontend/             # React frontend (Bun)
+  │   └── deploy/               # Deployment manifests (Flux/Kustomize)
+  ├── dockworker-ai/            # Dockworker AI application parent
+  │   ├── frontend/             # React frontend (Bun)
+  │   ├── backend/              # Rust backend
+  │   └── worker/               # Rust worker
+  ├── api/                      # Rust backend
+  ├── cloudflare-dns-agent/     # DNS Sync Agent (Rust)
+  ├── cloudflare-edge-discovery/ # Edge Discovery Worker (TypeScript)
+  └── [17 more applications]
+ai-agents/                      # Autonomous Agents (Rust)
+  ├── aiops-agent/              # AIOps Auto-Remediation
+  ├── ai-agent-cleaner/         # Security scanner
+  ├── ai-agent-pr-review/       # CI gatekeeper
+  ├── sre-agent/                # SRE Auto-Remediation
+  └── agent-registry/           # FastA2A Agent Registry Service
+packages/                       # Reusable libraries ONLY
+  ├── glcdf-client/             # Global Low-Cost Data Fabric client (Rust/TS)
+  ├── lornu-mcp-hub/            # MCP tools hub
+  └── ai-agent-cleaner/         # Cleaner library
+templates/                      # Satellite repository templates (7-File Rule, CI/CD)
+terraform/                      # Legacy infrastructure (Terraform Cloud)
+```
+
 Optional settings:
 
 | Variable | Description |

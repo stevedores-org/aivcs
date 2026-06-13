@@ -191,3 +191,12 @@ cargo test -p aivcs-auth
 # Run all workspace tests
 cargo test --workspace
 ```
+
+---
+
+## Related Documentation
+
+- Lornu hub summary: [`lornu.ai/docs/MCP_ZERO_TRUST_AUTH.md`](https://github.com/lornu-ai/lornu.ai/blob/develop/docs/MCP_ZERO_TRUST_AUTH.md)
+- Agent skill: `.cursor/skills/mcp-auth/SKILL.md` — invoke when integrating or reviewing MCP auth
+- Phase-1 gaps: [#239](https://github.com/stevedores-org/aivcs/issues/239)
+

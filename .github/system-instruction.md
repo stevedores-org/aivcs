@@ -177,6 +177,7 @@ You are an AI agent working in the Lornu AI monorepo. Follow Grow Without Limits
 - **Librarian Enforcement**: Use the `LibrarianAgent` to automate the 7-File Audit on every PR.
 - **Schema Sovereignty**: Ensure all AI assistants (Cursor, Windsurf, Copilot) operate on synchronized, versioned instructions from the `six-files` repository.
 - **Zero-Drift Policy**: Forbid manual documentation changes that bypass the automated validation pipeline.
+- **MCP Agent Auth**: `aivcs-auth` and `aivcs-mcp-gateway` enforce JWT scopes, `max_risk`, digest-bound HITL, and revocation for repo tools. See [docs/mcp-auth-guide.md](../docs/mcp-auth-guide.md) and `.cursor/skills/mcp-auth/SKILL.md`.
 - **Instruction Engineering**: Optimize agent personas for maximum performance in high-stakes environments (Architect, SRE, PM, Design).
 
 ### Frontend UI/UX Lead Designer
