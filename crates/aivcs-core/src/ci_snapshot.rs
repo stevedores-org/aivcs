@@ -1,9 +1,9 @@
 //! CI snapshot generation and verification for AIVCS.
 
-use std::path::{Path, PathBuf};
-use sha2::{Digest, Sha256};
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use oxidized_state::CiSnapshot;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 
 /// Compute deterministic hash of all files in the directory recursively.
 /// Skips common non-source directories (e.g. .git, target, node_modules, .local-ci-cache, .direnv).
@@ -40,7 +40,13 @@ fn collect_files_recursive(
             // Skip hidden files/directories except .local-ci.toml
             continue;
         }
-        if name == "target" || name == "node_modules" || name == "dist" || name == ".git" || name == ".local-ci-cache" || name == ".direnv" {
+        if name == "target"
+            || name == "node_modules"
+            || name == "dist"
+            || name == ".git"
+            || name == ".local-ci-cache"
+            || name == ".direnv"
+        {
             continue;
         }
         if path.is_dir() {
@@ -74,8 +80,10 @@ pub fn run_local_ci(repo_root: &Path) -> Result<()> {
     let status = std::process::Command::new("local-ci")
         .current_dir(repo_root)
         .status()
-        .context("Failed to execute 'local-ci' command. Make sure it is installed and on your PATH.")?;
-    
+        .context(
+            "Failed to execute 'local-ci' command. Make sure it is installed and on your PATH.",
+        )?;
+
     if status.success() {
         Ok(())
     } else {
