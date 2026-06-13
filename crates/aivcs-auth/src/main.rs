@@ -218,7 +218,7 @@ mod tests {
         let json: Value = serde_json::from_slice(&body_bytes).unwrap();
 
         let token = json["access_token"].as_str().unwrap();
-        assert!(token.len() > 0);
+        assert!(!token.is_empty());
         assert_eq!(json["expires_in"], 600);
 
         // Decode and verify token using the public key
