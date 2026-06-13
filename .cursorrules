@@ -232,6 +232,15 @@ The canonical 5-step loop lives in **[Poll & Prioritize Workflow (MANDATORY)](#p
 
 **Automation**: The `LibrarianAgent` automatically scans and suggests updates for these files. Use `check-documentation-sync` MCP tool to validate sync status.
 
+## Zero-Trust MCP Gateway (AIVCS)
+
+When changing `aivcs-auth`, `aivcs-mcp-gateway`, or MCP auth docs:
+
+- Read [docs/mcp-auth-guide.md](docs/mcp-auth-guide.md) and invoke `.cursor/skills/mcp-auth/SKILL.md`
+- Gateway routes require `Authorization`, `MCP-Protocol-Version`, and `Mcp-Session-Id`
+- HITL digest: `hex(SHA256(tool || serde_json(arguments)))`
+- Run `cargo test -p aivcs-mcp-gateway` and `cargo test -p aivcs-auth` before PR
+
 ## PR Labeling (ALWAYS Required)
 - **MANDATORY**: Apply a label for the **worker/agent** (e.g., `codex`, `vs-code`, `antigravity`, `claude`, `cursor-ide`, `jules`) to every PR
 - If the label doesn't exist, create it first: `gh label create <agent-name>`

@@ -63,6 +63,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "aivcs-auth"
+version = "0.3.1"
+dependencies = [
+ "aivcs-core",
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "hex",
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.4.13",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "aivcs-ci"
 version = "0.3.1"
 dependencies = [
@@ -127,6 +146,25 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "aivcs-mcp-gateway"
+version = "0.3.1"
+dependencies = [
+ "aivcs-core",
+ "anyhow",
+ "axum",
+ "chrono",
+ "hex",
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower 0.4.13",
+ "tracing",
  "uuid",
 ]
 
@@ -497,6 +535,7 @@ checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
 dependencies = [
  "async-trait",
  "axum-core",
+ "axum-macros",
  "bytes",
  "futures-util",
  "http",
@@ -517,7 +556,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tower",
+ "tower 0.5.3",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -542,6 +581,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -2828,7 +2878,7 @@ dependencies = [
  "serde_urlencoded",
  "snafu",
  "tokio",
- "tower",
+ "tower 0.5.3",
  "tower-http",
  "tracing",
  "url",
@@ -3576,7 +3626,7 @@ dependencies = [
  "tokio-native-tls",
  "tokio-rustls",
  "tokio-util",
- "tower",
+ "tower 0.5.3",
  "tower-http",
  "tower-service",
  "url",
@@ -4952,6 +5002,21 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tower"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "pin-project",
+ "pin-project-lite",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
@@ -4980,7 +5045,7 @@ dependencies = [
  "http-body",
  "iri-string",
  "pin-project-lite",
- "tower",
+ "tower 0.5.3",
  "tower-layer",
  "tower-service",
  "tracing",
