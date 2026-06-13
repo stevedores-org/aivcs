@@ -87,8 +87,19 @@ fn is_owner_repo(value: &str) -> bool {
     let mut parts = value.split('/');
     matches!(
         (parts.next(), parts.next(), parts.next()),
-        (Some(owner), Some(repo), None) if !owner.is_empty() && !repo.is_empty()
+        (Some(owner), Some(repo), None) if is_valid_segment(owner) && is_valid_segment(repo)
     )
+}
+
+/// GitHub's actual character class for owner / repo segments: ASCII alnum
+/// plus `.`, `_`, `-`. Anything outside that (including whitespace,
+/// newlines, and shell metacharacters) is rejected so a malformed or
+/// hostile remote can't smuggle data through `parse_github_remote`.
+fn is_valid_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 /// Detect the current local git branch name.
@@ -186,12 +197,23 @@ mod tests {
 
     #[test]
     fn parse_github_remote_supports_https_and_ssh() {
+        // All four shapes — HTTPS and SCP-style SSH, each with and without
+        // the `.git` suffix. The bare forms appear when a user runs
+        // `git clone` against a URL that was hand-typed without `.git`.
         assert_eq!(
             parse_github_remote("https://github.com/stevedores-org/aivcs.git"),
             Some("stevedores-org/aivcs".to_string())
         );
         assert_eq!(
+            parse_github_remote("https://github.com/stevedores-org/aivcs"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+        assert_eq!(
             parse_github_remote("git@github.com:stevedores-org/aivcs.git"),
+            Some("stevedores-org/aivcs".to_string())
+        );
+        assert_eq!(
+            parse_github_remote("git@github.com:stevedores-org/aivcs"),
             Some("stevedores-org/aivcs".to_string())
         );
     }
@@ -218,6 +240,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_github_remote_rejects_malformed_segments() {
+        // Defense-in-depth: characters outside GitHub's owner/repo class
+        // (alnum + . _ -) must be rejected so a malformed remote can't
+        // splice arbitrary bytes into the returned owner/repo string.
+        // Newline, space, shell metachars are the realistic vectors.
+        assert_eq!(
+            parse_github_remote("git@github.com:malicious\n/payload"),
+            None
+        );
+        assert_eq!(
+            parse_github_remote("git@github.com:owner with space/repo"),
+            None
+        );
+        assert_eq!(
+            parse_github_remote("git@github.com:owner;rm -rf/repo"),
+            None
+        );
+        // Empty segments still rejected (regression guard).
+        assert_eq!(parse_github_remote("git@github.com:/repo"), None);
+        assert_eq!(parse_github_remote("git@github.com:owner/"), None);
+    }
+
+    #[test]
     fn detect_current_branch_detached_head_returns_err() {
         let repo = make_git_repo();
         // Detach HEAD by checking out the commit SHA directly.
@@ -229,9 +274,17 @@ mod tests {
             .unwrap();
         assert!(status.status.success(), "git checkout --detach failed");
         let err = detect_current_branch(repo.path()).expect_err("detached HEAD must error");
+        let msg = err.to_string();
+        // The state must be named so the operator sees what's wrong.
         assert!(
-            err.to_string().contains("detached-HEAD"),
+            msg.contains("detached-HEAD"),
             "error must name the state: {err}"
+        );
+        // The corrective action must survive future refactors of the
+        // error message — this is the actual user-facing value-add.
+        assert!(
+            msg.contains("pass --branch explicitly"),
+            "error must include the corrective action: {err}"
         );
     }
 
