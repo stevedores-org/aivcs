@@ -75,7 +75,11 @@ jobs:
           - check: aivcsd
             path: packages
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # `tests` is the long pole — it compiles the whole workspace AND runs
+    # nextest on a cold ubuntu-latest runner. Observed 20m+ on the first
+    # Phase 1 run (PR #244, job 81204220659), so 30m for ample headroom.
+    # Other shards finish in 1–20m and exit well under the cap.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
