@@ -92,11 +92,14 @@ fn is_owner_repo(value: &str) -> bool {
 }
 
 /// GitHub's actual character class for owner / repo segments: ASCII alnum
-/// plus `.`, `_`, `-`. Anything outside that (including whitespace,
-/// newlines, and shell metacharacters) is rejected so a malformed or
-/// hostile remote can't smuggle data through `parse_github_remote`.
+/// plus `.`, `_`, `-`, AND segments may not start with `.` or `-` (GitHub
+/// rejects these server-side). Anything outside that — whitespace,
+/// newlines, shell metacharacters, leading dots / dashes — is rejected
+/// so a malformed or hostile remote can't smuggle data through
+/// `parse_github_remote`.
 fn is_valid_segment(segment: &str) -> bool {
     !segment.is_empty()
+        && !segment.starts_with(['.', '-'])
         && segment
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
@@ -260,6 +263,10 @@ mod tests {
         // Empty segments still rejected (regression guard).
         assert_eq!(parse_github_remote("git@github.com:/repo"), None);
         assert_eq!(parse_github_remote("git@github.com:owner/"), None);
+        // Leading `.` and `-` are valid char-class members but rejected
+        // by GitHub server-side; mirror that policy locally.
+        assert_eq!(parse_github_remote("git@github.com:.evil/repo"), None);
+        assert_eq!(parse_github_remote("git@github.com:owner/-evil"), None);
     }
 
     #[test]

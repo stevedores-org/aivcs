@@ -2163,18 +2163,9 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
             )
         })?;
 
-    // Format output matching acceptance criteria.
-    //
-    // The `<!-- aivcs-linkage -->` HTML comment is a *visible section
-    // header* for the metadata that follows. The lines underneath
-    // (`aivcs-commit:`, `intent-id:`) are human-readable plain text and
-    // are the durable index into the aivcs ledger — the comment marker
-    // is just an anchor that reviewers (and the Phase 1 verifier) can
-    // locate without parsing markdown headings. This is a different
-    // pattern from `<!-- aivcs-ci-snapshot: sha256:... -->` over in
-    // `ci_snapshot`, where the comment itself buries an opaque
-    // workspace digest as the payload. Here the comment is metadata
-    // *about* the section, not the metadata payload.
+    // `<!-- aivcs-linkage -->` is a section anchor; the payload lives on
+    // the readable lines below. Different shape from the snapshot comment
+    // in `ci_snapshot`, which buries the digest inside the comment itself.
     // See stevedores-org/aivcs#231 (M2).
     println!("<!-- aivcs-linkage -->");
     println!("aivcs-commit: {}", commit.commit_id.hash);
