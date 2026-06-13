@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -151,7 +151,10 @@ async fn health_check() -> Json<Value> {
 }
 
 // Helper to validate headers and token
-fn validate_auth(headers: &HeaderMap, revocations: &RevocationList) -> std::result::Result<McpClaims, (StatusCode, Json<Value>)> {
+fn validate_auth(
+    headers: &HeaderMap,
+    revocations: &RevocationList,
+) -> std::result::Result<McpClaims, (StatusCode, Json<Value>)> {
     // Check MCP headers
     let version = headers
         .get("MCP-Protocol-Version")
@@ -197,7 +200,7 @@ fn validate_auth(headers: &HeaderMap, revocations: &RevocationList) -> std::resu
     // Verify JWT
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_audience(&["https://mcp.aivcs.lornu.ai"]);
-    
+
     let dec_key = DecodingKey::from_rsa_pem(PUBLIC_KEY_PEM.as_bytes()).map_err(|e| {
         error!("Decoding key load failed: {}", e);
         (
@@ -241,14 +244,12 @@ async fn list_tools(
     info!("Listing tools for agent: {}", claims.agent_id);
 
     // Dynamic filtering based on max risk and scopes in the token
-    let mut tools = vec![
-        json!({
-            "name": "repo.diff.read",
-            "description": "Read file diffs in the repository",
-            "risk_level": "read",
-            "required_scopes": ["repo.diff.read"]
-        }),
-    ];
+    let mut tools = vec![json!({
+        "name": "repo.diff.read",
+        "description": "Read file diffs in the repository",
+        "risk_level": "read",
+        "required_scopes": ["repo.diff.read"]
+    })];
 
     if claims.scopes.contains(&"repo.diff.write".to_string()) && claims.max_risk != "read" {
         tools.push(json!({
@@ -287,7 +288,13 @@ async fn call_tool(
 
     let req: ToolCallRequest = match serde_json::from_value(req) {
         Ok(r) => r,
-        Err(err) => return (StatusCode::BAD_REQUEST, Json(json!({"error": err.to_string()}))).into_response(),
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": err.to_string()})),
+            )
+                .into_response()
+        }
     };
 
     info!(
@@ -304,7 +311,8 @@ async fn call_tool(
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "unknown_tool" })),
-            ).into_response()
+            )
+                .into_response()
         }
     };
 
@@ -315,7 +323,8 @@ async fn call_tool(
             authority_id: None,
             result: None,
             reason: Some(format!("Missing required scope: {}", required_scope)),
-        }).into_response();
+        })
+        .into_response();
     }
 
     if risk_level == "destructive" && claims.max_risk == "read" {
@@ -324,7 +333,8 @@ async fn call_tool(
             authority_id: None,
             result: None,
             reason: Some("Tool risk level exceeds maximum allowed risk level".to_string()),
-        }).into_response();
+        })
+        .into_response();
     }
 
     // Step 3: Compute canonical payload digest to lock down tool arguments (rpelevin requirement)
@@ -375,7 +385,8 @@ async fn call_tool(
                 "Human approval required for action. Payload digest: {}",
                 payload_digest
             )),
-        }).into_response();
+        })
+        .into_response();
     }
 
     // Step 5: Mint One-Use Authority Record (rpelevin invariant)
@@ -432,7 +443,9 @@ async fn call_tool(
     let result = match req.tool.as_str() {
         "repo.diff.read" => json!({ "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n" }),
         "repo.diff.write" => json!({ "status": "changes_written" }),
-        "repo.merge.execute" => json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" }),
+        "repo.merge.execute" => {
+            json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" })
+        }
         _ => json!({}),
     };
 
@@ -443,7 +456,8 @@ async fn call_tool(
         authority_id: Some(authority_id),
         result: Some(result),
         reason: None,
-    }).into_response()
+    })
+    .into_response()
 }
 
 async fn create_approval(
@@ -554,7 +568,7 @@ mod tests {
 
         // 1. Check list tools with valid credentials
         let token = mint_test_token("write", vec!["repo.diff.read", "repo.diff.write"]);
-        
+
         let req = axum::http::Request::builder()
             .uri("/v1/mcp/tools/list")
             .header("Authorization", format!("Bearer {}", token))
@@ -566,7 +580,9 @@ mod tests {
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert!(json["tools"].as_array().unwrap().len() >= 2);
 
@@ -578,17 +594,22 @@ mod tests {
             .header("MCP-Protocol-Version", "2025-06-18")
             .header("Mcp-Session-Id", "session-1")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "tool": "repo.diff.read",
-                "arguments": {},
-                "repo": "stevedores-org/aivcs"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.diff.read",
+                    "arguments": {},
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(res_json["status"], "success");
         assert!(res_json["authority_id"].as_str().is_some());
@@ -602,19 +623,24 @@ mod tests {
             .header("MCP-Protocol-Version", "2025-06-18")
             .header("Mcp-Session-Id", "session-1")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "tool": "repo.merge.execute",
-                "arguments": {
-                    "branch": "develop"
-                },
-                "repo": "stevedores-org/aivcs"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": {
+                        "branch": "develop"
+                    },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(res_json["status"], "approval_required");
 
@@ -629,13 +655,16 @@ mod tests {
             .method("POST")
             .uri("/v1/mcp/approvals")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "run_id": "run-test-run",
-                "task_id": "task-test-task",
-                "action": "repo.merge.execute",
-                "payload_digest": payload_digest,
-                "approved_by": "human:supervisor@lornu.ai"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "run_id": "run-test-run",
+                    "task_id": "task-test-task",
+                    "action": "repo.merge.execute",
+                    "payload_digest": payload_digest,
+                    "approved_by": "human:supervisor@lornu.ai"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
@@ -649,19 +678,24 @@ mod tests {
             .header("MCP-Protocol-Version", "2025-06-18")
             .header("Mcp-Session-Id", "session-1")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "tool": "repo.merge.execute",
-                "arguments": {
-                    "branch": "develop"
-                },
-                "repo": "stevedores-org/aivcs"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": {
+                        "branch": "develop"
+                    },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(res_json["status"], "success");
         assert!(res_json["authority_id"].as_str().is_some());
@@ -674,19 +708,24 @@ mod tests {
             .header("MCP-Protocol-Version", "2025-06-18")
             .header("Mcp-Session-Id", "session-1")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "tool": "repo.merge.execute",
-                "arguments": {
-                    "branch": "develop"
-                },
-                "repo": "stevedores-org/aivcs"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": {
+                        "branch": "develop"
+                    },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(res_json["status"], "approval_required");
     }
@@ -697,7 +736,7 @@ mod tests {
 
         // Token with max_risk="read" but having merge scope
         let token = mint_test_token("read", vec!["repo.merge.execute"]);
-        
+
         let req = axum::http::Request::builder()
             .method("POST")
             .uri("/v1/mcp/tools/call")
@@ -705,22 +744,30 @@ mod tests {
             .header("MCP-Protocol-Version", "2025-06-18")
             .header("Mcp-Session-Id", "session-1")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "tool": "repo.merge.execute",
-                "arguments": {
-                    "branch": "develop"
-                },
-                "repo": "stevedores-org/aivcs"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": {
+                        "branch": "develop"
+                    },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(res_json["status"], "denied");
-        assert!(res_json["reason"].as_str().unwrap().contains("exceeds maximum allowed risk"));
+        assert!(res_json["reason"]
+            .as_str()
+            .unwrap()
+            .contains("exceeds maximum allowed risk"));
     }
 
     #[tokio::test]
@@ -733,9 +780,12 @@ mod tests {
             .method("POST")
             .uri("/v1/mcp/revocation")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "jti": "test-jti-1"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "jti": "test-jti-1"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
@@ -749,17 +799,22 @@ mod tests {
             .header("MCP-Protocol-Version", "2025-06-18")
             .header("Mcp-Session-Id", "session-1")
             .header("Content-Type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&json!({
-                "tool": "repo.diff.read",
-                "arguments": {},
-                "repo": "stevedores-org/aivcs"
-            })).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.diff.read",
+                    "arguments": {},
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(res_json["error"], "token_revoked");
     }

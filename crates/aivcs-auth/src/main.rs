@@ -87,12 +87,14 @@ async fn jwks() -> Json<Value> {
                 "kid": "key-id-aivcs",
                 "n": n_b64,
                 "e": "AQAB"
-			}
+            }
         ]
     }))
 }
 
-async fn bootstrap(Json(req): Json<BootstrapRequest>) -> std::result::Result<Json<BootstrapResponse>, axum::http::StatusCode> {
+async fn bootstrap(
+    Json(req): Json<BootstrapRequest>,
+) -> std::result::Result<Json<BootstrapResponse>, axum::http::StatusCode> {
     info!(
         "Exchange workload identity for run={} task={} agent={}",
         req.run_id, req.task_id, req.agent_id
@@ -175,9 +177,11 @@ mod tests {
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Value = serde_json::from_slice(&body_bytes).unwrap();
-        
+
         let keys = json["keys"].as_array().unwrap();
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0]["kty"], "RSA");
@@ -200,15 +204,19 @@ mod tests {
             .method("POST")
             .uri("/v1/auth/bootstrap")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&req_body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&req_body).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Value = serde_json::from_slice(&body_bytes).unwrap();
-        
+
         let token = json["access_token"].as_str().unwrap();
         assert!(token.len() > 0);
         assert_eq!(json["expires_in"], 600);
@@ -243,11 +251,12 @@ mod tests {
             .method("POST")
             .uri("/v1/auth/bootstrap")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(serde_json::to_vec(&req_body).unwrap()))
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&req_body).unwrap(),
+            ))
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
-
