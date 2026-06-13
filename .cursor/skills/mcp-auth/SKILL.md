@@ -39,4 +39,4 @@ Call tool → `approval_required` → register approval with digest → retry sa
 
 ## Before Merging Auth Changes
 
-Update six governance files and `docs/mcp-auth-guide.md`. Note dev gaps: mock bootstrap, unauthenticated approval/revocation endpoints.
+Update seven governance files (7-File Rule) and `docs/mcp-auth-guide.md`. Note dev gaps: mock bootstrap, unauthenticated approval/revocation endpoints.

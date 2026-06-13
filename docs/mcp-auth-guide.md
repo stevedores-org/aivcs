@@ -150,7 +150,7 @@ Every gateway endpoint returns a JSON body. Status codes are deliberate — `200
 |---|---|---|---|
 | Tool not in registry | `400` | n/a | `"unknown_tool"` |
 | Required scope not in `claims.scopes` | `200` | `denied` | `Missing required scope: <scope>` |
-| Destructive tool, `claims.max_risk == "read"` | `200` | `denied` | `Tool risk level exceeds maximum allowed risk level` |
+| Write or destructive tool exceeds `claims.max_risk` | `200` | `denied` | `Tool risk level exceeds maximum allowed risk level` |
 | Destructive tool, no matching approval ever recorded | `200` | `approval_required` | `Human approval required for action. Payload digest: <hex>` |
 | Destructive tool, matching approval **expired** (> `APPROVAL_TTL_HOURS`) | `200` | `approval_required` | `Existing human approval expired (TTL = 2h). Request a fresh approval. Payload digest: <hex>` |
 | Destructive tool, matching approval **already consumed** | `200` | `approval_required` | `Existing human approval already consumed. Request a fresh approval. Payload digest: <hex>` |
