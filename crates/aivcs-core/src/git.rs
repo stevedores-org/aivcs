@@ -260,6 +260,16 @@ mod tests {
         // Empty segments still rejected (regression guard).
         assert_eq!(parse_github_remote("git@github.com:/repo"), None);
         assert_eq!(parse_github_remote("git@github.com:owner/"), None);
+        // HTTPS-side coverage — the same gate must reject these too.
+        // (Develop already covers the SSH-side cases above; #237 added
+        // these HTTPS-shape variants which weren't in the original
+        // M4 sweep.)
+        assert_eq!(parse_github_remote("https://github.com/foo bar/baz"), None);
+        assert_eq!(parse_github_remote("https://github.com//repo"), None);
+        assert_eq!(parse_github_remote("https://github.com/owner/"), None);
+        // Backticks (command-substitution metachar) on the SSH side —
+        // distinct from the `;` shell-separator case already covered.
+        assert_eq!(parse_github_remote("git@github.com:`whoami`/repo"), None);
     }
 
     #[test]
