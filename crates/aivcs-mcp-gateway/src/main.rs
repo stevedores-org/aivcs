@@ -18,6 +18,13 @@ use uuid::Uuid;
 
 const PUBLIC_KEY_PEM: &str = include_str!("../../aivcs-auth/keys/public.pem");
 
+/// Maximum age of a `HumanApproval` grant before it stops counting as a valid
+/// authorisation. Per the AIVCS Zero-Trust MCP Identity Model
+/// (stevedores-org/aivcs#228, Feature 3.1): *"The grant must be single-use and
+/// expire (e.g., within 2 hours)."* Expressed in hours rather than as a fixed
+/// `Duration` so the policy value is human-greppable in audit logs.
+const APPROVAL_TTL_HOURS: i64 = 2;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct McpClaims {
     sub: String,
@@ -75,6 +82,13 @@ struct ToolCallRequest {
     tool: String,
     arguments: Value,
     repo: String,
+    /// Reserved for the client-side approval-id passing pattern (#228 Feature
+    /// 3.1). The gateway currently looks up approvals by the
+    /// (run_id, task_id, action, payload_digest) tuple on `McpClaims`, so this
+    /// field is accepted on the wire but not yet consulted. Kept on the
+    /// request shape so callers can start sending it before the lookup path
+    /// switches over.
+    #[allow(dead_code)]
     approval_id: Option<String>,
 }
 
@@ -345,46 +359,120 @@ async fn call_tool(
     let payload_digest = hex::encode(hasher.finalize());
 
     // Step 4: Policy & Human Approval Check
+    //
+    // For destructive tools we need a `HumanApproval` matching the
+    // (run_id, task_id, action, payload_digest) tuple that is:
+    //   - not already consumed (`used == false`),
+    //   - not older than `APPROVAL_TTL_HOURS` (#228 Feature 3.1).
+    //
+    // We deliberately classify "stale or consumed" separately from
+    // "no approval ever recorded" so operators can tell why their grant
+    // didn't take effect from the response `reason` alone, without
+    // grepping the audit log.
     let mut active_approval_id = None;
+    let mut stale_status: Option<&'static str> = None;
     if risk_level == "destructive" {
-        // Look up human approval
+        let now = Utc::now();
+        let ttl = chrono::Duration::hours(APPROVAL_TTL_HOURS);
         let mut approvals = state.approvals.lock().unwrap();
-        if let Some(appr) = approvals.values_mut().find(|a| {
-            a.run_id == claims.run_id
-                && a.task_id == claims.task_id
-                && a.action == req.tool
-                && a.payload_digest == payload_digest
-                && !a.used
-        }) {
-            info!("Valid human approval found: {}", appr.approval_id);
+
+        // First pass: pick a fresh, unused matching approval and consume it.
+        let fresh_match_id = approvals
+            .values()
+            .find(|a| {
+                a.run_id == claims.run_id
+                    && a.task_id == claims.task_id
+                    && a.action == req.tool
+                    && a.payload_digest == payload_digest
+                    && !a.used
+                    && (now - a.created_at) <= ttl
+            })
+            .map(|a| a.approval_id.clone());
+
+        if let Some(id) = fresh_match_id {
+            let appr = approvals.get_mut(&id).expect("just found this id");
+            info!("Valid human approval found: {}", id);
             appr.used = true; // Mark as single-use consumed
-            active_approval_id = Some(appr.approval_id.clone());
+            active_approval_id = Some(id);
+        } else {
+            // Second pass: classify *any* matching approval so the reason
+            // tells the operator what actually went wrong.
+            stale_status = approvals
+                .values()
+                .filter(|a| {
+                    a.run_id == claims.run_id
+                        && a.task_id == claims.task_id
+                        && a.action == req.tool
+                        && a.payload_digest == payload_digest
+                })
+                .map(|a| {
+                    if a.used {
+                        "consumed"
+                    } else if (now - a.created_at) > ttl {
+                        "expired"
+                    } else {
+                        // Should be unreachable given the first pass, but
+                        // tag it as "stale" rather than panic.
+                        "stale"
+                    }
+                })
+                .next();
         }
     }
 
     if risk_level == "destructive" && active_approval_id.is_none() {
-        warn!("Tool requires human approval");
-        // Record the policy decision as "escalated" to SurrealDB
+        let outcome_tag = match stale_status {
+            Some("expired") => "expired",
+            Some("consumed") => "consumed",
+            _ => "escalated",
+        };
+        warn!(outcome = outcome_tag, "Tool requires fresh human approval");
+
+        // Record the policy decision to SurrealDB with the precise outcome
+        // (escalated / expired / consumed) so the audit trail distinguishes
+        // a never-approved request from one whose grant aged out or was
+        // already used.
         let mut decision = aivcs_core::DecisionRecord::new(
             Uuid::new_v4().to_string(),
             "".to_string(),
             format!("run:{}/task:{}", claims.run_id, claims.task_id),
             req.tool.clone(),
-            "Requires human approval before execution".to_string(),
+            match outcome_tag {
+                "expired" => format!(
+                    "Existing approval expired (TTL = {}h); a fresh approval is required",
+                    APPROVAL_TTL_HOURS
+                ),
+                "consumed" => {
+                    "Existing approval already consumed; a fresh approval is required".to_string()
+                }
+                _ => "Requires human approval before execution".to_string(),
+            },
             1.0,
         );
         decision.alternatives = vec!["Deny".to_string(), "Escalate".to_string()];
-        decision.outcome = Some("escalated".to_string());
+        decision.outcome = Some(outcome_tag.to_string());
         let _ = state.db.save_decision(&decision).await;
+
+        let reason = match outcome_tag {
+            "expired" => format!(
+                "Existing human approval expired (TTL = {}h). Request a fresh approval. Payload digest: {}",
+                APPROVAL_TTL_HOURS, payload_digest
+            ),
+            "consumed" => format!(
+                "Existing human approval already consumed. Request a fresh approval. Payload digest: {}",
+                payload_digest
+            ),
+            _ => format!(
+                "Human approval required for action. Payload digest: {}",
+                payload_digest
+            ),
+        };
 
         return Json(ToolCallResponse {
             status: "approval_required".to_string(),
             authority_id: None,
             result: None,
-            reason: Some(format!(
-                "Human approval required for action. Payload digest: {}",
-                payload_digest
-            )),
+            reason: Some(reason),
         })
         .into_response();
     }
@@ -542,7 +630,10 @@ mod tests {
         jsonwebtoken::encode(&header, &claims, &private_key).unwrap()
     }
 
-    async fn setup_router() -> Router {
+    /// Build a fresh gateway router + return the shared state so tests can
+    /// inspect or mutate the in-memory approvals/revocations table directly
+    /// (needed e.g. to back-date a `HumanApproval` past the TTL).
+    async fn setup_router_with_state() -> (Router, Arc<GatewayState>) {
         let db = aivcs_core::SurrealHandle::setup_db().await.unwrap();
         let state = Arc::new(GatewayState {
             db,
@@ -554,12 +645,20 @@ mod tests {
             }),
         });
 
-        Router::new()
+        let router = Router::new()
             .route("/v1/mcp/tools/list", get(list_tools))
             .route("/v1/mcp/tools/call", post(call_tool))
             .route("/v1/mcp/approvals", post(create_approval))
             .route("/v1/mcp/revocation", post(revoke_token))
-            .with_state(state)
+            .with_state(state.clone());
+
+        (router, state)
+    }
+
+    /// Convenience wrapper for the existing tests that don't need to poke at
+    /// state directly.
+    async fn setup_router() -> Router {
+        setup_router_with_state().await.0
     }
 
     #[tokio::test]
@@ -817,5 +916,109 @@ mod tests {
             .unwrap();
         let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(res_json["error"], "token_revoked");
+    }
+
+    /// Issue [#228](https://github.com/stevedores-org/aivcs/issues/228)
+    /// Feature 3.1 requires human approvals to expire — the AC says
+    /// *"The grant must be single-use and expire (e.g., within 2 hours)."*
+    ///
+    /// This test:
+    /// 1. Posts a human approval via the public `/v1/mcp/approvals` endpoint.
+    /// 2. Reaches into the in-memory store and back-dates the approval's
+    ///    `created_at` past `APPROVAL_TTL_HOURS`.
+    /// 3. Calls the destructive tool with the same `(run_id, task_id, action,
+    ///    payload_digest)` tuple and asserts the gateway responds with
+    ///    `approval_required` whose `reason` names the *expired* path
+    ///    (not the never-approved one) so operators can tell the two cases
+    ///    apart without grepping the audit log.
+    #[tokio::test]
+    async fn test_gateway_human_approval_ttl_expiry() {
+        let (app, state) = setup_router_with_state().await;
+        let token_merge = mint_test_token("write", vec!["repo.merge.execute"]);
+
+        // 1. Register a fresh human approval for the merge action.
+        let payload_string = serde_json::to_string(&json!({ "branch": "develop" })).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(b"repo.merge.execute");
+        hasher.update(payload_string.as_bytes());
+        let payload_digest = hex::encode(hasher.finalize());
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/approvals")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "run_id": "run-test-run",
+                    "task_id": "task-test-task",
+                    "action": "repo.merge.execute",
+                    "payload_digest": payload_digest,
+                    "approved_by": "human:supervisor@lornu.ai"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // 2. Back-date the approval's `created_at` past the TTL. Touching
+        // the in-memory state directly is the simplest test seam — the
+        // alternative (sleeping > 2h or wiring a time source) is impractical.
+        {
+            let mut approvals = state.approvals.lock().unwrap();
+            assert_eq!(approvals.len(), 1, "exactly one approval should be staged");
+            for appr in approvals.values_mut() {
+                appr.created_at = Utc::now() - chrono::Duration::hours(APPROVAL_TTL_HOURS + 1);
+            }
+        }
+
+        // 3. Call the destructive tool — must be rejected with the
+        //    `expired`-specific reason.
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token_merge))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": { "branch": "develop" },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "approval_required");
+
+        // The reason must explicitly call out "expired" (not the
+        // never-approved phrasing) so the caller can act differently.
+        let reason = res_json["reason"].as_str().unwrap_or("");
+        assert!(
+            reason.to_lowercase().contains("expired"),
+            "expired-approval reason should contain 'expired'; got: {reason}"
+        );
+        assert!(
+            reason.contains(&format!("{}h", APPROVAL_TTL_HOURS)),
+            "expired-approval reason should surface the TTL; got: {reason}"
+        );
+
+        // And the in-memory approval must NOT have been marked `used` —
+        // we never consumed it, we rejected it.
+        let approvals = state.approvals.lock().unwrap();
+        for appr in approvals.values() {
+            assert!(
+                !appr.used,
+                "expired approval must not be marked as consumed"
+            );
+        }
     }
 }
