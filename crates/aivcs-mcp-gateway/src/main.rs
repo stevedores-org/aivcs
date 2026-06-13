@@ -156,6 +156,17 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Returns true when a tool's risk level is above the token's `max_risk` ceiling.
+/// Mirrors the visibility rules in `list_tools`.
+fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
+    match risk_level {
+        "read" => false,
+        "write" => max_risk == "read",
+        "destructive" => max_risk != "write",
+        _ => true,
+    }
+}
+
 async fn health_check() -> Json<Value> {
     Json(json!({
         "status": "healthy",
@@ -341,7 +352,7 @@ async fn call_tool(
         .into_response();
     }
 
-    if risk_level == "destructive" && claims.max_risk == "read" {
+    if exceeds_max_risk(risk_level, &claims.max_risk) {
         return Json(ToolCallResponse {
             status: "denied".to_string(),
             authority_id: None,
@@ -856,6 +867,44 @@ mod tests {
             .unwrap();
 
         let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "denied");
+        assert!(res_json["reason"]
+            .as_str()
+            .unwrap()
+            .contains("exceeds maximum allowed risk"));
+    }
+
+    #[tokio::test]
+    async fn test_gateway_max_risk_blocks_write_tool() {
+        let app = setup_router().await;
+
+        // Token with max_risk="read" but write scope — must not bypass list_tools filtering.
+        let token = mint_test_token("read", vec!["repo.diff.write"]);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.diff.write",
+                    "arguments": {},
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
 
         let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
