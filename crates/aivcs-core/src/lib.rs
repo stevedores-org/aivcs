@@ -51,8 +51,8 @@ pub use a2a::{
 };
 
 pub use git::{
-    capture_head_sha, detect_current_branch, detect_github_repository, is_git_repo,
-    parse_github_remote,
+    capture_head_sha, detect_current_branch, detect_github_repository, is_git_repo, is_owner_repo,
+    is_valid_github_name, parse_github_remote,
 };
 
 pub use memory::{DecisionRecorder, DecisionRecorderConfig};

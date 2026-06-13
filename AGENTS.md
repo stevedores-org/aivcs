@@ -204,6 +204,19 @@ ai-agent-agent-guides sync --dry-run
 - **Identity:** OIDC/IRSA/Workload Identity Federation
 - **Prohibition:** No long-lived service account keys
 
+#### Zero-Trust MCP Gateway (this repo)
+
+| Service | Port | Endpoint |
+|---------|------|----------|
+| `aivcs-auth` | 8081 | `POST /v1/auth/bootstrap` |
+| `aivcs-mcp-gateway` | 8082 | `GET /v1/mcp/tools/list`, `POST /v1/mcp/tools/call` |
+
+Required headers on gateway routes: `Authorization`, `MCP-Protocol-Version`, `Mcp-Session-Id`. Destructive tools require digest-bound human approval (see approval TTL in guide).
+
+- Guide: [docs/mcp-auth-guide.md](docs/mcp-auth-guide.md)
+- Skill: `.cursor/skills/mcp-auth/SKILL.md`
+- Tests: `cargo test -p aivcs-mcp-gateway`
+
 ### 8. Bullpen Agent Roster (Oxidized)
 
 🌟 **The autonomous workforce is formally defined and ready for cluster-scale collaboration.**

@@ -173,7 +173,13 @@ pub async fn maybe_emit_code_committed_from_env(
         return;
     };
 
+    // Validate `repo_override` through the same gate the auto-detect path
+    // goes through. An invalid override (e.g. unvalidated `--owner`/`--repo`
+    // CLI flags from an upstream caller) silently falls back to detection
+    // rather than smuggling shell-metachar / newline / dot-traversal bytes
+    // into the emitted A2A event.
     let repo = repo_override
+        .filter(|s| crate::git::is_owner_repo(s))
         .map(str::to_string)
         .or_else(crate::git::detect_github_repository)
         .unwrap_or_else(|| "unknown/unknown".to_string());

@@ -193,6 +193,20 @@ aivcs pr open \
   --body  "Summary of what changed."
 ```
 
+
+### **Zero-Trust MCP Agent Authentication**
+
+This repository ships the MCP identity stack for repo-scoped agent tools:
+
+| Crate | Port | Role |
+|-------|------|------|
+| `aivcs-auth` | 8081 | Workload bootstrap → JWT |
+| `aivcs-mcp-gateway` | 8082 | Scope/risk, HITL approvals, revocation |
+
+- **Canonical guide:** [docs/mcp-auth-guide.md](docs/mcp-auth-guide.md)
+- **Agent skill:** `.cursor/skills/mcp-auth/SKILL.md`
+- **Run locally:** `cargo run -p aivcs-auth` and `cargo run -p aivcs-mcp-gateway`
+
 ## **Development Standards**
 
 ### **The 7-File Rule (Documentation as Infrastructure)**
