@@ -30,6 +30,22 @@ use tracing::{info, warn, Level};
 use aivcs_ci::{BuiltinStage, CiGate, CiPipeline, CiSpec, StageConfig};
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
 
+// clap `value_parser` for `--owner` / `--repo` flags. Rejects names that
+// downstream sites would splice into REST URL paths, A2A event payloads, or
+// `Command::args` calls. Keeps the validation invariant at the CLI boundary
+// rather than discovering bad input deep in the GitHub client.
+fn github_name_arg(value: &str) -> std::result::Result<String, String> {
+    if aivcs_core::is_valid_github_name(value) {
+        Ok(value.to_string())
+    } else {
+        Err(format!(
+            "{value:?} is not a valid GitHub user/org or repo name \
+             (allowed: ASCII alphanumeric, '.', '_', '-'; \
+             first and last character must be alphanumeric; max 100 bytes)"
+        ))
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "aivcs")]
 #[command(author = "Stevedores Org")]
@@ -289,11 +305,11 @@ enum PrAction {
         base: String,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
 
         /// Request review from the Librarian Agent
@@ -316,11 +332,11 @@ enum PrAction {
         base: String,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
     },
 
@@ -343,11 +359,11 @@ enum PrAction {
         file: PathBuf,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
     },
 
@@ -385,11 +401,11 @@ enum PrAction {
         body: String,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
 
         /// Request review from the Librarian Agent

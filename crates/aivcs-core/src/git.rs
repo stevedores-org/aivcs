@@ -69,37 +69,66 @@ fn detect_github_repository_from_origin() -> Option<String> {
 
 /// Parse `owner/name` from common GitHub remote URL formats.
 ///
-/// Supported shapes (trailing `.git` is stripped before matching):
+/// Supported shapes:
 /// - `git@github.com:owner/name` (SCP-style SSH — the default git output)
 /// - `https://github.com/owner/name`
 /// - `ssh://git@github.com/owner/name` (RFC-style SSH that some tooling emits)
+///
+/// Trailing `.git` suffixes are stripped repeatedly so `owner/name`,
+/// `owner/name.git`, and pathological `owner/name.git.git` all collapse to
+/// the same canonical identity, preventing alias-based cache poisoning.
 pub fn parse_github_remote(remote: &str) -> Option<String> {
-    let without_suffix = remote.strip_suffix(".git").unwrap_or(remote);
-    let candidate = without_suffix
+    let candidate = remote
         .strip_prefix("git@github.com:")
-        .or_else(|| without_suffix.strip_prefix("https://github.com/"))
-        .or_else(|| without_suffix.strip_prefix("ssh://git@github.com/"))?;
+        .or_else(|| remote.strip_prefix("https://github.com/"))
+        .or_else(|| remote.strip_prefix("ssh://git@github.com/"))?;
 
-    is_owner_repo(candidate).then(|| candidate.to_string())
+    // Strip the `.git` suffix from the candidate (not the whole URL) so any
+    // accidental double-suffix collapses idempotently. GitHub itself rejects
+    // repo names ending in `.git`, so loop-strip is safe.
+    let mut canonical = candidate;
+    while let Some(stripped) = canonical.strip_suffix(".git") {
+        canonical = stripped;
+    }
+
+    is_owner_repo(canonical).then(|| canonical.to_string())
 }
 
-fn is_owner_repo(value: &str) -> bool {
-    let mut parts = value.split('/');
-    matches!(
-        (parts.next(), parts.next(), parts.next()),
-        (Some(owner), Some(repo), None) if is_valid_segment(owner) && is_valid_segment(repo)
-    )
+/// True iff `value` is exactly two valid GitHub name segments joined by `/`.
+///
+/// Public so CLI `--owner`/`--repo` flag parsers and A2A `repo_override`
+/// validators can apply the same rule and not silently bypass the gate.
+pub fn is_owner_repo(value: &str) -> bool {
+    let Some((owner, repo)) = value.split_once('/') else {
+        return false;
+    };
+    !repo.contains('/') && is_valid_github_name(owner) && is_valid_github_name(repo)
 }
 
-/// GitHub's actual character class for owner / repo segments: ASCII alnum
-/// plus `.`, `_`, `-`. Anything outside that (including whitespace,
-/// newlines, and shell metacharacters) is rejected so a malformed or
-/// hostile remote can't smuggle data through `parse_github_remote`.
-fn is_valid_segment(segment: &str) -> bool {
-    !segment.is_empty()
-        && segment
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+/// True iff `value` is a syntactically valid GitHub user/org or repo name.
+///
+/// Rules enforced (a strict subset of what GitHub itself accepts):
+/// - non-empty, max 100 bytes (covers both 39-char username and 100-char
+///   repo limits with a single bound — DoS-adjacent cap)
+/// - first AND last byte ASCII alphanumeric (rejects whole-segment `.`/`..`
+///   path-traversal vectors, leading `-` argv-flag injection, and trailing
+///   `.` Windows-aliasing)
+/// - interior bytes ASCII alnum, `.`, `_`, or `-` (rejects whitespace,
+///   newlines, shell metacharacters)
+///
+/// Public so callers downstream of `parse_github_remote` (CLI value-parsers,
+/// `repo_override` validators) can enforce the same invariant by construction.
+pub fn is_valid_github_name(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.is_empty() || bytes.len() > 100 {
+        return false;
+    }
+    if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
+        return false;
+    }
+    bytes
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(*b, b'.' | b'_' | b'-'))
 }
 
 /// Detect the current local git branch name.
@@ -260,6 +289,86 @@ mod tests {
         // Empty segments still rejected (regression guard).
         assert_eq!(parse_github_remote("git@github.com:/repo"), None);
         assert_eq!(parse_github_remote("git@github.com:owner/"), None);
+    }
+
+    #[test]
+    fn parse_github_remote_rejects_dot_traversal_segments() {
+        // Dot-only segments (`.`, `..`, `...`) used to pass the old gate
+        // because every char matched the alnum-or-`.`/_/- arm. Downstream
+        // sites that splice owner/repo into a URL path (e.g. octocrab's
+        // `/repos/{owner}/{repo}/...`) would normalize `..` and redirect
+        // the request to a sibling resource. Must be rejected at parse.
+        assert_eq!(parse_github_remote("https://github.com/./foo"), None);
+        assert_eq!(parse_github_remote("https://github.com/../foo"), None);
+        assert_eq!(parse_github_remote("https://github.com/foo/."), None);
+        assert_eq!(parse_github_remote("https://github.com/foo/.."), None);
+        assert_eq!(parse_github_remote("https://github.com/.../foo"), None);
+        // The same vector via the `is_owner_repo` direct entry (env-var path).
+        assert!(!is_owner_repo("../.."));
+        assert!(!is_owner_repo("./."));
+    }
+
+    #[test]
+    fn parse_github_remote_rejects_argv_flag_owners() {
+        // Leading `-` would let a hostile remote produce an owner/repo
+        // string that, if ever splatted into a `Command::args` without a
+        // `--` separator, would be parsed as a flag (e.g. `-c`, `--upload-pack=...`).
+        assert_eq!(parse_github_remote("https://github.com/-rf/repo"), None);
+        assert_eq!(parse_github_remote("https://github.com/owner/-rf"), None);
+    }
+
+    #[test]
+    fn parse_github_remote_rejects_leading_or_trailing_punctuation() {
+        // Leading `.` produces a hidden-file path component; trailing `.`
+        // gets stripped by the Windows filesystem and aliases distinct
+        // names into the same cache key. GitHub itself rejects both.
+        assert_eq!(parse_github_remote("https://github.com/.foo/repo"), None);
+        assert_eq!(parse_github_remote("https://github.com/foo./repo"), None);
+        assert_eq!(parse_github_remote("https://github.com/foo/bar."), None);
+        assert_eq!(parse_github_remote("https://github.com/foo/.bar"), None);
+    }
+
+    #[test]
+    fn parse_github_remote_enforces_length_cap() {
+        // 100-byte cap mirrors GitHub's longest legitimate name (repo).
+        // Without a cap, a 10 MB owner segment is cloned into a String
+        // and serialized into A2A retries — DoS-adjacent on hostile input.
+        let too_long = "a".repeat(101);
+        let url = format!("https://github.com/{too_long}/repo");
+        assert_eq!(parse_github_remote(&url), None);
+
+        // Just at the cap is fine.
+        let at_cap = "a".repeat(100);
+        let url = format!("https://github.com/{at_cap}/repo");
+        assert_eq!(parse_github_remote(&url), Some(format!("{at_cap}/repo")));
+    }
+
+    #[test]
+    fn parse_github_remote_collapses_double_dot_git_suffix() {
+        // Pathological `.git.git` suffix used to leave `.git` in the
+        // returned name (`foo/bar.git`), aliasing two distinct URL forms
+        // to two different cache keys. Loop-strip collapses to canonical.
+        assert_eq!(
+            parse_github_remote("https://github.com/foo/bar.git.git"),
+            Some("foo/bar".to_string())
+        );
+        assert_eq!(
+            parse_github_remote("git@github.com:foo/bar.git.git.git"),
+            Some("foo/bar".to_string())
+        );
+    }
+
+    #[test]
+    fn is_valid_github_name_accepts_realistic_names() {
+        // Regression guard: real-world names must still parse after the
+        // tightening. Underscores, hyphens, dots, mixed case, digits.
+        assert!(is_valid_github_name("stevedores-org"));
+        assert!(is_valid_github_name("aivcs"));
+        assert!(is_valid_github_name("foo.bar"));
+        assert!(is_valid_github_name("foo_bar"));
+        assert!(is_valid_github_name("foo-bar-baz"));
+        assert!(is_valid_github_name("a")); // single char is fine
+        assert!(is_valid_github_name("0xDEADBEEF"));
     }
 
     #[test]
