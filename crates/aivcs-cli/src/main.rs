@@ -411,6 +411,13 @@ enum PrAction {
         #[arg(long)]
         pr_body: Option<String>,
     },
+
+    /// Verify aivcs-commit reproducibility (env hash match and CAS existence)
+    VerifyReproducibility {
+        /// Optional PR body text. If omitted, it will try to find it via GITHUB_EVENT_PATH.
+        #[arg(long)]
+        pr_body: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -722,6 +729,9 @@ async fn main() -> Result<()> {
                 .await
             }
             PrAction::VerifySnapshot { pr_body } => cmd_pr_verify_snapshot(pr_body).await,
+            PrAction::VerifyReproducibility { pr_body } => {
+                cmd_pr_verify_reproducibility(pr_body).await
+            }
         },
         Commands::Report { action } => match action {
             ReportAction::CrossOrg {
@@ -1008,6 +1018,135 @@ async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
         println!("  env_hash: {}", snapshot.env_hash);
         anyhow::bail!("✗ Snapshot verification failed! The current HEAD state does not match the local-ci snapshot in the PR body. Did you push unstaged/untested changes without using aivcs pr pipeline?")
     }
+}
+
+async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
+    let repo_root = aivcs_core::find_repo_root();
+    println!("cmd_pr_verify_reproducibility: repo_root = {:?}", repo_root);
+
+    // 1. Get PR body
+    let body = if let Some(b) = pr_body {
+        b
+    } else if let Ok(event_path) = std::env::var("GITHUB_EVENT_PATH") {
+        let content =
+            std::fs::read_to_string(event_path).context("Failed to read GITHUB_EVENT_PATH")?;
+        let event: serde_json::Value =
+            serde_json::from_str(&content).context("Failed to parse GITHUB_EVENT_PATH JSON")?;
+
+        if let Some(body_val) = event.pointer("/pull_request/body") {
+            body_val.as_str().unwrap_or_default().to_string()
+        } else {
+            anyhow::bail!("Could not find pull_request.body in GITHUB_EVENT_PATH");
+        }
+    } else {
+        anyhow::bail!("No PR body provided and GITHUB_EVENT_PATH is not set");
+    };
+
+    // 2. Extract aivcs-commit: <CommitId>
+    let commit_pattern = "aivcs-commit:";
+    let idx = body.find(commit_pattern).context("No 'aivcs-commit' field found in PR body. Please run 'aivcs pr-note' and paste it in the PR.")?;
+    let start = idx + commit_pattern.len();
+    let rest = &body[start..];
+    let end_idx = rest.find('\n').unwrap_or(rest.len());
+    let expected_commit_id = rest[..end_idx].trim().to_string();
+
+    println!(
+        "Extracted aivcs-commit from PR body: {}",
+        expected_commit_id
+    );
+
+    // 3. Extract Env Hash (optional / if present)
+    let env_pattern = "- **Env Hash**:";
+    let env_hash_opt = if let Some(env_idx) = body.find(env_pattern) {
+        let start = env_idx + env_pattern.len();
+        let rest = &body[start..];
+        let end_idx = rest.find('\n').unwrap_or(rest.len());
+        Some(rest[..end_idx].trim().to_string())
+    } else {
+        None
+    };
+
+    // 4. Extract State Hash (optional / if present)
+    let state_pattern = "- **State Hash**:";
+    let state_hash_opt = if let Some(state_idx) = body.find(state_pattern) {
+        let start = state_idx + state_pattern.len();
+        let rest = &body[start..];
+        let end_idx = rest.find('\n').unwrap_or(rest.len());
+        Some(rest[..end_idx].trim().to_string())
+    } else {
+        None
+    };
+
+    // 5. Extract Logic Hash (optional / if present)
+    let logic_pattern = "- **Logic Hash**:";
+    let logic_hash_opt = if let Some(logic_idx) = body.find(logic_pattern) {
+        let start = logic_idx + logic_pattern.len();
+        let rest = &body[start..];
+        let end_idx = rest.find('\n').unwrap_or(rest.len());
+        Some(rest[..end_idx].trim().to_string())
+    } else {
+        None
+    };
+
+    // 6. Validate composite CommitId match
+    if let (Some(state_hash), env_hash, logic_hash) = (
+        state_hash_opt.clone(),
+        env_hash_opt.clone(),
+        logic_hash_opt.clone(),
+    ) {
+        let computed_commit =
+            CommitId::new(logic_hash.as_deref(), &state_hash, env_hash.as_deref());
+        if computed_commit.hash != expected_commit_id {
+            anyhow::bail!(
+                "✗ Commit ID validation failed! The composite CommitId in the PR body ({}) does not match the computed hash ({}) from the listed components.",
+                expected_commit_id,
+                computed_commit.hash
+            );
+        }
+        println!("✓ Composite CommitId integrity validated.");
+    }
+
+    // 7. Verify CAS file exists locally (validates the commit data exists in repository)
+    if let Some(state_hash) = state_hash_opt {
+        let cas_path = repo_root
+            .join(".aivcs")
+            .join("cas")
+            .join("objects")
+            .join(&state_hash[..2])
+            .join(&state_hash[2..]);
+        if !cas_path.exists() {
+            anyhow::bail!(
+                "✗ CAS file not found at {:?}! Please ensure you have committed and pushed the CAS objects in '.aivcs/cas/objects/' to your PR.",
+                cas_path
+            );
+        }
+        println!("✓ CAS object verified: {:?}", cas_path);
+    }
+
+    // 8. Generate workspace Nix environment hash and verify against the Env Hash
+    let workspace_env = nix_env_manager::generate_environment_hash(&repo_root)
+        .context("Failed to generate Nix environment hash for the workspace")?;
+    println!("Computed workspace environment: {:?}", workspace_env);
+    println!(
+        "Computed workspace environment hash: {}",
+        workspace_env.hash
+    );
+
+    if let Some(ref env_hash) = env_hash_opt {
+        if env_hash != &workspace_env.hash {
+            anyhow::bail!(
+                "✗ Nix environment hash mismatch! PR body has '{}', but workspace has '{}'. Please make sure your Nix flake and lock file match the snapshot environment.",
+                env_hash,
+                workspace_env.hash
+            );
+        }
+        println!("✓ Nix environment hash matches!");
+    } else {
+        println!("⚠ No Env Hash found in PR body summary. Skipping env hash comparison.");
+    }
+
+    println!("✓ aivcs reproducibility check successful!");
+    Ok(())
 }
 
 fn github_client_from_env(owner: String, repo: String) -> Result<aivcs_core::github::GitHubClient> {
@@ -2277,6 +2416,45 @@ mod tests {
         // Run the pr-note command
         let res = cmd_pr_note(&handle, Some("main")).await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pr_verify_reproducibility() {
+        let repo_root = aivcs_core::find_repo_root();
+        println!(
+            "test_pr_verify_reproducibility: repo_root = {:?}",
+            repo_root
+        );
+        let state_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+        // Mock the CAS file location locally just for this test
+        let cas_dir = repo_root
+            .join(".aivcs")
+            .join("cas")
+            .join("objects")
+            .join(&state_hash[..2]);
+        std::fs::create_dir_all(&cas_dir).unwrap();
+        let cas_file = cas_dir.join(&state_hash[2..]);
+        std::fs::write(&cas_file, b"test").unwrap();
+
+        let workspace_env = nix_env_manager::generate_environment_hash(&repo_root).unwrap();
+        println!(
+            "test_pr_verify_reproducibility: workspace_env = {:?}",
+            workspace_env
+        );
+        let computed = CommitId::new(None, state_hash, Some(&workspace_env.hash));
+
+        let pr_body = format!(
+            "aivcs-commit: {}\n- **State Hash**: {}\n- **Env Hash**: {}\n",
+            computed.hash, state_hash, workspace_env.hash
+        );
+
+        let res = cmd_pr_verify_reproducibility(Some(pr_body)).await;
+
+        // Cleanup mock CAS file
+        let _ = std::fs::remove_file(&cas_file);
+
+        assert!(res.is_ok(), "reproducibility check failed: {:?}", res.err());
     }
 
     #[tokio::test]
