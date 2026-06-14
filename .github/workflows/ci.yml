@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches:
       - develop
@@ -110,3 +111,33 @@ jobs:
             exit 1
           fi
           echo "all nix-checks shards passed"
+
+  aivcs-reproducibility:
+    name: aivcs reproducibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            extra-substituters = https://nix-cache.stevedores.org
+            extra-trusted-public-keys = stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag=
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "workspace"
+          cache-targets: true
+          save-if: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
+
+      - name: Run Reproducibility Check
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: cargo run -p aivcs-cli -- pr verify-reproducibility

@@ -7,7 +7,7 @@ use crate::error::NixError;
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 use tracing::{debug, info, warn};
@@ -78,14 +78,14 @@ pub struct FlakeLocks {
     /// Root node name
     pub root: String,
     /// Nodes in the lock file
-    pub nodes: HashMap<String, FlakeLockNode>,
+    pub nodes: BTreeMap<String, FlakeLockNode>,
 }
 
 /// A node in the flake.lock file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlakeLockNode {
     /// Inputs this node depends on
-    pub inputs: Option<HashMap<String, serde_json::Value>>,
+    pub inputs: Option<BTreeMap<String, serde_json::Value>>,
     /// Locked reference
     pub locked: Option<LockedRef>,
     /// Original reference
