@@ -89,6 +89,10 @@ pub use diff::state_diff::{
     diff_run_states, diff_scoped_state, extract_last_checkpoint, ScopedStateDiff, StateDelta,
     CHECKPOINT_SAVED_KIND,
 };
+pub use diff::semantic_graph::{
+    diff_graph_snapshots, extract_graph_snapshot, format_semantic_diff_markdown, GraphSnapshot,
+    SemanticGraphDiff,
+};
 pub use orchestration::{
     default_role_templates, deterministic_role_order, merge_role_outputs, validate_handoff,
     validate_parallel_roles, AgentRole, HandoffValidationError, MergeConflict,
