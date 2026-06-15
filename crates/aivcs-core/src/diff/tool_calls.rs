@@ -186,19 +186,19 @@ pub fn diff_tool_calls(a: &[RunEvent], b: &[RunEvent]) -> ToolCallDiff {
 
     let mut changes = Vec::new();
 
-    // 1. Removed calls (in A but not aligned in B)
-    for (i, call) in calls_a.iter().enumerate() {
-        if !aligned_a.contains(&i) {
-            changes.push(ToolCallChange::Removed(call.clone()));
-        }
-    }
-
-    // 2. Aligned calls: check for param changes and reordering
+    // 1. Param changes on aligned calls.
+    //
+    // Reordering is deliberately NOT derived from the aligned pairs: LCS
+    // alignment is monotonically increasing in both index sequences, so an
+    // aligned pair can never represent a reorder. The previous `i_a != i_b`
+    // test only reflected index shifts caused by surrounding insertions or
+    // removals and emitted a spurious `Reordered` change for every aligned
+    // call that followed an add/remove. True reorders are detected below: a
+    // tool that disappears from A and reappears (same name) in B.
     for (i_a, i_b) in alignment {
         let ca = &calls_a[i_a];
         let cb = &calls_b[i_b];
 
-        // Check param changes
         let deltas = param_delta(&ca.params, &cb.params);
         if !deltas.is_empty() {
             changes.push(ToolCallChange::ParamChanged {
@@ -208,23 +208,161 @@ pub fn diff_tool_calls(a: &[RunEvent], b: &[RunEvent]) -> ToolCallDiff {
                 deltas,
             });
         }
+    }
 
-        // Check reorder: if relative positions in the aligned sequences differ
-        if i_a != i_b {
-            changes.push(ToolCallChange::Reordered {
-                call: cb.clone(),
-                from_index: i_a,
-                to_index: i_b,
-            });
+    // 2. Reconcile unaligned calls. A tool name present in A but not aligned,
+    // that reappears unaligned in B, is a reorder; the rest are genuine
+    // removals (only in A) or additions (only in B).
+    let mut matched_b: HashSet<usize> = HashSet::new();
+    for (i_a, call_a) in calls_a.iter().enumerate() {
+        if aligned_a.contains(&i_a) {
+            continue;
+        }
+        // Greedy first-match by tool name. When several unaligned calls share a
+        // name, this pairs them by position rather than identity, so swapped
+        // same-name calls may surface as param changes instead of a clean
+        // reorder — a known limitation of name-based (identity-free) matching.
+        let reorder_target = (0..calls_b.len()).find(|i_b| {
+            !aligned_b.contains(i_b)
+                && !matched_b.contains(i_b)
+                && calls_b[*i_b].tool_name == call_a.tool_name
+        });
+        match reorder_target {
+            Some(i_b) => {
+                matched_b.insert(i_b);
+                let cb = &calls_b[i_b];
+                // A reordered call may also have changed params; report both
+                // (the same call surfaces as Reordered + ParamChanged) so the
+                // param edit is not lost just because the call also moved.
+                let deltas = param_delta(&call_a.params, &cb.params);
+                if !deltas.is_empty() {
+                    changes.push(ToolCallChange::ParamChanged {
+                        tool_name: call_a.tool_name.clone(),
+                        seq_a: call_a.seq,
+                        seq_b: cb.seq,
+                        deltas,
+                    });
+                }
+                changes.push(ToolCallChange::Reordered {
+                    call: cb.clone(),
+                    from_index: i_a,
+                    to_index: i_b,
+                });
+            }
+            None => changes.push(ToolCallChange::Removed(call_a.clone())),
         }
     }
 
-    // 3. Added calls (in B but not aligned in A)
-    for (i, call) in calls_b.iter().enumerate() {
-        if !aligned_b.contains(&i) {
-            changes.push(ToolCallChange::Added(call.clone()));
+    // 3. Unaligned B calls not matched as reorders are genuine additions.
+    for (i_b, call_b) in calls_b.iter().enumerate() {
+        if !aligned_b.contains(&i_b) && !matched_b.contains(&i_b) {
+            changes.push(ToolCallChange::Added(call_b.clone()));
         }
     }
 
     ToolCallDiff { changes }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use serde_json::json;
+
+    fn tool_event(seq: u64, name: &str) -> RunEvent {
+        RunEvent {
+            seq,
+            kind: "tool_called".to_string(),
+            payload: json!({ "tool_name": name }),
+            timestamp: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn insertion_does_not_produce_spurious_reorders() {
+        // A = [search, fetch]; B = [translate, search, fetch].
+        // Only `translate` was added; nothing was reordered. The old
+        // absolute-index check reported two phantom `Reordered` changes here.
+        let a = vec![tool_event(1, "search"), tool_event(2, "fetch")];
+        let b = vec![
+            tool_event(1, "translate"),
+            tool_event(2, "search"),
+            tool_event(3, "fetch"),
+        ];
+        let diff = diff_tool_calls(&a, &b);
+        assert_eq!(diff.changes.len(), 1);
+        assert!(matches!(diff.changes[0], ToolCallChange::Added(_)));
+    }
+
+    #[test]
+    fn reordered_and_param_changed_reports_both() {
+        // `search` moves from the front of A to the back of B AND changes a
+        // param. Two anchors `k1, k2` form the LCS, so `search` is unaligned in
+        // BOTH sequences and goes through the reorder-reconciliation arm — the
+        // path that must emit ParamChanged *and* Reordered for the same call.
+        let mk = |seq, name: &str, q: &str| RunEvent {
+            seq,
+            kind: "tool_called".to_string(),
+            payload: json!({ "tool_name": name, "q": q }),
+            timestamp: Utc::now(),
+        };
+        let a = vec![mk(1, "search", "a"), mk(2, "k1", "-"), mk(3, "k2", "-")];
+        let b = vec![mk(1, "k1", "-"), mk(2, "k2", "-"), mk(3, "search", "b")];
+        let diff = diff_tool_calls(&a, &b);
+
+        // The reordered call must be `search` (moved 0 -> 2), proving it came
+        // from the unaligned reconciliation arm, not an aligned pair; and its
+        // param change (q: a -> b) must not be dropped.
+        let mut reordered_search = false;
+        let mut param_changed_search = false;
+        for change in &diff.changes {
+            match change {
+                ToolCallChange::Reordered {
+                    call,
+                    from_index,
+                    to_index,
+                } if call.tool_name == "search" => {
+                    assert_eq!((*from_index, *to_index), (0, 2));
+                    reordered_search = true;
+                }
+                ToolCallChange::ParamChanged {
+                    tool_name, deltas, ..
+                } if tool_name == "search" => {
+                    param_changed_search = deltas
+                        .iter()
+                        .any(|d| d.before == json!("a") && d.after == json!("b"));
+                }
+                _ => {}
+            }
+        }
+        assert!(
+            reordered_search,
+            "expected search reordered 0->2, got {:?}",
+            diff.changes
+        );
+        assert!(
+            param_changed_search,
+            "param change on the reordered call must not be dropped, got {:?}",
+            diff.changes
+        );
+    }
+
+    #[test]
+    fn swapped_calls_report_a_single_reorder() {
+        // A = [search, fetch]; B = [fetch, search] — a genuine reorder.
+        let a = vec![tool_event(1, "search"), tool_event(2, "fetch")];
+        let b = vec![tool_event(1, "fetch"), tool_event(2, "search")];
+        let diff = diff_tool_calls(&a, &b);
+        let reorders = diff
+            .changes
+            .iter()
+            .filter(|c| matches!(c, ToolCallChange::Reordered { .. }))
+            .count();
+        assert_eq!(reorders, 1);
+        // No phantom add/remove for the reordered tool.
+        assert!(!diff
+            .changes
+            .iter()
+            .any(|c| matches!(c, ToolCallChange::Added(_) | ToolCallChange::Removed(_))));
+    }
 }
