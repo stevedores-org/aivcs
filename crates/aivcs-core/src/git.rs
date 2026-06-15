@@ -289,6 +289,13 @@ mod tests {
         // Empty segments still rejected (regression guard).
         assert_eq!(parse_github_remote("git@github.com:/repo"), None);
         assert_eq!(parse_github_remote("git@github.com:owner/"), None);
+        // HTTPS-form space rejection — develop covers SCP-SSH spaces but not HTTPS.
+        assert_eq!(parse_github_remote("https://github.com/foo bar/baz"), None);
+        // HTTPS-form empty segment — SCP-style empty covered above; HTTPS variant not yet.
+        assert_eq!(parse_github_remote("https://github.com//repo"), None);
+        assert_eq!(parse_github_remote("https://github.com/owner/"), None);
+        // Backtick / command-substitution syntax — must not parse as a valid owner.
+        assert_eq!(parse_github_remote("git@github.com:`whoami`/repo"), None);
     }
 
     #[test]

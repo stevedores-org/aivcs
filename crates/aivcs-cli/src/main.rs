@@ -242,6 +242,20 @@ enum Commands {
         #[arg(short, long)]
         branch: Option<String>,
     },
+
+    /// Emit a semantic graph/prompt diff for PR bodies (SDF dual-ledger Phase 2.1).
+    ///
+    /// Resolves aivcs commits at HEAD (feature branch) and `--base`, diffs oxidizedgraph
+    /// snapshots embedded in commit state, and prints Markdown for the PR description.
+    PrSemanticSummary {
+        /// Feature branch (defaults to current git branch if omitted)
+        #[arg(short, long)]
+        branch: Option<String>,
+
+        /// Base branch to compare against
+        #[arg(long, default_value = "main")]
+        base: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -757,6 +771,9 @@ async fn main() -> Result<()> {
             } => cmd_report_cross_org(graph, &objective, output).await,
         },
         Commands::PrNote { branch } => cmd_pr_note(&handle, branch.as_deref()).await,
+        Commands::PrSemanticSummary { branch, base } => {
+            cmd_pr_semantic_summary(&handle, branch.as_deref(), &base).await
+        }
     }
 }
 
@@ -2303,20 +2320,7 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
         }
     };
 
-    let branch = handle
-        .get_branch(&branch_name)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Branch '{}' not found in AIVCS database", branch_name))?;
-
-    let commit = handle
-        .get_commit(&branch.head_commit_id)
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Commit '{}' not found in AIVCS database",
-                branch.head_commit_id
-            )
-        })?;
+    let commit = resolve_branch_commit(handle, &branch_name).await?;
 
     // Format output matching acceptance criteria.
     //
@@ -2348,6 +2352,71 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
     if let Some(env) = &commit.commit_id.env_hash {
         println!("- **Env Hash**: {}", env);
     }
+
+    Ok(())
+}
+
+async fn resolve_branch_commit(handle: &SurrealHandle, branch_name: &str) -> Result<CommitRecord> {
+    let branch = handle
+        .get_branch(branch_name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Branch '{}' not found in AIVCS database", branch_name))?;
+
+    handle
+        .get_commit(&branch.head_commit_id)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Commit '{}' not found in AIVCS database",
+                branch.head_commit_id
+            )
+        })
+}
+
+async fn cmd_pr_semantic_summary(
+    handle: &SurrealHandle,
+    branch_name_opt: Option<&str>,
+    base_name: &str,
+) -> Result<()> {
+    use aivcs_core::{diff_graph_snapshots, extract_graph_snapshot, format_semantic_diff_markdown};
+
+    let branch_name = match branch_name_opt {
+        Some(name) => name.to_string(),
+        None => {
+            let cwd = std::env::current_dir().context("Failed to get current directory")?;
+            aivcs_core::detect_current_branch(&cwd)
+                .context("Failed to auto-detect current git branch")?
+        }
+    };
+
+    let _head_commit = resolve_branch_commit(handle, &branch_name).await?;
+    let _base_commit = resolve_branch_commit(handle, base_name).await?;
+
+    cmd_pr_note(handle, Some(&branch_name)).await?;
+
+    let head_snapshot = handle
+        .load_snapshot(&_head_commit.commit_id.hash)
+        .await
+        .context("Failed to load head branch snapshot")?;
+    let base_snapshot = handle
+        .load_snapshot(&_base_commit.commit_id.hash)
+        .await
+        .context("Failed to load base branch snapshot")?;
+
+    let head_graph = extract_graph_snapshot(&head_snapshot.state);
+    let base_graph = extract_graph_snapshot(&base_snapshot.state);
+
+    println!();
+    println!("### Semantic diff (`{base_name}` → `{branch_name}`)");
+    println!();
+
+    if !head_graph.has_semantic_content() && !base_graph.has_semantic_content() {
+        println!("_No semantic delta — only code/infra changes._");
+        return Ok(());
+    }
+
+    let diff = diff_graph_snapshots(&base_graph, &head_graph);
+    println!("{}", format_semantic_diff_markdown(&diff));
 
     Ok(())
 }
@@ -2432,6 +2501,79 @@ mod tests {
         // Run the pr-note command
         let res = cmd_pr_note(&handle, Some("main")).await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pr_semantic_summary_command() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
+        let base_state = temp_dir.path().join("base.json");
+        std::fs::write(
+            &base_state,
+            r#"{
+                "graph": {
+                    "entry": "start",
+                    "exits": ["end"],
+                    "nodes": ["start", "plan"],
+                    "edges": [{"from": "start", "to": "plan"}]
+                },
+                "prompts": {"plan": "Plan v1"}
+            }"#,
+        )
+        .unwrap();
+        cmd_snapshot(
+            &handle,
+            &base_state,
+            "base graph",
+            "agent",
+            "main",
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            Some(temp_dir.path().join("cas").as_path()),
+        )
+        .await
+        .unwrap();
+
+        let main_head = handle.get_branch_head("main").await.unwrap();
+        handle
+            .save_branch(&BranchRecord::new("feat", &main_head, false))
+            .await
+            .unwrap();
+
+        let head_state = temp_dir.path().join("head.json");
+        std::fs::write(
+            &head_state,
+            r#"{
+                "graph": {
+                    "entry": "start",
+                    "exits": ["end"],
+                    "nodes": ["start", "plan", "review"],
+                    "edges": [
+                        {"from": "start", "to": "plan"},
+                        {"from": "plan", "to": "review"}
+                    ]
+                },
+                "prompts": {"plan": "Plan v2", "review": "Review output"}
+            }"#,
+        )
+        .unwrap();
+        cmd_snapshot(
+            &handle,
+            &head_state,
+            "feature graph",
+            "agent",
+            "feat",
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            Some(temp_dir.path().join("cas").as_path()),
+        )
+        .await
+        .unwrap();
+
+        let res = cmd_pr_semantic_summary(&handle, Some("feat"), "main").await;
+        assert!(res.is_ok(), "pr-semantic-summary failed: {:?}", res.err());
     }
 
     #[tokio::test]
