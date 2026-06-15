@@ -25,10 +25,26 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
 
 use aivcs_ci::{BuiltinStage, CiGate, CiPipeline, CiSpec, StageConfig};
 use aivcs_core::{diff_tool_calls, fork_agent_parallel, ToolCallChange};
+
+// clap `value_parser` for `--owner` / `--repo` flags. Rejects names that
+// downstream sites would splice into REST URL paths, A2A event payloads, or
+// `Command::args` calls. Keeps the validation invariant at the CLI boundary
+// rather than discovering bad input deep in the GitHub client.
+fn github_name_arg(value: &str) -> std::result::Result<String, String> {
+    if aivcs_core::is_valid_github_name(value) {
+        Ok(value.to_string())
+    } else {
+        Err(format!(
+            "{value:?} is not a valid GitHub user/org or repo name \
+             (allowed: ASCII alphanumeric, '.', '_', '-'; \
+             first and last character must be alphanumeric; max 100 bytes)"
+        ))
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "aivcs")]
@@ -213,6 +229,19 @@ enum Commands {
         #[command(subcommand)]
         action: ReportAction,
     },
+
+    /// Generate a summary note linking GitHub PR to aivcs CommitId.
+    ///
+    /// Emits the head commit of the named branch only. If the branch
+    /// holds multiple aivcs commits (a multi-step agent run), only the
+    /// tip is surfaced in the PR linkage. Intermediate states remain
+    /// reachable via `aivcs log` against the CommitId; Phase 1 will
+    /// surface them on the GitHub side. See stevedores-org/aivcs#231.
+    PrNote {
+        /// Branch name (defaults to current git branch if omitted)
+        #[arg(short, long)]
+        branch: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -276,16 +305,20 @@ enum PrAction {
         base: String,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
 
         /// Request review from the Librarian Agent
         #[arg(long, default_value_t = true)]
         librarian: bool,
+
+        /// Require local-ci validation before opening PR
+        #[arg(long, default_value_t = true)]
+        require_local_ci: bool,
     },
 
     /// Create a GitHub branch from a base ref
@@ -299,11 +332,11 @@ enum PrAction {
         base: String,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
     },
 
@@ -326,11 +359,11 @@ enum PrAction {
         file: PathBuf,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
     },
 
@@ -368,11 +401,11 @@ enum PrAction {
         body: String,
 
         /// GitHub organization/owner
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         owner: String,
 
         /// GitHub repository name
-        #[arg(long)]
+        #[arg(long, value_parser = github_name_arg)]
         repo: String,
 
         /// Request review from the Librarian Agent
@@ -382,6 +415,24 @@ enum PrAction {
         /// Skip branch creation (for retries when the branch already exists)
         #[arg(long, default_value_t = false)]
         skip_branch: bool,
+
+        /// Require local-ci validation before opening PR
+        #[arg(long, default_value_t = true)]
+        require_local_ci: bool,
+    },
+
+    /// Verify aivcs-ci-snapshot against HEAD
+    VerifySnapshot {
+        /// Optional PR body text. If omitted, it will try to find it via GITHUB_EVENT_PATH.
+        #[arg(long)]
+        pr_body: Option<String>,
+    },
+
+    /// Verify aivcs-commit reproducibility (env hash match and CAS existence)
+    VerifyReproducibility {
+        /// Optional PR body text. If omitted, it will try to find it via GITHUB_EVENT_PATH.
+        #[arg(long)]
+        pr_body: Option<String>,
     },
 }
 
@@ -632,7 +683,20 @@ async fn main() -> Result<()> {
                 owner,
                 repo,
                 librarian,
-            } => cmd_pr_open(title, body, head, base, owner, repo, librarian).await,
+                require_local_ci,
+            } => {
+                cmd_pr_open(PrOpenArgs {
+                    title,
+                    body,
+                    head,
+                    base,
+                    owner,
+                    repo,
+                    librarian,
+                    require_local_ci,
+                })
+                .await
+            }
             PrAction::Branch {
                 name,
                 base,
@@ -646,7 +710,7 @@ async fn main() -> Result<()> {
                 file,
                 owner,
                 repo,
-            } => cmd_pr_commit(branch, path, message, file, owner, repo).await,
+            } => cmd_pr_commit(&handle, branch, path, message, file, owner, repo).await,
             PrAction::Pipeline {
                 branch,
                 base,
@@ -659,21 +723,30 @@ async fn main() -> Result<()> {
                 repo,
                 librarian,
                 skip_branch,
+                require_local_ci,
             } => {
-                cmd_pr_pipeline(PrPipelineArgs {
-                    branch,
-                    base,
-                    path,
-                    file,
-                    message,
-                    title,
-                    body,
-                    owner,
-                    repo,
-                    librarian,
-                    skip_branch,
-                })
+                cmd_pr_pipeline(
+                    &handle,
+                    PrPipelineArgs {
+                        branch,
+                        base,
+                        path,
+                        file,
+                        message,
+                        title,
+                        body,
+                        owner,
+                        repo,
+                        librarian,
+                        skip_branch,
+                        require_local_ci,
+                    },
+                )
                 .await
+            }
+            PrAction::VerifySnapshot { pr_body } => cmd_pr_verify_snapshot(pr_body).await,
+            PrAction::VerifyReproducibility { pr_body } => {
+                cmd_pr_verify_reproducibility(pr_body).await
             }
         },
         Commands::Report { action } => match action {
@@ -683,6 +756,7 @@ async fn main() -> Result<()> {
                 output,
             } => cmd_report_cross_org(graph, &objective, output).await,
         },
+        Commands::PrNote { branch } => cmd_pr_note(&handle, branch.as_deref()).await,
     }
 }
 
@@ -726,7 +800,7 @@ async fn cmd_report_cross_org(
     Ok(())
 }
 
-async fn cmd_pr_open(
+struct PrOpenArgs {
     title: String,
     body: String,
     head: String,
@@ -734,7 +808,35 @@ async fn cmd_pr_open(
     owner: String,
     repo: String,
     librarian: bool,
-) -> Result<()> {
+    require_local_ci: bool,
+}
+
+async fn cmd_pr_open(args: PrOpenArgs) -> Result<()> {
+    let PrOpenArgs {
+        title,
+        mut body,
+        head,
+        base,
+        owner,
+        repo,
+        librarian,
+        require_local_ci,
+    } = args;
+
+    let repo_root = aivcs_core::find_repo_root();
+
+    if require_local_ci {
+        aivcs_core::run_local_ci(&repo_root)?;
+    }
+
+    // Always generate snapshot and embed in body
+    let snapshot = aivcs_core::build_ci_snapshot(&repo_root)?;
+    let digest = snapshot.digest();
+    body = format!(
+        "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
+        body, digest, snapshot.local_ci_config_hash
+    );
+
     let client = github_client_from_env(owner, repo)?;
 
     let pr_number = client
@@ -760,6 +862,7 @@ async fn read_file_for_github_commit(file: &PathBuf) -> Result<Vec<u8>> {
 }
 
 async fn cmd_pr_commit(
+    handle: &SurrealHandle,
     branch: String,
     path: String,
     message: String,
@@ -776,12 +879,18 @@ async fn cmd_pr_commit(
         .await?;
     println!("Committed '{path}' to branch '{branch}' ({sha})");
 
+    let aivcs_commit_id = match handle.get_branch(&branch).await {
+        Ok(Some(b)) => Some(b.head_commit_id),
+        _ => None,
+    };
+
     aivcs_core::maybe_emit_code_committed_from_env(
         &branch,
         &sha,
         vec![path.clone()],
         "github-pr-commit",
         Some(&github_repo),
+        aivcs_commit_id.as_deref(),
     )
     .await;
 
@@ -800,9 +909,10 @@ struct PrPipelineArgs {
     repo: String,
     librarian: bool,
     skip_branch: bool,
+    require_local_ci: bool,
 }
 
-async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
+async fn cmd_pr_pipeline(handle: &SurrealHandle, args: PrPipelineArgs) -> Result<()> {
     let PrPipelineArgs {
         branch,
         base,
@@ -810,12 +920,27 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         file,
         message,
         title,
-        body,
+        mut body,
         owner,
         repo,
         librarian,
         skip_branch,
+        require_local_ci,
     } = args;
+
+    let repo_root = aivcs_core::find_repo_root();
+
+    if require_local_ci {
+        aivcs_core::run_local_ci(&repo_root)?;
+    }
+
+    // Always generate snapshot and embed in body
+    let snapshot = aivcs_core::build_ci_snapshot(&repo_root)?;
+    let digest = snapshot.digest();
+    body = format!(
+        "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
+        body, digest, snapshot.local_ci_config_hash
+    );
 
     let github_repo = format!("{owner}/{repo}");
     let client = github_client_from_env(owner.clone(), repo.clone())?;
@@ -832,12 +957,18 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         .await?;
     println!("Committed '{path}' to branch '{branch}' ({sha})");
 
+    let aivcs_commit_id = match handle.get_branch(&branch).await {
+        Ok(Some(b)) => Some(b.head_commit_id),
+        _ => None,
+    };
+
     aivcs_core::maybe_emit_code_committed_from_env(
         &branch,
         &sha,
         vec![path.clone()],
         "github-pr-pipeline",
         Some(&github_repo),
+        aivcs_commit_id.as_deref(),
     )
     .await;
 
@@ -846,6 +977,191 @@ async fn cmd_pr_pipeline(args: PrPipelineArgs) -> Result<()> {
         .await?;
     println!("Successfully opened PR #{pr_number}");
 
+    Ok(())
+}
+
+async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
+    let repo_root = aivcs_core::find_repo_root();
+
+    // 1. Get PR body
+    let body = if let Some(b) = pr_body {
+        b
+    } else if let Ok(event_path) = std::env::var("GITHUB_EVENT_PATH") {
+        let content =
+            std::fs::read_to_string(event_path).context("Failed to read GITHUB_EVENT_PATH")?;
+        let event: serde_json::Value =
+            serde_json::from_str(&content).context("Failed to parse GITHUB_EVENT_PATH JSON")?;
+
+        if let Some(body_val) = event.pointer("/pull_request/body") {
+            body_val.as_str().unwrap_or_default().to_string()
+        } else {
+            anyhow::bail!("Could not find pull_request.body in GITHUB_EVENT_PATH");
+        }
+    } else {
+        anyhow::bail!("No PR body provided and GITHUB_EVENT_PATH is not set");
+    };
+
+    // 2. Extract snapshot digest from PR body
+    // Look for: <!-- aivcs-ci-snapshot: sha256:<digest> config-hash:<hash> -->
+    let pattern = "<!-- aivcs-ci-snapshot: sha256:";
+    let idx = body.find(pattern).context("No aivcs-ci-snapshot digest found in PR body. Did you open this PR using 'aivcs pr pipeline'?")?;
+    let start = idx + pattern.len();
+    let rest = &body[start..];
+    let end_idx = rest
+        .find(' ')
+        .or_else(|| rest.find("-->"))
+        .context("Malformed aivcs-ci-snapshot in PR body")?;
+    let expected_digest = rest[..end_idx].trim().to_string();
+
+    println!(
+        "Extracted snapshot digest from PR body: {}",
+        expected_digest
+    );
+
+    // 3. Recompute snapshot
+    let snapshot = aivcs_core::build_ci_snapshot(&repo_root)?;
+    let computed_digest = snapshot.digest();
+    println!("Computed snapshot digest from HEAD: {}", computed_digest);
+
+    if expected_digest == computed_digest {
+        println!("✓ Snapshot verification successful!");
+        Ok(())
+    } else {
+        println!("Expected snapshot details:");
+        println!("  repo_sha: {}", snapshot.repo_sha);
+        println!("  workspace_hash: {}", snapshot.workspace_hash);
+        println!("  local_ci_config_hash: {}", snapshot.local_ci_config_hash);
+        println!("  env_hash: {}", snapshot.env_hash);
+        anyhow::bail!("✗ Snapshot verification failed! The current HEAD state does not match the local-ci snapshot in the PR body. Did you push unstaged/untested changes without using aivcs pr pipeline?")
+    }
+}
+
+async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
+    let repo_root = aivcs_core::find_repo_root();
+    println!("cmd_pr_verify_reproducibility: repo_root = {:?}", repo_root);
+
+    // 1. Get PR body
+    let body = if let Some(b) = pr_body {
+        b
+    } else if let Ok(event_path) = std::env::var("GITHUB_EVENT_PATH") {
+        let content =
+            std::fs::read_to_string(event_path).context("Failed to read GITHUB_EVENT_PATH")?;
+        let event: serde_json::Value =
+            serde_json::from_str(&content).context("Failed to parse GITHUB_EVENT_PATH JSON")?;
+
+        if let Some(body_val) = event.pointer("/pull_request/body") {
+            body_val.as_str().unwrap_or_default().to_string()
+        } else {
+            anyhow::bail!("Could not find pull_request.body in GITHUB_EVENT_PATH");
+        }
+    } else {
+        anyhow::bail!("No PR body provided and GITHUB_EVENT_PATH is not set");
+    };
+
+    // 2. Extract aivcs-commit: <CommitId>
+    let commit_pattern = "aivcs-commit:";
+    let idx = body.find(commit_pattern).context("No 'aivcs-commit' field found in PR body. Please run 'aivcs pr-note' and paste it in the PR.")?;
+    let start = idx + commit_pattern.len();
+    let rest = &body[start..];
+    let end_idx = rest.find('\n').unwrap_or(rest.len());
+    let expected_commit_id = rest[..end_idx].trim().to_string();
+
+    println!(
+        "Extracted aivcs-commit from PR body: {}",
+        expected_commit_id
+    );
+
+    // 3. Extract Env Hash (optional / if present)
+    let env_pattern = "- **Env Hash**:";
+    let env_hash_opt = if let Some(env_idx) = body.find(env_pattern) {
+        let start = env_idx + env_pattern.len();
+        let rest = &body[start..];
+        let end_idx = rest.find('\n').unwrap_or(rest.len());
+        Some(rest[..end_idx].trim().to_string())
+    } else {
+        None
+    };
+
+    // 4. Extract State Hash (optional / if present)
+    let state_pattern = "- **State Hash**:";
+    let state_hash_opt = if let Some(state_idx) = body.find(state_pattern) {
+        let start = state_idx + state_pattern.len();
+        let rest = &body[start..];
+        let end_idx = rest.find('\n').unwrap_or(rest.len());
+        Some(rest[..end_idx].trim().to_string())
+    } else {
+        None
+    };
+
+    // 5. Extract Logic Hash (optional / if present)
+    let logic_pattern = "- **Logic Hash**:";
+    let logic_hash_opt = if let Some(logic_idx) = body.find(logic_pattern) {
+        let start = logic_idx + logic_pattern.len();
+        let rest = &body[start..];
+        let end_idx = rest.find('\n').unwrap_or(rest.len());
+        Some(rest[..end_idx].trim().to_string())
+    } else {
+        None
+    };
+
+    // 6. Validate composite CommitId match
+    if let (Some(state_hash), env_hash, logic_hash) = (
+        state_hash_opt.clone(),
+        env_hash_opt.clone(),
+        logic_hash_opt.clone(),
+    ) {
+        let computed_commit =
+            CommitId::new(logic_hash.as_deref(), &state_hash, env_hash.as_deref());
+        if computed_commit.hash != expected_commit_id {
+            anyhow::bail!(
+                "✗ Commit ID validation failed! The composite CommitId in the PR body ({}) does not match the computed hash ({}) from the listed components.",
+                expected_commit_id,
+                computed_commit.hash
+            );
+        }
+        println!("✓ Composite CommitId integrity validated.");
+    }
+
+    // 7. Verify CAS file exists locally (validates the commit data exists in repository)
+    if let Some(state_hash) = state_hash_opt {
+        let cas_path = repo_root
+            .join(".aivcs")
+            .join("cas")
+            .join("objects")
+            .join(&state_hash[..2])
+            .join(&state_hash[2..]);
+        if !cas_path.exists() {
+            anyhow::bail!(
+                "✗ CAS file not found at {:?}! Please ensure you have committed and pushed the CAS objects in '.aivcs/cas/objects/' to your PR.",
+                cas_path
+            );
+        }
+        println!("✓ CAS object verified: {:?}", cas_path);
+    }
+
+    // 8. Generate workspace Nix environment hash and verify against the Env Hash
+    let workspace_env = nix_env_manager::generate_environment_hash(&repo_root)
+        .context("Failed to generate Nix environment hash for the workspace")?;
+    println!("Computed workspace environment: {:?}", workspace_env);
+    println!(
+        "Computed workspace environment hash: {}",
+        workspace_env.hash
+    );
+
+    if let Some(ref env_hash) = env_hash_opt {
+        if env_hash != &workspace_env.hash {
+            anyhow::bail!(
+                "✗ Nix environment hash mismatch! PR body has '{}', but workspace has '{}'. Please make sure your Nix flake and lock file match the snapshot environment.",
+                env_hash,
+                workspace_env.hash
+            );
+        }
+        println!("✓ Nix environment hash matches!");
+    } else {
+        println!("⚠ No Env Hash found in PR body summary. Skipping env hash comparison.");
+    }
+
+    println!("✓ aivcs reproducibility check successful!");
     Ok(())
 }
 
@@ -902,12 +1218,13 @@ async fn cmd_snapshot(
     let state: serde_json::Value =
         serde_json::from_str(&state_content).context("Failed to parse state as JSON")?;
 
-    // Resolve git SHA: use override, or auto-detect from cwd (optional)
+    // Resolve git SHA: use override, or auto-detect from cwd. Sentinel
+    // `None` means "no git context" — used by the local-print path and the
+    // A2A emit gate below. See the matching block on the emit site.
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    let git_sha = match git_sha_override {
-        Some(sha) => sha.to_string(),
-        None => aivcs_core::capture_head_sha(&cwd)
-            .unwrap_or_else(|_| "0000000000000000000000000000000000000000".to_string()),
+    let git_sha: Option<String> = match git_sha_override {
+        Some(sha) => Some(sha.to_string()),
+        None => aivcs_core::capture_head_sha(&cwd).ok(),
     };
 
     // Generate logic and environment hashes for composite CommitId
@@ -953,24 +1270,38 @@ async fn cmd_snapshot(
     let branch_record = BranchRecord::new(branch, &commit_id.hash, branch == "main");
     handle.save_branch(&branch_record).await?;
 
-    aivcs_core::maybe_emit_code_committed_from_env(
-        branch,
-        &commit_id.hash,
-        vec![state_path.display().to_string()],
-        author,
-        None,
-    )
-    .await;
+    // Same A2A gate as `cmd_merge`: only emit CODE_COMMITTED when we have
+    // a real git SHA. Emitting with a placeholder hash would be a lie to
+    // any consumer that joins on `commit_sha`.
+    if let Some(sha) = &git_sha {
+        aivcs_core::maybe_emit_code_committed_from_env(
+            branch,
+            sha,
+            vec![state_path.display().to_string()],
+            author,
+            None,
+            Some(&commit_id.hash),
+        )
+        .await;
+    } else {
+        warn!(
+            aivcs_commit_id = %commit_id.hash,
+            "skipping CODE_COMMITTED emission for snapshot: git SHA unavailable"
+        );
+    }
 
     info!(
         cas_digest = %cas_digest,
-        git_sha = %git_sha,
+        git_sha = %git_sha.as_deref().unwrap_or("(unavailable)"),
         "snapshot stored in CAS"
     );
 
     println!("[{}] {} ({})", branch, message, commit_id.short());
     println!("Commit:    {}", commit_id);
-    println!("Git SHA:   {}", git_sha);
+    println!(
+        "Git SHA:   {}",
+        git_sha.as_deref().unwrap_or("(unavailable)")
+    );
     println!("CAS digest: {}", cas_digest);
 
     Ok(())
@@ -1188,14 +1519,33 @@ async fn cmd_merge(
     let branch = BranchRecord::new(target, &result.merge_commit_id.hash, target == "main");
     handle.save_branch(&branch).await?;
 
-    aivcs_core::maybe_emit_code_committed_from_env(
-        target,
-        &result.merge_commit_id.hash,
-        Vec::new(),
-        "agent-git",
-        None,
-    )
-    .await;
+    // CODE_COMMITTED carries a `commit_sha` (git) AND an optional
+    // `aivcs_commit_id` (this merge's aivcs hash). The git side has no
+    // meaningful value if git isn't available, and emitting a 40-char
+    // string of zeros is indistinguishable from a real SHA to downstream
+    // consumers — strictly worse than not emitting at all. Skip the A2A
+    // side-effect and log; the aivcs merge itself is already durable.
+    let cwd = std::env::current_dir().context("Failed to get current directory")?;
+    match aivcs_core::capture_head_sha(&cwd) {
+        Ok(git_sha) => {
+            aivcs_core::maybe_emit_code_committed_from_env(
+                target,
+                &git_sha,
+                Vec::new(),
+                "agent-git",
+                None,
+                Some(&result.merge_commit_id.hash),
+            )
+            .await;
+        }
+        Err(e) => {
+            warn!(
+                aivcs_commit_id = %result.merge_commit_id.hash,
+                error = %e,
+                "skipping CODE_COMMITTED emission for merge: git SHA unavailable"
+            );
+        }
+    }
 
     println!("Merge complete: {}", result.merge_commit_id.short());
     println!("{}", result.summary);
@@ -1943,6 +2293,75 @@ async fn cmd_ci_run(
     }
 }
 
+async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> Result<()> {
+    let branch_name = match branch_name_opt {
+        Some(name) => name.to_string(),
+        None => {
+            let cwd = std::env::current_dir().context("Failed to get current directory")?;
+            aivcs_core::detect_current_branch(&cwd)
+                .context("Failed to auto-detect current git branch")?
+        }
+    };
+
+    let branch = handle
+        .get_branch(&branch_name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Branch '{}' not found in AIVCS database", branch_name))?;
+
+    let commit = handle
+        .get_commit(&branch.head_commit_id)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Commit '{}' not found in AIVCS database",
+                branch.head_commit_id
+            )
+        })?;
+
+    // Format output matching acceptance criteria.
+    //
+    // The `<!-- aivcs-linkage -->` HTML comment is a *visible section
+    // header* for the metadata that follows. The lines underneath
+    // (`aivcs-commit:`, `intent-id:`) are human-readable plain text and
+    // are the durable index into the aivcs ledger — the comment marker
+    // is just an anchor that reviewers (and the Phase 1 verifier) can
+    // locate without parsing markdown headings. This is a different
+    // pattern from `<!-- aivcs-ci-snapshot: sha256:... -->` over in
+    // `ci_snapshot`, where the comment itself buries an opaque
+    // workspace digest as the payload. Here the comment is metadata
+    // *about* the section, not the metadata payload.
+    // See stevedores-org/aivcs#231 (M2).
+    println!("<!-- aivcs-linkage -->");
+    println!("aivcs-commit: {}", commit.commit_id.hash);
+    if let Some(intent_id) = read_objective_id() {
+        println!("intent-id: {}", intent_id);
+    }
+    println!();
+    println!("### AIVCS Commit Summary");
+    println!("- **Message**: {}", commit.message);
+    println!("- **Author**: {}", commit.author);
+    println!("- **Created**: {}", commit.created_at);
+    println!("- **State Hash**: {}", commit.commit_id.state_hash);
+    if let Some(logic) = &commit.commit_id.logic_hash {
+        println!("- **Logic Hash**: {}", logic);
+    }
+    if let Some(env) = &commit.commit_id.env_hash {
+        println!("- **Env Hash**: {}", env);
+    }
+
+    Ok(())
+}
+
+fn read_objective_id() -> Option<String> {
+    let content = std::fs::read_to_string("intent/current.yaml").ok()?;
+    for line in content.lines() {
+        if let Some(rest) = line.trim().strip_prefix("objective_id:") {
+            return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1952,11 +2371,15 @@ mod tests {
     async fn test_agent_git_snapshot_cli_returns_valid_id() {
         let handle = SurrealHandle::setup_db().await.unwrap();
 
-        // Initialize first
-        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
-
-        // Create a temp state file
+        // Hermetic init: use tempdir so the test doesn't write into whatever
+        // cwd `cargo test` happened to run from. Matches the pattern in
+        // `test_pr_note_command`.
         let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
+        // Create a temp state file in the same tempdir.
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
 
@@ -1980,14 +2403,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_pr_note_command() {
+        let handle = SurrealHandle::setup_db().await.unwrap();
+        // Use a temp dir for cmd_init so the test is hermetic. Previously
+        // this called `cmd_init(&handle, &PathBuf::from("."))`, which leaked
+        // init artifacts into whatever cwd `cargo test` ran from.
+        let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
+        // Create a snapshot to produce a commit and update the branch.
+        let state_path = temp_dir.path().join("state.json");
+        std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
+
+        cmd_snapshot(
+            &handle,
+            &state_path,
+            "Initial commit",
+            "test-author",
+            "main",
+            Some("1234567890abcdef1234567890abcdef12345678"),
+            Some(&temp_dir.path().join("cas")),
+        )
+        .await
+        .unwrap();
+
+        // Run the pr-note command
+        let res = cmd_pr_note(&handle, Some("main")).await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pr_verify_reproducibility() {
+        let repo_root = aivcs_core::find_repo_root();
+        println!(
+            "test_pr_verify_reproducibility: repo_root = {:?}",
+            repo_root
+        );
+        let state_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+        // Mock the CAS file location locally just for this test
+        let cas_dir = repo_root
+            .join(".aivcs")
+            .join("cas")
+            .join("objects")
+            .join(&state_hash[..2]);
+        std::fs::create_dir_all(&cas_dir).unwrap();
+        let cas_file = cas_dir.join(&state_hash[2..]);
+        std::fs::write(&cas_file, b"test").unwrap();
+
+        let workspace_env = nix_env_manager::generate_environment_hash(&repo_root).unwrap();
+        println!(
+            "test_pr_verify_reproducibility: workspace_env = {:?}",
+            workspace_env
+        );
+        let computed = CommitId::new(None, state_hash, Some(&workspace_env.hash));
+
+        let pr_body = format!(
+            "aivcs-commit: {}\n- **State Hash**: {}\n- **Env Hash**: {}\n",
+            computed.hash, state_hash, workspace_env.hash
+        );
+
+        let res = cmd_pr_verify_reproducibility(Some(pr_body)).await;
+
+        // Cleanup mock CAS file
+        let _ = std::fs::remove_file(&cas_file);
+
+        assert!(res.is_ok(), "reproducibility check failed: {:?}", res.err());
+    }
+
+    #[tokio::test]
     async fn test_cmd_fork_creates_branches_in_same_db() {
         let handle = SurrealHandle::setup_db().await.unwrap();
 
-        // Initialize repo
-        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
-
-        // Create a snapshot to fork from
+        // Hermetic init: see `test_pr_note_command` for the pattern.
         let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
+        // Create a snapshot to fork from in the same tempdir.
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"step": 1, "value": "test"}"#).unwrap();
         cmd_snapshot(
@@ -2024,9 +2520,12 @@ mod tests {
     #[tokio::test]
     async fn test_snapshot_linked_to_git_sha() {
         let handle = SurrealHandle::setup_db().await.unwrap();
-        cmd_init(&handle, &PathBuf::from(".")).await.unwrap();
-
+        // Hermetic init: see `test_pr_note_command` for the pattern.
         let temp_dir = tempfile::tempdir().unwrap();
+        cmd_init(&handle, &temp_dir.path().to_path_buf())
+            .await
+            .unwrap();
+
         let state_path = temp_dir.path().join("state.json");
         std::fs::write(&state_path, r#"{"model": "gpt-4", "step": 42}"#).unwrap();
 

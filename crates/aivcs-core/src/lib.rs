@@ -4,6 +4,7 @@
 
 pub mod a2a;
 pub mod cas;
+pub mod ci_snapshot;
 pub mod compat;
 pub mod deploy;
 pub mod deploy_runner;
@@ -49,9 +50,14 @@ pub use a2a::{
     CodeCommittedEvent, HttpJsonRpcTransport, DEFAULT_A2A_METHOD,
 };
 
-pub use git::{capture_head_sha, detect_github_repository, is_git_repo, parse_github_remote};
+pub use git::{
+    capture_head_sha, detect_current_branch, detect_github_repository, is_git_repo, is_owner_repo,
+    is_valid_github_name, parse_github_remote,
+};
 
 pub use memory::{DecisionRecorder, DecisionRecorderConfig};
+
+pub use ci_snapshot::{build_ci_snapshot, compute_workspace_hash, find_repo_root, run_local_ci};
 
 pub use oxidized_state::{
     BranchRecord, CommitId, CommitRecord, DecisionRecord, MemoryProvenanceRecord, MemoryRecord,

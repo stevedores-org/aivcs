@@ -80,7 +80,12 @@ impl GitHubClient {
 
         // We use a manual PUT request to the Contents API to support binary data
         // and ensure we don't have UTF-8 overhead or double-encoding issues.
-        let url = format!("/repos/{}/{}/contents/{}", self.owner, self.repo, path);
+        let url = format!(
+            "/repos/{}/{}/contents/{}",
+            self.owner,
+            self.repo,
+            encode_contents_path(path)
+        );
 
         let mut body = serde_json::json!({
             "message": message,
@@ -236,7 +241,26 @@ fn resolve_librarian_username(
         !value.trim().is_empty(),
         "RELIC_LIBRARIAN_USERNAME is set but empty"
     );
-    Ok(value)
+    Ok(value.trim().to_string())
+}
+
+fn encode_contents_path(path: &str) -> String {
+    path.split('/')
+        .map(percent_encode_path_segment)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn percent_encode_path_segment(segment: &str) -> String {
+    let mut encoded = String::new();
+    for byte in segment.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 #[cfg(test)]
@@ -274,6 +298,12 @@ mod tests {
     #[test]
     fn resolve_librarian_username_valid_value_is_returned_verbatim() {
         let username = resolve_librarian_username(Ok("librarian-bot".to_string())).unwrap();
+        assert_eq!(username, "librarian-bot");
+    }
+
+    #[test]
+    fn resolve_librarian_username_trims_secret_projection_newline() {
+        let username = resolve_librarian_username(Ok(" librarian-bot\n".to_string())).unwrap();
         assert_eq!(username, "librarian-bot");
     }
 
@@ -389,5 +419,13 @@ mod tests {
         let data = b"\x89PNG\r\n\x1a\n";
         let encoded = STANDARD.encode(data);
         assert_eq!(encoded, "iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn encode_contents_path_preserves_slashes_and_escapes_segments() {
+        assert_eq!(
+            encode_contents_path("docs/release notes/#1 \u{00FC}.md"),
+            "docs/release%20notes/%231%20%C3%BC.md"
+        );
     }
 }

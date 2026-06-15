@@ -276,12 +276,15 @@ impl DeterministicEvalRunner {
 
         let passed_cases = case_results.iter().filter(|c| c.passed).count();
         let total_cases = case_results.len();
+        // An empty suite validated nothing, so it must not vacuously pass the
+        // gate: a misconfigured or fully-filtered suite reporting `pass_rate =
+        // 1.0` would green-light a release with zero evidence.
         let pass_rate = if total_cases == 0 {
-            1.0
+            0.0
         } else {
             passed_cases as f32 / total_cases as f32
         };
-        let overall_pass = pass_rate >= suite.thresholds.min_pass_rate;
+        let overall_pass = total_cases > 0 && pass_rate >= suite.thresholds.min_pass_rate;
 
         Ok(EvalRunReport {
             suite_digest: suite.suite_digest.clone(),
@@ -376,6 +379,29 @@ mod tests {
         let deserialized: EvalSuite = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(suite, deserialized);
+    }
+
+    #[test]
+    fn test_empty_suite_does_not_vacuously_pass() {
+        // A suite with zero test cases validated nothing — it must fail the
+        // gate rather than report a perfect 100% pass rate.
+        let suite = EvalSuite::new("empty".to_string(), "1.0.0".to_string())
+            .add_scorer(ScorerConfig {
+                name: "exact_match".to_string(),
+                scorer_type: ScorerType::ExactMatch,
+                params: serde_json::json!({}),
+            })
+            .finalize()
+            .expect("finalize");
+
+        let runner = DeterministicEvalRunner::new(42);
+        let report = runner
+            .run_with_outputs(&suite, &HashMap::new())
+            .expect("run");
+
+        assert_eq!(report.total_cases, 0);
+        assert_eq!(report.pass_rate, 0.0);
+        assert!(!report.overall_pass, "empty suite must not pass the gate");
     }
 
     #[test]

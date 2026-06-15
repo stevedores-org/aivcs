@@ -35,6 +35,11 @@ pub struct CodeCommittedEvent {
     pub job_id: Option<String>,
     /// Event creation timestamp.
     pub timestamp: DateTime<Utc>,
+    /// Associated AIVCS commit ID, if present. `serde(default)` so historical
+    /// payloads emitted before this field existed deserialize cleanly into the
+    /// current struct — `skip_serializing_if` alone is one-way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aivcs_commit_id: Option<String>,
 }
 
 impl CodeCommittedEvent {
@@ -159,6 +164,7 @@ pub async fn maybe_emit_code_committed_from_env(
     changed_paths: Vec<String>,
     author: &str,
     repo_override: Option<&str>,
+    aivcs_commit_id: Option<&str>,
 ) {
     let Some(endpoint) = std::env::var("AIVCS_A2A_JSONRPC_URL")
         .ok()
@@ -167,7 +173,13 @@ pub async fn maybe_emit_code_committed_from_env(
         return;
     };
 
+    // Validate `repo_override` through the same gate the auto-detect path
+    // goes through. An invalid override (e.g. unvalidated `--owner`/`--repo`
+    // CLI flags from an upstream caller) silently falls back to detection
+    // rather than smuggling shell-metachar / newline / dot-traversal bytes
+    // into the emitted A2A event.
     let repo = repo_override
+        .filter(|s| crate::git::is_owner_repo(s))
         .map(str::to_string)
         .or_else(crate::git::detect_github_repository)
         .unwrap_or_else(|| "unknown/unknown".to_string());
@@ -186,6 +198,7 @@ pub async fn maybe_emit_code_committed_from_env(
         authoring_agent_id,
         job_id,
         timestamp: Utc::now(),
+        aivcs_commit_id: aivcs_commit_id.map(str::to_string),
     };
 
     let transport = HttpJsonRpcTransport::new(endpoint);
@@ -265,6 +278,7 @@ mod tests {
             authoring_agent_id: "builder-agent".to_string(),
             job_id: Some("job-123".to_string()),
             timestamp: Utc::now(),
+            aivcs_commit_id: Some("aivcs-hash-123".to_string()),
         }
     }
 
@@ -277,6 +291,10 @@ mod tests {
         assert_eq!(params["event"]["payload"]["repo"], "stevedores-org/aivcs");
         assert_eq!(params["event"]["payload"]["branch"], "develop");
         assert_eq!(params["event"]["payload"]["commit_sha"], "abc123");
+        assert_eq!(
+            params["event"]["payload"]["aivcs_commit_id"],
+            "aivcs-hash-123"
+        );
         assert_eq!(
             params["event"]["payload"]["changed_paths"],
             json!(["state.json"])

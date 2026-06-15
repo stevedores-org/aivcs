@@ -78,6 +78,29 @@ Before starting any task, read these files to understand the current architectur
 
 **Usage:** When creating new agents or applications, always reference the templates in `.ai/templates/` and follow the patterns documented in `.ai/ARCHITECTURE.md` and `.ai/AGENT.md`.
 
+## Autonomous Workflow Protocol
+
+When tasked with project maintenance or objective progression, follow this Algorithmic Logic loop:
+
+1. **Poll & Prioritize**:
+   - Use available tools to fetch the latest open GitHub Pull Requests and Issues.
+   - Categorize by impact and urgency.
+
+2. **Analyze & Engage**:
+   - Review each item thoroughly.
+   - Post relevant comments, code reviews, or technical feedback directly to the threads.
+
+3. **Document**:
+   - Update the primary GitHub Issue(s) with a concise summary of progress made and the current status of the objective.
+   - This ensures the "Source of Truth" is always current.
+
+4. **Iterate**:
+   - Identify the next highest-priority action item to maintain momentum.
+   - Propose or initiate the next logical file change or command.
+
+5. **Exception Handling**:
+   - If a task is blocked, requires credentials you lack, or needs human architectural input, **STOP** immediately.
+   - Clearly define the blocker and ask the user for guidance.
 ## **Project Standards**
 
 - **Plan A**: Crossplane (Infra), Flux (GitOps), Dockworker (Builds). **Terraform is deprecated.**
@@ -163,13 +186,10 @@ kubernetes/overlays/        # Environment overlays: dev, staging, prod
 - Use `lornu-ai-` prefix for resource names.
 
 ## Runtime Standards
-
-Language choice by component type — apply in this priority order:
-
-1. **New `apps`, `app-agents`, `packages` core logic → Rust** (Rust-or-Bust policy). Every new component of this kind MUST include a `Cargo.toml`. This overrides any "Bun/uv" guidance below.
-2. **Frontend (UI / web)** → Bun (`bun install`, `bun run dev`, `bunx`). Template: `lornu-ai/react-bun-k8s`. Working dir: `apps/lornu-ai/frontend`.
-3. **Backend (legacy Python services in `apps/api/`)** → uv only (`uv sync`, `uv run uvicorn`). New backend services that aren't UI should be Rust per (1), not uv.
-4. **Never** use npm / yarn / pip.
+- **Frontend**: Bun (`bun install`, `bun run dev`, `bunx`). Template: `lornu-ai/react-bun-k8s`. Working dir: `apps/lornu-ai/frontend`.
+- **Backend**: uv only (`uv sync`, `uv run uvicorn`).
+- **Core Logic**: Rust ONLY for new `apps`, `app-agents`, and `packages` (Rust-or-Bust policy). Every new component MUST include a `Cargo.toml`.
+- Do **not** use npm/yarn/pip.
 
 ## CI/CD Quality Gates (Grow Without Limits)
 - **Level 1: Kustomize Build**: All overlays must pass `kustomize build`.
@@ -210,7 +230,13 @@ cd app-agents/aiops-agent && uv sync && uv run python -m aiops_agent.main
 
 ## Agent Workflow (Autonomous Operation Loop)
 
-The canonical 5-step loop lives in **[Poll & Prioritize Workflow (MANDATORY)](#poll--prioritize-workflow-mandatory)** below. The notes here cover *why* this loop matters and *when* it should fire — the steps themselves are in one place only.
+When working autonomously, follow this algorithmic loop:
+
+1. **Poll & Prioritize**: Fetch the latest open GitHub Pull Requests and Issues.
+2. **Analyze & Engage**: Review each item and post relevant comments or actionable feedback.
+3. **Document**: Update the primary GitHub Issue(s) with a concise summary of progress made and current status.
+4. **Iterate**: Identify the next highest-priority action item to maintain momentum.
+5. **Exception Handling**: If a task is blocked or requires human input, stop and ask for guidance immediately.
 
 **Why this matters:**
 - Prevents "Instruction Drift" where agents use outdated schemas or patterns
@@ -231,15 +257,6 @@ The canonical 5-step loop lives in **[Poll & Prioritize Workflow (MANDATORY)](#p
 - Agent instructions → Update `.github/copilot-instructions.md` or `.github/system-instruction.md`
 
 **Automation**: The `LibrarianAgent` automatically scans and suggests updates for these files. Use `check-documentation-sync` MCP tool to validate sync status.
-
-## Zero-Trust MCP Gateway (AIVCS)
-
-When changing `aivcs-auth`, `aivcs-mcp-gateway`, or MCP auth docs:
-
-- Read [docs/mcp-auth-guide.md](docs/mcp-auth-guide.md) and invoke `.cursor/skills/mcp-auth/SKILL.md`
-- Gateway routes require `Authorization`, `MCP-Protocol-Version`, and `Mcp-Session-Id`
-- HITL digest: `hex(SHA256(tool || serde_json(arguments)))`
-- Run `cargo test -p aivcs-mcp-gateway` and `cargo test -p aivcs-auth` before PR
 
 ## PR Labeling (ALWAYS Required)
 - **MANDATORY**: Apply a label for the **worker/agent** (e.g., `codex`, `vs-code`, `antigravity`, `claude`, `cursor-ide`, `jules`) to every PR
@@ -305,12 +322,10 @@ This flow is enforced by CI - PRs that don't follow this pattern will be blocked
 ## Branding
 - Brand asset: `apps/web/src/assets/brand/logo.png`
 
-- **AWS (Primary Hub)**: EKS `${AWS_EKS_CLUSTER_NAME}` (us-east-2) - Active Hub Control Plane
-- **GCP**:
-  - GKE cluster `${GCP_GKE_CLUSTER_NAME}` (us-central1) - **Operational / Staging Hub**.
+- **AWS (Primary Hub)**: EKS `<AWS_EKS_CLUSTER_NAME>` (us-east-2) - Active Hub Control Plane
+- **GCP**: 
+  - GKE cluster `<GCP_GKE_CLUSTER_NAME>` (us-central1) - **Operational / Staging Hub**.
   - GKE cluster `lornu-cluster-west2` (us-west2) - **Secondary Region / Production Spoke**.
-
-> **On `${VAR}` placeholders above:** these follow the same convention as the [Sensitive Data Masking](#sensitive-data-masking-mandatory) section — the actual cluster names are sensitive enough not to live in this contract. Resolved at render time by the six-files compiler from environment / cluster-specific config, or by Flux `postBuild` substitution. Do **not** treat the literal `${...}` strings as cluster names.
 
 ## Flux GitHub Authentication
 - **Method**: GitHub App (OAuth) - not deploy keys or SSH
@@ -380,20 +395,3 @@ This flow is enforced by CI - PRs that don't follow this pattern will be blocked
    - Wait for explicit direction before continuing
 
 **Purpose**: Ensures continuous engagement with the repository's active work, prevents duplicate effort, and maintains visibility into progress across all initiatives.
-
-<!-- INTENT_START -->
-<!-- DO NOT EDIT THIS BLOCK MANUALLY. GENERATED BY SIX-FILES COMPILER -->
-## Active Intent: OBJ-2026-SDF-002
-- **Epic**: Dual ledger — link GitHub PRs to aivcs CommitId
-- **Constraints**:
-  - Git remains source of truth for deterministic code
-  - aivcs snapshots cognition only; no binary model weights in git
-  - CODE_COMMITTED A2A events must fire after durable commit
-- **Acceptance Criteria**:
-  - aivcs pr-note emits CommitId for PR body
-  - Reviewer can aivcs replay <CommitId> for agent session
-  - Pilot PRs include Intent-ID OBJ-2026-SDF-002
-- **Active Agents**: builder, auditor
-- **GitHub**: Issue 220, Branch feat/sdf-intent-pilot
-- **Updated At**: 2026-06-08T12:00:00Z
-<!-- INTENT_END -->

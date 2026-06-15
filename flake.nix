@@ -43,7 +43,14 @@
 
           craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-          cargoSrc = craneLib.cleanCargoSource ./.;
+          cargoSrc = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              let p = toString path; in
+              (pkgs.lib.hasSuffix ".pem" p)
+              || (type == "directory" && pkgs.lib.hasSuffix "/keys" p)
+              || (craneLib.filterCargoSources path type);
+          };
 
           testSrc = pkgs.lib.cleanSourceWith {
             src = ./.;
@@ -51,6 +58,8 @@
             filter = path: type:
               let p = toString path; in
               (craneLib.filterCargoSources path type)
+              || (pkgs.lib.hasSuffix ".pem" p)
+              || (type == "directory" && pkgs.lib.hasSuffix "/keys" p)
               || (type == "directory"
                   && (pkgs.lib.hasSuffix "/.github" p
                       || pkgs.lib.hasSuffix "/.github/workflows" p))
@@ -64,9 +73,6 @@
             strictDeps = true;
             buildInputs = with pkgs; [
               openssl
-            ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-              pkgs.darwin.apple_sdk.frameworks.Security
-              pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
             ];
             nativeBuildInputs = with pkgs; [
               pkg-config
