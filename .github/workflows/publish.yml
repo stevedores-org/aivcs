@@ -56,6 +56,9 @@ jobs:
       - name: Test
         run: cargo nextest run --workspace --cargo-profile ci --profile ci
 
+      - name: Doc Tests
+        run: cargo test --doc --workspace --profile ci
+
   publish-crates-io:
     needs: test
     runs-on: ubuntu-latest

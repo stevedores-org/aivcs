@@ -72,6 +72,18 @@ export CARGO_REGISTRY_TOKEN=$(security find-generic-password -s "CARGO_REGISTRY_
 
 Actions → **publish** → **Run workflow** → leave **dry_run** checked.
 
+## Partial publish recovery
+
+If `cargo publish` fails mid-loop (e.g. `aivcs-core` succeeds but `aivcs-ci` fails), already-published crate versions remain on crates.io and cannot be re-uploaded for the same semver.
+
+1. Fix the underlying issue (tests, metadata, token, network).
+2. Publish remaining crates manually:
+   ```bash
+   export CARGO_REGISTRY_TOKEN=$(security find-generic-password -s "CARGO_REGISTRY_TOKEN" -w)
+   cargo publish -p aivcs-ci   # example: only what failed
+   ```
+3. If the workspace version was corrupted or needs a fix, bump to the next **patch** version, update `CHANGELOG.md`, and tag again (`v0.3.3`).
+
 ## Publish order
 
 Enforced by [`scripts/publish-crates.sh`](../scripts/publish-crates.sh):
