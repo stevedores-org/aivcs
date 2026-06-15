@@ -281,6 +281,7 @@ The `pr commit` and `pr pipeline` commands support both text and binary files. C
 - [Local Development](docs/runbooks/local-development.md) — build, test, dev workflows
 - [Database Configuration](docs/runbooks/database-configuration.md) — in-memory, local, cloud setup
 - [CI Troubleshooting](docs/runbooks/ci-troubleshooting.md) — common failures, reproduce locally
+- [crates.io Release](docs/CRATES_IO_RELEASE.md) — publish library crates (tag → `publish.yml`)
 - [Zero-Touch PR Pipeline](docs/runbooks/zero-touch-pr-pipeline.md) — autonomous agent Jobs: branch, commit, PR, A2A
 
 ## Contributing
