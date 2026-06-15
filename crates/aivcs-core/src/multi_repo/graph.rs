@@ -69,15 +69,35 @@ impl RepoExecutionPlan {
     pub fn parallel_groups(&self) -> Vec<Vec<&RepoStep>> {
         let mut groups: Vec<Vec<&RepoStep>> = Vec::new();
         let mut current: Vec<&RepoStep> = Vec::new();
+        let mut current_ids: HashSet<&str> = HashSet::new();
 
         for step in &self.steps {
-            if step.parallelizable {
+            // A step must never share a group with a step it depends on, even
+            // when both are flagged parallelizable. `parallelizable` only means
+            // "shares a topological level with a sibling"; adjacent steps in
+            // the plan can belong to different levels (e.g. roots `A,B`
+            // followed by their dependents `C,D`), and grouping `C` with `A`
+            // would schedule a repo concurrently with its own dependency.
+            let depends_on_current = step
+                .depends_on
+                .iter()
+                .any(|d| current_ids.contains(d.as_str()));
+
+            if step.parallelizable && !depends_on_current {
                 current.push(step);
+                current_ids.insert(step.repo.repo_id.as_str());
             } else {
                 if !current.is_empty() {
                     groups.push(std::mem::take(&mut current));
+                    current_ids.clear();
                 }
-                groups.push(vec![step]);
+                if step.parallelizable {
+                    // Opens a fresh parallel group (it depended on the previous one).
+                    current.push(step);
+                    current_ids.insert(step.repo.repo_id.as_str());
+                } else {
+                    groups.push(vec![step]);
+                }
             }
         }
         if !current.is_empty() {
@@ -506,6 +526,40 @@ mod tests {
         assert!(trans.contains(&"B".to_string()));
         assert!(trans.contains(&"A".to_string()));
         assert!(!trans.contains(&"C".to_string()));
+    }
+
+    #[test]
+    fn test_parallel_groups_never_group_a_step_with_its_dependency() {
+        // Roots A,B (level 0); C and D both depend on A (level 1). All four are
+        // "parallelizable" (their level has >1 node), so the old adjacency-blind
+        // grouping merged them into a single group — scheduling C and D to run
+        // concurrently with their dependency A.
+        let mut g = RepoDependencyGraph::new();
+        for id in &["A", "B", "C", "D"] {
+            g.add_node(node(id));
+        }
+        g.add_dependency("A", "C").unwrap();
+        g.add_dependency("A", "D").unwrap();
+
+        let plan = g.to_execution_plan("levels").unwrap();
+        let groups = plan.parallel_groups();
+
+        // No group may contain both a step and one of its dependencies.
+        for group in &groups {
+            let ids: HashSet<&str> = group.iter().map(|s| s.repo.repo_id.as_str()).collect();
+            for step in group {
+                for dep in &step.depends_on {
+                    assert!(
+                        !ids.contains(dep.as_str()),
+                        "step {} grouped with its dependency {}",
+                        step.repo.repo_id,
+                        dep
+                    );
+                }
+            }
+        }
+        // A and B (level 0) form one group; C and D (level 1) form another.
+        assert_eq!(groups.len(), 2);
     }
 
     #[test]

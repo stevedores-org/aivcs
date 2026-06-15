@@ -56,7 +56,39 @@ impl Semver {
             (None, None) => std::cmp::Ordering::Equal,
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
-            (Some(a), Some(b)) => a.cmp(b),
+            (Some(a), Some(b)) => cmp_prerelease(a, b),
+        }
+    }
+}
+
+/// Compare two pre-release strings per semver §11.
+///
+/// Identifiers are split on `.`; purely numeric identifiers compare
+/// numerically (so `alpha.9 < alpha.10`), numeric identifiers rank lower than
+/// alphanumeric ones, and a larger set of identifiers wins when all preceding
+/// ones are equal. A plain `str::cmp` (the previous behaviour) is lexicographic
+/// and wrongly ordered `alpha.10` before `alpha.9`, causing `VersionBump` to
+/// reject legitimately higher pre-release versions.
+fn cmp_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let mut ai = a.split('.');
+    let mut bi = b.split('.');
+    loop {
+        match (ai.next(), bi.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) => {
+                let ord = match (x.parse::<u64>(), y.parse::<u64>()) {
+                    (Ok(xn), Ok(yn)) => xn.cmp(&yn),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => x.cmp(y),
+                };
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
         }
     }
 }
@@ -301,5 +333,42 @@ fn check_rule(rule: &PublishRule, candidate: &PublishCandidate) -> Option<Publis
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numeric_prerelease_identifiers_compare_numerically() {
+        let lo = Semver::parse("1.0.0-alpha.9").unwrap();
+        let hi = Semver::parse("1.0.0-alpha.10").unwrap();
+        // Lexicographically "alpha.10" < "alpha.9"; numerically alpha.10 wins.
+        assert_eq!(lo.cmp_version(&hi), std::cmp::Ordering::Less);
+        assert_eq!(hi.cmp_version(&lo), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn prerelease_is_less_than_release() {
+        let pre = Semver::parse("1.0.0-rc.1").unwrap();
+        let rel = Semver::parse("1.0.0").unwrap();
+        assert_eq!(pre.cmp_version(&rel), std::cmp::Ordering::Less);
+    }
+
+    #[test]
+    fn version_bump_accepts_higher_numeric_prerelease() {
+        let candidate = PublishCandidate {
+            version_label: Some("1.0.0-alpha.10".to_string()),
+            previous_version: Some("1.0.0-alpha.9".to_string()),
+            existing_versions: vec![],
+            notes: Some("notes".to_string()),
+            spec_digest: "digest".to_string(),
+        };
+        let violation = check_rule(&PublishRule::VersionBump, &candidate);
+        assert!(
+            violation.is_none(),
+            "1.0.0-alpha.10 should be accepted over 1.0.0-alpha.9, got {violation:?}"
+        );
     }
 }
