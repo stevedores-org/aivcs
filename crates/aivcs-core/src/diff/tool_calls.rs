@@ -311,25 +311,35 @@ mod tests {
         let diff = diff_tool_calls(&a, &b);
 
         // The reordered call must be `search` (moved 0 -> 2), proving it came
-        // from the unaligned reconciliation arm, not an aligned pair.
-        let reordered_search = diff.changes.iter().any(|c| matches!(
-            c,
-            ToolCallChange::Reordered { call, from_index, to_index }
-                if call.tool_name == "search" && *from_index == 0 && *to_index == 2
-        ));
+        // from the unaligned reconciliation arm, not an aligned pair; and its
+        // param change (q: a -> b) must not be dropped.
+        let mut reordered_search = false;
+        let mut param_changed_search = false;
+        for change in &diff.changes {
+            match change {
+                ToolCallChange::Reordered {
+                    call,
+                    from_index,
+                    to_index,
+                } if call.tool_name == "search" => {
+                    assert_eq!((*from_index, *to_index), (0, 2));
+                    reordered_search = true;
+                }
+                ToolCallChange::ParamChanged {
+                    tool_name, deltas, ..
+                } if tool_name == "search" => {
+                    param_changed_search = deltas
+                        .iter()
+                        .any(|d| d.before == json!("a") && d.after == json!("b"));
+                }
+                _ => {}
+            }
+        }
         assert!(
             reordered_search,
             "expected search reordered 0->2, got {:?}",
             diff.changes
         );
-
-        // ...and its param change (q: a -> b) must not be dropped.
-        let param_changed_search = diff.changes.iter().any(|c| matches!(
-            c,
-            ToolCallChange::ParamChanged { tool_name, deltas, .. }
-                if tool_name == "search"
-                    && deltas.iter().any(|d| d.before == json!("a") && d.after == json!("b"))
-        ));
         assert!(
             param_changed_search,
             "param change on the reordered call must not be dropped, got {:?}",
