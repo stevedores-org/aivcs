@@ -116,8 +116,14 @@ pub fn extract_graph_snapshot(state: &Value) -> GraphSnapshot {
 
 fn parse_edge(edge: &Value) -> Option<(String, String)> {
     if let Some(obj) = edge.as_object() {
-        let from = obj.get("from").or_else(|| obj.get("source")).and_then(Value::as_str)?;
-        let to = obj.get("to").or_else(|| obj.get("target")).and_then(Value::as_str)?;
+        let from = obj
+            .get("from")
+            .or_else(|| obj.get("source"))
+            .and_then(Value::as_str)?;
+        let to = obj
+            .get("to")
+            .or_else(|| obj.get("target"))
+            .and_then(Value::as_str)?;
         return Some((from.to_string(), to.to_string()));
     }
     if let Some(arr) = edge.as_array() {
@@ -142,13 +148,7 @@ pub fn diff_graph_snapshots(base: &GraphSnapshot, head: &GraphSnapshot) -> Seman
         let before = base.prompts.get(&node_id).cloned();
         let after = head.prompts.get(&node_id).cloned();
         if before != after {
-            prompt_changes.insert(
-                node_id,
-                PromptChange {
-                    before,
-                    after,
-                },
-            );
+            prompt_changes.insert(node_id, PromptChange { before, after });
         }
     }
 
@@ -248,12 +248,7 @@ fn format_exits(exits: &[String]) -> String {
 }
 
 fn format_prompt_diff(change: &PromptChange) -> String {
-    let before_lines: Vec<&str> = change
-        .before
-        .as_deref()
-        .unwrap_or("")
-        .lines()
-        .collect();
+    let before_lines: Vec<&str> = change.before.as_deref().unwrap_or("").lines().collect();
     let after_lines: Vec<&str> = change.after.as_deref().unwrap_or("").lines().collect();
 
     let mut out = String::new();
@@ -282,7 +277,10 @@ mod tests {
         GraphSnapshot {
             entry: Some("start".to_string()),
             exits: vec!["end".to_string()],
-            nodes: ["start", "plan", "end"].into_iter().map(str::to_string).collect(),
+            nodes: ["start", "plan", "end"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
             edges: [("start", "plan"), ("plan", "end")]
                 .into_iter()
                 .map(|(a, b)| (a.to_string(), b.to_string()))
@@ -302,14 +300,10 @@ mod tests {
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
-            edges: [
-                ("start", "plan"),
-                ("plan", "review"),
-                ("review", "end"),
-            ]
-            .into_iter()
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .collect(),
+            edges: [("start", "plan"), ("plan", "review"), ("review", "end")]
+                .into_iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
             prompts: BTreeMap::from([
                 (
                     "plan".to_string(),
@@ -337,8 +331,13 @@ mod tests {
         let snap = extract_graph_snapshot(&state);
         assert_eq!(snap.entry.as_deref(), Some("start"));
         assert!(snap.nodes.contains("plan"));
-        assert!(snap.edges.contains(&("start".to_string(), "plan".to_string())));
-        assert_eq!(snap.prompts.get("plan").map(String::as_str), Some("Do the thing."));
+        assert!(snap
+            .edges
+            .contains(&("start".to_string(), "plan".to_string())));
+        assert_eq!(
+            snap.prompts.get("plan").map(String::as_str),
+            Some("Do the thing.")
+        );
     }
 
     #[test]

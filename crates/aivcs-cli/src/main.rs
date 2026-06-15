@@ -2356,10 +2356,7 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
     Ok(())
 }
 
-async fn resolve_branch_commit(
-    handle: &SurrealHandle,
-    branch_name: &str,
-) -> Result<CommitRecord> {
+async fn resolve_branch_commit(handle: &SurrealHandle, branch_name: &str) -> Result<CommitRecord> {
     let branch = handle
         .get_branch(branch_name)
         .await?
@@ -2381,9 +2378,7 @@ async fn cmd_pr_semantic_summary(
     branch_name_opt: Option<&str>,
     base_name: &str,
 ) -> Result<()> {
-    use aivcs_core::{
-        diff_graph_snapshots, extract_graph_snapshot, format_semantic_diff_markdown,
-    };
+    use aivcs_core::{diff_graph_snapshots, extract_graph_snapshot, format_semantic_diff_markdown};
 
     let branch_name = match branch_name_opt {
         Some(name) => name.to_string(),
@@ -2578,11 +2573,7 @@ mod tests {
         .unwrap();
 
         let res = cmd_pr_semantic_summary(&handle, Some("feat"), "main").await;
-        assert!(
-            res.is_ok(),
-            "pr-semantic-summary failed: {:?}",
-            res.err()
-        );
+        assert!(res.is_ok(), "pr-semantic-summary failed: {:?}", res.err());
     }
 
     #[tokio::test]

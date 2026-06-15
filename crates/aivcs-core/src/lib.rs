@@ -85,13 +85,13 @@ pub use diff::lcs_diff::{
     diff_tool_calls as diff_tool_calls_lcs, DiffSummary, ParamChange,
     ToolCallChange as LcsToolCallChange, ToolCallEntry,
 };
-pub use diff::state_diff::{
-    diff_run_states, diff_scoped_state, extract_last_checkpoint, ScopedStateDiff, StateDelta,
-    CHECKPOINT_SAVED_KIND,
-};
 pub use diff::semantic_graph::{
     diff_graph_snapshots, extract_graph_snapshot, format_semantic_diff_markdown, GraphSnapshot,
     SemanticGraphDiff,
+};
+pub use diff::state_diff::{
+    diff_run_states, diff_scoped_state, extract_last_checkpoint, ScopedStateDiff, StateDelta,
+    CHECKPOINT_SAVED_KIND,
 };
 pub use orchestration::{
     default_role_templates, deterministic_role_order, merge_role_outputs, validate_handoff,
