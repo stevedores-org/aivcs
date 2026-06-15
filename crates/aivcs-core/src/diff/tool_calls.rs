@@ -218,6 +218,10 @@ pub fn diff_tool_calls(a: &[RunEvent], b: &[RunEvent]) -> ToolCallDiff {
         if aligned_a.contains(&i_a) {
             continue;
         }
+        // Greedy first-match by tool name. When several unaligned calls share a
+        // name, this pairs them by position rather than identity, so swapped
+        // same-name calls may surface as param changes instead of a clean
+        // reorder — a known limitation of name-based (identity-free) matching.
         let reorder_target = (0..calls_b.len()).find(|i_b| {
             !aligned_b.contains(i_b)
                 && !matched_b.contains(i_b)
@@ -292,29 +296,42 @@ mod tests {
 
     #[test]
     fn reordered_and_param_changed_reports_both() {
-        // `search` moves position AND changes a param. Both the reorder and the
-        // param change must be reported (the `lookup` pair anchors the LCS).
-        let mk = |seq, name, q: &str| RunEvent {
+        // `search` moves from the front of A to the back of B AND changes a
+        // param. Two anchors `k1, k2` form the LCS, so `search` is unaligned in
+        // BOTH sequences and goes through the reorder-reconciliation arm — the
+        // path that must emit ParamChanged *and* Reordered for the same call.
+        let mk = |seq, name: &str, q: &str| RunEvent {
             seq,
             kind: "tool_called".to_string(),
             payload: json!({ "tool_name": name, "q": q }),
             timestamp: Utc::now(),
         };
-        let a = vec![mk(1, "search", "a"), mk(2, "lookup", "x")];
-        let b = vec![mk(1, "lookup", "x"), mk(2, "search", "b")];
+        let a = vec![mk(1, "search", "a"), mk(2, "k1", "-"), mk(3, "k2", "-")];
+        let b = vec![mk(1, "k1", "-"), mk(2, "k2", "-"), mk(3, "search", "b")];
         let diff = diff_tool_calls(&a, &b);
+
+        // The reordered call must be `search` (moved 0 -> 2), proving it came
+        // from the unaligned reconciliation arm, not an aligned pair.
+        let reordered_search = diff.changes.iter().any(|c| matches!(
+            c,
+            ToolCallChange::Reordered { call, from_index, to_index }
+                if call.tool_name == "search" && *from_index == 0 && *to_index == 2
+        ));
         assert!(
-            diff.changes
-                .iter()
-                .any(|c| matches!(c, ToolCallChange::Reordered { .. })),
-            "expected a Reordered change, got {:?}",
+            reordered_search,
+            "expected search reordered 0->2, got {:?}",
             diff.changes
         );
+
+        // ...and its param change (q: a -> b) must not be dropped.
+        let param_changed_search = diff.changes.iter().any(|c| matches!(
+            c,
+            ToolCallChange::ParamChanged { tool_name, deltas, .. }
+                if tool_name == "search"
+                    && deltas.iter().any(|d| d.before == json!("a") && d.after == json!("b"))
+        ));
         assert!(
-            diff.changes.iter().any(|c| matches!(
-                c,
-                ToolCallChange::ParamChanged { tool_name, .. } if tool_name == "search"
-            )),
+            param_changed_search,
             "param change on the reordered call must not be dropped, got {:?}",
             diff.changes
         );
