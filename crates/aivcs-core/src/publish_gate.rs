@@ -79,17 +79,33 @@ fn cmp_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
             (None, Some(_)) => return Ordering::Less,
             (Some(_), None) => return Ordering::Greater,
             (Some(x), Some(y)) => {
-                let ord = match (x.parse::<u64>(), y.parse::<u64>()) {
-                    (Ok(xn), Ok(yn)) => xn.cmp(&yn),
-                    (Ok(_), Err(_)) => Ordering::Less,
-                    (Err(_), Ok(_)) => Ordering::Greater,
-                    (Err(_), Err(_)) => x.cmp(y),
-                };
+                let ord = cmp_identifier(x, y);
                 if ord != Ordering::Equal {
                     return ord;
                 }
             }
         }
+    }
+}
+
+/// Compare a single pre-release identifier per semver §11.4. Numeric
+/// identifiers (all ASCII digits) compare numerically and rank below
+/// alphanumeric ones. Numeric comparison is done on the digit string
+/// (length-then-lexicographic, ignoring leading zeros) rather than via
+/// `u64`, so it stays correct for identifiers larger than `u64::MAX`.
+fn cmp_identifier(x: &str, y: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let x_num = !x.is_empty() && x.bytes().all(|c| c.is_ascii_digit());
+    let y_num = !y.is_empty() && y.bytes().all(|c| c.is_ascii_digit());
+    match (x_num, y_num) {
+        (true, true) => {
+            let xt = x.trim_start_matches('0');
+            let yt = y.trim_start_matches('0');
+            xt.len().cmp(&yt.len()).then_with(|| xt.cmp(yt))
+        }
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (false, false) => x.cmp(y),
     }
 }
 
@@ -345,6 +361,16 @@ mod tests {
         let lo = Semver::parse("1.0.0-alpha.9").unwrap();
         let hi = Semver::parse("1.0.0-alpha.10").unwrap();
         // Lexicographically "alpha.10" < "alpha.9"; numerically alpha.10 wins.
+        assert_eq!(lo.cmp_version(&hi), std::cmp::Ordering::Less);
+        assert_eq!(hi.cmp_version(&lo), std::cmp::Ordering::Greater);
+    }
+
+    #[test]
+    fn huge_numeric_prerelease_identifiers_compare_numerically() {
+        // Both exceed u64::MAX, so a u64-parse approach would fall back to a
+        // (wrong) lexicographic compare. 1e20 (21 digits) > 9.9e19 (20 digits).
+        let lo = Semver::parse("1.0.0-alpha.99999999999999999999").unwrap();
+        let hi = Semver::parse("1.0.0-alpha.100000000000000000000").unwrap();
         assert_eq!(lo.cmp_version(&hi), std::cmp::Ordering::Less);
         assert_eq!(hi.cmp_version(&lo), std::cmp::Ordering::Greater);
     }

@@ -226,8 +226,21 @@ pub fn diff_tool_calls(a: &[RunEvent], b: &[RunEvent]) -> ToolCallDiff {
         match reorder_target {
             Some(i_b) => {
                 matched_b.insert(i_b);
+                let cb = &calls_b[i_b];
+                // A reordered call may also have changed params; report both
+                // (the same call surfaces as Reordered + ParamChanged) so the
+                // param edit is not lost just because the call also moved.
+                let deltas = param_delta(&call_a.params, &cb.params);
+                if !deltas.is_empty() {
+                    changes.push(ToolCallChange::ParamChanged {
+                        tool_name: call_a.tool_name.clone(),
+                        seq_a: call_a.seq,
+                        seq_b: cb.seq,
+                        deltas,
+                    });
+                }
                 changes.push(ToolCallChange::Reordered {
-                    call: calls_b[i_b].clone(),
+                    call: cb.clone(),
                     from_index: i_a,
                     to_index: i_b,
                 });
@@ -275,6 +288,36 @@ mod tests {
         let diff = diff_tool_calls(&a, &b);
         assert_eq!(diff.changes.len(), 1);
         assert!(matches!(diff.changes[0], ToolCallChange::Added(_)));
+    }
+
+    #[test]
+    fn reordered_and_param_changed_reports_both() {
+        // `search` moves position AND changes a param. Both the reorder and the
+        // param change must be reported (the `lookup` pair anchors the LCS).
+        let mk = |seq, name, q: &str| RunEvent {
+            seq,
+            kind: "tool_called".to_string(),
+            payload: json!({ "tool_name": name, "q": q }),
+            timestamp: Utc::now(),
+        };
+        let a = vec![mk(1, "search", "a"), mk(2, "lookup", "x")];
+        let b = vec![mk(1, "lookup", "x"), mk(2, "search", "b")];
+        let diff = diff_tool_calls(&a, &b);
+        assert!(
+            diff.changes
+                .iter()
+                .any(|c| matches!(c, ToolCallChange::Reordered { .. })),
+            "expected a Reordered change, got {:?}",
+            diff.changes
+        );
+        assert!(
+            diff.changes.iter().any(|c| matches!(
+                c,
+                ToolCallChange::ParamChanged { tool_name, .. } if tool_name == "search"
+            )),
+            "param change on the reordered call must not be dropped, got {:?}",
+            diff.changes
+        );
     }
 
     #[test]
