@@ -252,10 +252,12 @@ Risk levels assume the gateway's existing `max_risk` / scope model ([mcp-auth-gu
 
 **Shared infrastructure (future crate, not in this proposal):**
 
-```
+```text
 aivcs-mcp-gateway
     └── memory facade (new: aivcs-memory or aivcs-core::mcp_memory)
-            ├── MomMemoryBackend   → mom-core trait objects (in-process or HTTP client)
+            ├── MomBackend trait ([ADR 001](../adr/001-memory-mom-deployment-topology.md))
+            │     ├── EmbeddedMomBackend   → mom-core + mom-store-surrealdb (local dev / tests)
+            │     └── HttpMomBackend       → mom-service REST (production default)
             └── SessionMemoryBackend → oxidized-state via SurrealHandle
 ```
 
@@ -346,7 +348,7 @@ mom changes required **before** aivcs can consume it as a backend (implementatio
 
 These are intentionally unresolved — each should become a follow-up issue **after this proposal merges**:
 
-1. **Deployment topology:** Should the gateway call mom **in-process** (shared SurrealDB) or **HTTP sidecar** (separate mom-service deployment)? Affects latency, tenant isolation, and Nix packaging.
+1. ~~**Deployment topology:**~~ **Resolved — [ADR 001](../adr/001-memory-mom-deployment-topology.md):** dual-mode `MomBackend`; **HTTP sidecar (`mom-service`) in production**, **in-process embedded in local dev/CI unit tests**, selected via `MOM_BACKEND_URL`.
 
 2. **Single vs dual SurrealDB:** mom uses namespace `mom/main`; oxidized-state uses its own namespace. Consolidate to one SurrealDB cluster with two namespaces, or enforce separate instances per tenant?
 
