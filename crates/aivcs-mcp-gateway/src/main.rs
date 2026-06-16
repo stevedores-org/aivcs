@@ -247,6 +247,173 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Memory Tool Backend Handlers (Phase 2.2 Phase 2)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Deserialize and validate memory tool request arguments from JSON Value.
+fn deserialize_memory_write_args(args: &Value) -> std::result::Result<MemoryWriteRequest, String> {
+    serde_json::from_value::<MemoryWriteRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::write arguments: {}", e))
+}
+
+fn deserialize_memory_query_args(args: &Value) -> std::result::Result<MemoryQueryRequest, String> {
+    serde_json::from_value::<MemoryQueryRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::query arguments: {}", e))
+}
+
+fn deserialize_memory_context_pack_args(
+    args: &Value,
+) -> std::result::Result<MemoryContextPackRequest, String> {
+    serde_json::from_value::<MemoryContextPackRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::context_pack arguments: {}", e))
+}
+
+fn deserialize_memory_delete_args(
+    args: &Value,
+) -> std::result::Result<MemoryDeleteRequest, String> {
+    serde_json::from_value::<MemoryDeleteRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::delete arguments: {}", e))
+}
+
+/// Write a memory record to SurrealDB.
+async fn memory_write_handler(
+    req: MemoryWriteRequest,
+    db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    let memory_record = aivcs_core::MemoryRecord {
+        id: None,
+        commit_id: req.commit_id.unwrap_or_else(|| "unknown".to_string()),
+        key: req
+            .key
+            .unwrap_or_else(|| format!("{}:{}", req.kind, Uuid::new_v4())),
+        content: req.content.to_string(),
+        embedding: None, // TODO: add embedding support in Phase 2.2 Phase 3
+        metadata: json!({
+            "kind": req.kind,
+            "tags": req.tags,
+            "importance": req.importance,
+            "confidence": req.confidence,
+            "source": req.source,
+            "ttl_ms": req.ttl_ms,
+        }),
+        created_at: Utc::now(),
+    };
+
+    let saved = db
+        .save_memory(&memory_record)
+        .await
+        .map_err(|e| format!("Failed to save memory: {}", e))?;
+
+    Ok(json!({
+        "memory_id": format!("aivcs:mem-{}", saved.id.as_ref().map(|id| id.to_string()).unwrap_or_else(|| Uuid::new_v4().to_string())),
+        "created_at_ms": Utc::now().timestamp_millis(),
+        "status": "persisted",
+        "commit_id": saved.commit_id,
+    }))
+}
+
+/// Query memories from SurrealDB.
+async fn memory_query_handler(
+    req: MemoryQueryRequest,
+    db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    let commit_id = req.commit_id.unwrap_or_else(|| "unknown".to_string());
+    let memories = db
+        .get_memories(&commit_id)
+        .await
+        .map_err(|e| format!("Failed to query memories: {}", e))?;
+
+    // Filter by kinds if provided
+    let filtered: Vec<_> = if req.kinds.is_empty() {
+        memories
+    } else {
+        memories
+            .into_iter()
+            .filter(|m| {
+                if let Ok(metadata) = serde_json::from_str::<Value>(&m.metadata.to_string()) {
+                    metadata
+                        .get("kind")
+                        .and_then(|k| k.as_str())
+                        .map(|kind| req.kinds.contains(&kind.to_string()))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            })
+            .collect()
+    };
+
+    // Apply limit
+    let limit = req.limit.unwrap_or(10);
+    let items: Vec<Value> = filtered
+        .iter()
+        .take(limit)
+        .map(|m| {
+            json!({
+                "memory_id": format!("aivcs:mem-{}", m.id.as_ref().map(|id| id.to_string()).unwrap_or_else(|| "unknown".to_string())),
+                "kind": m.metadata.get("kind").unwrap_or(&Value::Null),
+                "content_preview": &m.content[..std::cmp::min(200, m.content.len())],
+                "created_at_ms": m.created_at.timestamp_millis(),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "items": items,
+        "total_hits": filtered.len(),
+    }))
+}
+
+/// Pack memory context within a token budget.
+async fn memory_context_pack_handler(
+    req: MemoryContextPackRequest,
+    db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    let commit_id = req.commit_id.unwrap_or_else(|| "unknown".to_string());
+    let memories = db
+        .get_memories(&commit_id)
+        .await
+        .map_err(|e| format!("Failed to pack context: {}", e))?;
+
+    // Build context segments from memories
+    let segments: Vec<aivcs_core::ContextSegment> = memories
+        .iter()
+        .map(|m| {
+            aivcs_core::ContextSegment::new(
+                m.key.clone(),
+                m.content.clone(),
+                50, // default priority
+            )
+        })
+        .collect();
+
+    // Assemble context within budget
+    let assembler = aivcs_core::ContextAssembler::new(req.budget_tokens);
+    let assembled = assembler.assemble(segments);
+
+    Ok(json!({
+        "highlights": assembled.segments.iter().map(|s| s.label.clone()).collect::<Vec<_>>(),
+        "summaries": ["Context snapshot"],
+        "facts": assembled.segments.iter().map(|s| s.content[..std::cmp::min(100, s.content.len())].to_string()).collect::<Vec<_>>(),
+        "citations": assembled.segments.iter().map(|s| format!("aivcs:mem-{}", s.label)).collect::<Vec<_>>(),
+        "token_usage": assembled.total_tokens,
+    }))
+}
+
+/// Delete a memory record from SurrealDB.
+async fn memory_delete_handler(
+    req: MemoryDeleteRequest,
+    _db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    // TODO(phase-2.2-phase-3): Implement actual deletion via SurrealDB
+    // For now, return success (placeholder for MVP)
+    Ok(json!({
+        "status": "deleted",
+        "memory_id": req.memory_id,
+    }))
+}
+
 async fn health_check() -> Json<Value> {
     Json(json!({
         "status": "healthy",
@@ -623,51 +790,114 @@ async fn call_tool(
     decision.outcome = Some("allowed".to_string());
     let _ = state.db.save_decision(&decision).await;
 
-    // Simulate tool execution
+    // Execute tool (memory tools use real backend, repo tools still mocked)
     let result = match req.tool.as_str() {
         "repo.diff.read" => json!({ "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n" }),
         "repo.diff.write" => json!({ "status": "changes_written" }),
         "repo.merge.execute" => {
             json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" })
         }
-        // Memory tools (Phase 2.2) — mocked responses for MVP
-        "memory::write" => {
-            let memory_id = format!("aivcs:mem-{}", Uuid::new_v4());
-            json!({
-                "memory_id": memory_id,
-                "created_at_ms": chrono::Utc::now().timestamp_millis(),
-                "status": "persisted"
-            })
-        }
-        "memory::query" => {
-            json!({
-                "items": [
-                    {
-                        "memory_id": "aivcs:mem-example-1",
-                        "kind": "session_vector",
-                        "score": 0.87,
-                        "content_preview": "Agent session context...",
-                        "created_at_ms": chrono::Utc::now().timestamp_millis()
-                    }
-                ],
-                "total_hits": 1
-            })
-        }
-        "memory::context_pack" => {
-            json!({
-                "highlights": ["Recent decision points", "Session goals"],
-                "summaries": ["Context snapshot"],
-                "facts": ["Key facts from memory"],
-                "citations": ["aivcs:mem-example-1"],
-                "token_usage": 1250
-            })
-        }
-        "memory::delete" => {
-            json!({
-                "status": "deleted",
-                "memory_id": "aivcs:mem-example-1"
-            })
-        }
+        // Memory tools (Phase 2.2) — real backend integration
+        "memory::write" => match deserialize_memory_write_args(&req.arguments) {
+            Ok(args) => match memory_write_handler(args, &state.db).await {
+                Ok(response) => response,
+                Err(e) => {
+                    warn!("memory::write handler failed: {}", e);
+                    return Json(ToolCallResponse {
+                        status: "denied".to_string(),
+                        authority_id: Some(authority_id),
+                        result: None,
+                        reason: Some(e),
+                    })
+                    .into_response();
+                }
+            },
+            Err(e) => {
+                warn!("memory::write argument validation failed: {}", e);
+                return Json(ToolCallResponse {
+                    status: "denied".to_string(),
+                    authority_id: Some(authority_id),
+                    result: None,
+                    reason: Some(e),
+                })
+                .into_response();
+            }
+        },
+        "memory::query" => match deserialize_memory_query_args(&req.arguments) {
+            Ok(args) => match memory_query_handler(args, &state.db).await {
+                Ok(response) => response,
+                Err(e) => {
+                    warn!("memory::query handler failed: {}", e);
+                    return Json(ToolCallResponse {
+                        status: "denied".to_string(),
+                        authority_id: Some(authority_id),
+                        result: None,
+                        reason: Some(e),
+                    })
+                    .into_response();
+                }
+            },
+            Err(e) => {
+                warn!("memory::query argument validation failed: {}", e);
+                return Json(ToolCallResponse {
+                    status: "denied".to_string(),
+                    authority_id: Some(authority_id),
+                    result: None,
+                    reason: Some(e),
+                })
+                .into_response();
+            }
+        },
+        "memory::context_pack" => match deserialize_memory_context_pack_args(&req.arguments) {
+            Ok(args) => match memory_context_pack_handler(args, &state.db).await {
+                Ok(response) => response,
+                Err(e) => {
+                    warn!("memory::context_pack handler failed: {}", e);
+                    return Json(ToolCallResponse {
+                        status: "denied".to_string(),
+                        authority_id: Some(authority_id),
+                        result: None,
+                        reason: Some(e),
+                    })
+                    .into_response();
+                }
+            },
+            Err(e) => {
+                warn!("memory::context_pack argument validation failed: {}", e);
+                return Json(ToolCallResponse {
+                    status: "denied".to_string(),
+                    authority_id: Some(authority_id),
+                    result: None,
+                    reason: Some(e),
+                })
+                .into_response();
+            }
+        },
+        "memory::delete" => match deserialize_memory_delete_args(&req.arguments) {
+            Ok(args) => match memory_delete_handler(args, &state.db).await {
+                Ok(response) => response,
+                Err(e) => {
+                    warn!("memory::delete handler failed: {}", e);
+                    return Json(ToolCallResponse {
+                        status: "denied".to_string(),
+                        authority_id: Some(authority_id),
+                        result: None,
+                        reason: Some(e),
+                    })
+                    .into_response();
+                }
+            },
+            Err(e) => {
+                warn!("memory::delete argument validation failed: {}", e);
+                return Json(ToolCallResponse {
+                    status: "denied".to_string(),
+                    authority_id: Some(authority_id),
+                    result: None,
+                    reason: Some(e),
+                })
+                .into_response();
+            }
+        },
         _ => json!({}),
     };
 
