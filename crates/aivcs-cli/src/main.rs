@@ -242,20 +242,6 @@ enum Commands {
         #[arg(short, long)]
         branch: Option<String>,
     },
-
-    /// Emit a semantic graph/prompt diff for PR bodies (SDF dual-ledger Phase 2.1).
-    ///
-    /// Resolves aivcs commits at HEAD (feature branch) and `--base`, diffs oxidizedgraph
-    /// snapshots embedded in commit state, and prints Markdown for the PR description.
-    PrSemanticSummary {
-        /// Feature branch (defaults to current git branch if omitted)
-        #[arg(short, long)]
-        branch: Option<String>,
-
-        /// Base branch to compare against
-        #[arg(long, default_value = "main")]
-        base: String,
-    },
 }
 
 #[derive(Subcommand)]
@@ -771,9 +757,6 @@ async fn main() -> Result<()> {
             } => cmd_report_cross_org(graph, &objective, output).await,
         },
         Commands::PrNote { branch } => cmd_pr_note(&handle, branch.as_deref()).await,
-        Commands::PrSemanticSummary { branch, base } => {
-            cmd_pr_semantic_summary(&handle, branch.as_deref(), &base).await
-        }
     }
 }
 
@@ -1053,13 +1036,6 @@ async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
     }
 }
 
-/// PRs that only change code/docs/tests without capturing an agent cognitive
-/// snapshot may declare an exempt sentinel instead of a real CommitId hash.
-/// Format: `code-only-<scope>-no-cognitive-snapshot` (see `.github/pull_request_template.md`).
-fn is_no_cognitive_snapshot_exempt(commit_id: &str) -> bool {
-    commit_id.starts_with("code-only-") && commit_id.ends_with("-no-cognitive-snapshot")
-}
-
 async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
     let repo_root = aivcs_core::find_repo_root();
     println!("cmd_pr_verify_reproducibility: repo_root = {:?}", repo_root);
@@ -1084,11 +1060,7 @@ async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
 
     // 2. Extract aivcs-commit: <CommitId>
     let commit_pattern = "aivcs-commit:";
-    let idx = body.find(commit_pattern).with_context(|| {
-        "No 'aivcs-commit' field found in PR body. Run `aivcs pr-note` and paste the output, \
-         or for code/docs-only changes without a cognitive snapshot add e.g. \
-         `aivcs-commit: code-only-docs-change-no-cognitive-snapshot` (see .github/pull_request_template.md)."
-    })?;
+    let idx = body.find(commit_pattern).context("No 'aivcs-commit' field found in PR body. Please run 'aivcs pr-note' and paste it in the PR.")?;
     let start = idx + commit_pattern.len();
     let rest = &body[start..];
     let end_idx = rest.find('\n').unwrap_or(rest.len());
@@ -1098,14 +1070,6 @@ async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
         "Extracted aivcs-commit from PR body: {}",
         expected_commit_id
     );
-
-    if is_no_cognitive_snapshot_exempt(&expected_commit_id) {
-        println!(
-            "✓ Exempt sentinel '{expected_commit_id}' — skipping cognitive snapshot / CAS verification."
-        );
-        println!("✓ aivcs reproducibility check successful!");
-        return Ok(());
-    }
 
     // 3. Extract Env Hash (optional / if present)
     let env_pattern = "- **Env Hash**:";
@@ -2339,7 +2303,20 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
         }
     };
 
-    let commit = resolve_branch_commit(handle, &branch_name).await?;
+    let branch = handle
+        .get_branch(&branch_name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Branch '{}' not found in AIVCS database", branch_name))?;
+
+    let commit = handle
+        .get_commit(&branch.head_commit_id)
+        .await?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Commit '{}' not found in AIVCS database",
+                branch.head_commit_id
+            )
+        })?;
 
     // Format output matching acceptance criteria.
     //
@@ -2371,71 +2348,6 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
     if let Some(env) = &commit.commit_id.env_hash {
         println!("- **Env Hash**: {}", env);
     }
-
-    Ok(())
-}
-
-async fn resolve_branch_commit(handle: &SurrealHandle, branch_name: &str) -> Result<CommitRecord> {
-    let branch = handle
-        .get_branch(branch_name)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("Branch '{}' not found in AIVCS database", branch_name))?;
-
-    handle
-        .get_commit(&branch.head_commit_id)
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Commit '{}' not found in AIVCS database",
-                branch.head_commit_id
-            )
-        })
-}
-
-async fn cmd_pr_semantic_summary(
-    handle: &SurrealHandle,
-    branch_name_opt: Option<&str>,
-    base_name: &str,
-) -> Result<()> {
-    use aivcs_core::{diff_graph_snapshots, extract_graph_snapshot, format_semantic_diff_markdown};
-
-    let branch_name = match branch_name_opt {
-        Some(name) => name.to_string(),
-        None => {
-            let cwd = std::env::current_dir().context("Failed to get current directory")?;
-            aivcs_core::detect_current_branch(&cwd)
-                .context("Failed to auto-detect current git branch")?
-        }
-    };
-
-    let _head_commit = resolve_branch_commit(handle, &branch_name).await?;
-    let _base_commit = resolve_branch_commit(handle, base_name).await?;
-
-    cmd_pr_note(handle, Some(&branch_name)).await?;
-
-    let head_snapshot = handle
-        .load_snapshot(&_head_commit.commit_id.hash)
-        .await
-        .context("Failed to load head branch snapshot")?;
-    let base_snapshot = handle
-        .load_snapshot(&_base_commit.commit_id.hash)
-        .await
-        .context("Failed to load base branch snapshot")?;
-
-    let head_graph = extract_graph_snapshot(&head_snapshot.state);
-    let base_graph = extract_graph_snapshot(&base_snapshot.state);
-
-    println!();
-    println!("### Semantic diff (`{base_name}` → `{branch_name}`)");
-    println!();
-
-    if !head_graph.has_semantic_content() && !base_graph.has_semantic_content() {
-        println!("_No semantic delta — only code/infra changes._");
-        return Ok(());
-    }
-
-    let diff = diff_graph_snapshots(&base_graph, &head_graph);
-    println!("{}", format_semantic_diff_markdown(&diff));
 
     Ok(())
 }
@@ -2523,79 +2435,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pr_semantic_summary_command() {
-        let handle = SurrealHandle::setup_db().await.unwrap();
-        let temp_dir = tempfile::tempdir().unwrap();
-        cmd_init(&handle, &temp_dir.path().to_path_buf())
-            .await
-            .unwrap();
-
-        let base_state = temp_dir.path().join("base.json");
-        std::fs::write(
-            &base_state,
-            r#"{
-                "graph": {
-                    "entry": "start",
-                    "exits": ["end"],
-                    "nodes": ["start", "plan"],
-                    "edges": [{"from": "start", "to": "plan"}]
-                },
-                "prompts": {"plan": "Plan v1"}
-            }"#,
-        )
-        .unwrap();
-        cmd_snapshot(
-            &handle,
-            &base_state,
-            "base graph",
-            "agent",
-            "main",
-            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            Some(temp_dir.path().join("cas").as_path()),
-        )
-        .await
-        .unwrap();
-
-        let main_head = handle.get_branch_head("main").await.unwrap();
-        handle
-            .save_branch(&BranchRecord::new("feat", &main_head, false))
-            .await
-            .unwrap();
-
-        let head_state = temp_dir.path().join("head.json");
-        std::fs::write(
-            &head_state,
-            r#"{
-                "graph": {
-                    "entry": "start",
-                    "exits": ["end"],
-                    "nodes": ["start", "plan", "review"],
-                    "edges": [
-                        {"from": "start", "to": "plan"},
-                        {"from": "plan", "to": "review"}
-                    ]
-                },
-                "prompts": {"plan": "Plan v2", "review": "Review output"}
-            }"#,
-        )
-        .unwrap();
-        cmd_snapshot(
-            &handle,
-            &head_state,
-            "feature graph",
-            "agent",
-            "feat",
-            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-            Some(temp_dir.path().join("cas").as_path()),
-        )
-        .await
-        .unwrap();
-
-        let res = cmd_pr_semantic_summary(&handle, Some("feat"), "main").await;
-        assert!(res.is_ok(), "pr-semantic-summary failed: {:?}", res.err());
-    }
-
-    #[tokio::test]
     async fn test_pr_verify_reproducibility() {
         let repo_root = aivcs_core::find_repo_root();
         println!(
@@ -2632,17 +2471,6 @@ mod tests {
         let _ = std::fs::remove_file(&cas_file);
 
         assert!(res.is_ok(), "reproducibility check failed: {:?}", res.err());
-    }
-
-    #[tokio::test]
-    async fn test_pr_verify_reproducibility_docs_only_exempt() {
-        let pr_body = "aivcs-commit: code-only-docs-change-no-cognitive-snapshot\n".to_string();
-        let res = cmd_pr_verify_reproducibility(Some(pr_body)).await;
-        assert!(
-            res.is_ok(),
-            "docs-only exempt sentinel should pass: {:?}",
-            res.err()
-        );
     }
 
     #[tokio::test]

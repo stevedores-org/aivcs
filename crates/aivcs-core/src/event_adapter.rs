@@ -7,7 +7,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```rust,ignore
 //! use aivcs_core::event_adapter::subscribe_ledger_to_bus;
 //!
 //! let bus = Arc::new(EventBus::new());

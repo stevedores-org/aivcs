@@ -92,6 +92,86 @@ struct ToolCallRequest {
     approval_id: Option<String>,
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Memory Tool Types (Phase 2.2)
+// ─────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+struct MemoryWriteRequest {
+    kind: String, // "event" | "summary" | "fact" | "session_vector"
+    content: Value,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    importance: Option<f64>,
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    commit_id: Option<String>,
+    #[serde(default)]
+    key: Option<String>, // Required for session_vector
+    #[serde(default)]
+    ttl_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+struct MemoryQueryRequest {
+    query_text: String,
+    #[serde(default)]
+    kinds: Vec<String>,
+    #[serde(default)]
+    tags_any: Vec<String>,
+    #[serde(default)]
+    since_ms: Option<i64>,
+    #[serde(default)]
+    until_ms: Option<i64>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default = "default_query_mode")]
+    mode: String, // "filter" | "lexical" | "semantic" | "hybrid"
+    #[serde(default)]
+    commit_id: Option<String>,
+}
+
+#[allow(dead_code)]
+fn default_query_mode() -> String {
+    "hybrid".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+struct MemoryContextPackRequest {
+    query_text: String,
+    #[serde(default = "default_budget_tokens")]
+    budget_tokens: usize,
+    #[serde(default)]
+    kinds: Vec<String>,
+    #[serde(default)]
+    commit_id: Option<String>,
+    #[serde(default = "default_include_session")]
+    include_session: bool,
+}
+
+#[allow(dead_code)]
+fn default_budget_tokens() -> usize {
+    3000
+}
+
+#[allow(dead_code)]
+fn default_include_session() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+struct MemoryDeleteRequest {
+    memory_id: String,
+}
+
 #[derive(Debug, Serialize)]
 struct ToolCallResponse {
     status: String, // "success" | "approval_required" | "denied"
@@ -162,7 +242,7 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
     match risk_level {
         "read" => false,
         "write" => max_risk == "read",
-        "destructive" => max_risk != "write",
+        "destructive" => max_risk != "destructive",
         _ => true,
     }
 }
@@ -285,7 +365,7 @@ async fn list_tools(
         }));
     }
 
-    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "write" {
+    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "destructive" {
         tools.push(json!({
             "name": "repo.merge.execute",
             "description": "Merge feature branches with human guardrails",
@@ -332,6 +412,11 @@ async fn call_tool(
         "repo.diff.read" => ("read", "repo.diff.read"),
         "repo.diff.write" => ("write", "repo.diff.write"),
         "repo.merge.execute" => ("destructive", "repo.merge.execute"),
+        // Memory tools (Phase 2.2)
+        "memory::write" => ("write", "memory.write"),
+        "memory::query" => ("read", "memory.read"),
+        "memory::context_pack" => ("read", "memory.read"),
+        "memory::delete" => ("destructive", "memory.delete"),
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -544,6 +629,44 @@ async fn call_tool(
         "repo.diff.write" => json!({ "status": "changes_written" }),
         "repo.merge.execute" => {
             json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" })
+        }
+        // Memory tools (Phase 2.2) — mocked responses for MVP
+        "memory::write" => {
+            let memory_id = format!("aivcs:mem-{}", Uuid::new_v4());
+            json!({
+                "memory_id": memory_id,
+                "created_at_ms": chrono::Utc::now().timestamp_millis(),
+                "status": "persisted"
+            })
+        }
+        "memory::query" => {
+            json!({
+                "items": [
+                    {
+                        "memory_id": "aivcs:mem-example-1",
+                        "kind": "session_vector",
+                        "score": 0.87,
+                        "content_preview": "Agent session context...",
+                        "created_at_ms": chrono::Utc::now().timestamp_millis()
+                    }
+                ],
+                "total_hits": 1
+            })
+        }
+        "memory::context_pack" => {
+            json!({
+                "highlights": ["Recent decision points", "Session goals"],
+                "summaries": ["Context snapshot"],
+                "facts": ["Key facts from memory"],
+                "citations": ["aivcs:mem-example-1"],
+                "token_usage": 1250
+            })
+        }
+        "memory::delete" => {
+            json!({
+                "status": "deleted",
+                "memory_id": "aivcs:mem-example-1"
+            })
         }
         _ => json!({}),
     };
@@ -1069,5 +1192,46 @@ mod tests {
                 "expired approval must not be marked as consumed"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_memory_tools_dispatch() {
+        let app = setup_router().await;
+        let token = mint_test_token(
+            "write",
+            vec!["memory.write", "memory.read", "memory.delete"],
+        );
+
+        // Test memory::write dispatch
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "memory::write",
+                    "arguments": {
+                        "kind": "session_vector",
+                        "content": { "vector": [0.1, 0.2, 0.3] },
+                        "commit_id": "abc123"
+                    },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        eprintln!("Response: {}", res_json);
+        assert_eq!(res_json["status"], "success");
+        assert!(res_json["result"]["memory_id"].as_str().is_some());
     }
 }
