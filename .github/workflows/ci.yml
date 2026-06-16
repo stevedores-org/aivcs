@@ -80,7 +80,7 @@ jobs:
     # nextest on a cold ubuntu-latest runner. Observed 20m+ on the first
     # Phase 1 run (PR #244, job 81204220659), so 30m for ample headroom.
     # Other shards finish in 1–20m and exit well under the cap.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
