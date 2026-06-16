@@ -1053,6 +1053,13 @@ async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
     }
 }
 
+/// PRs that only change code/docs/tests without capturing an agent cognitive
+/// snapshot may declare an exempt sentinel instead of a real CommitId hash.
+/// Format: `code-only-<scope>-no-cognitive-snapshot` (see `.github/pull_request_template.md`).
+fn is_no_cognitive_snapshot_exempt(commit_id: &str) -> bool {
+    commit_id.starts_with("code-only-") && commit_id.ends_with("-no-cognitive-snapshot")
+}
+
 async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
     let repo_root = aivcs_core::find_repo_root();
     println!("cmd_pr_verify_reproducibility: repo_root = {:?}", repo_root);
@@ -1077,7 +1084,11 @@ async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
 
     // 2. Extract aivcs-commit: <CommitId>
     let commit_pattern = "aivcs-commit:";
-    let idx = body.find(commit_pattern).context("No 'aivcs-commit' field found in PR body. Please run 'aivcs pr-note' and paste it in the PR.")?;
+    let idx = body.find(commit_pattern).with_context(|| {
+        "No 'aivcs-commit' field found in PR body. Run `aivcs pr-note` and paste the output, \
+         or for code/docs-only changes without a cognitive snapshot add e.g. \
+         `aivcs-commit: code-only-docs-change-no-cognitive-snapshot` (see .github/pull_request_template.md)."
+    })?;
     let start = idx + commit_pattern.len();
     let rest = &body[start..];
     let end_idx = rest.find('\n').unwrap_or(rest.len());
@@ -1087,6 +1098,14 @@ async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
         "Extracted aivcs-commit from PR body: {}",
         expected_commit_id
     );
+
+    if is_no_cognitive_snapshot_exempt(&expected_commit_id) {
+        println!(
+            "✓ Exempt sentinel '{expected_commit_id}' — skipping cognitive snapshot / CAS verification."
+        );
+        println!("✓ aivcs reproducibility check successful!");
+        return Ok(());
+    }
 
     // 3. Extract Env Hash (optional / if present)
     let env_pattern = "- **Env Hash**:";
@@ -2613,6 +2632,17 @@ mod tests {
         let _ = std::fs::remove_file(&cas_file);
 
         assert!(res.is_ok(), "reproducibility check failed: {:?}", res.err());
+    }
+
+    #[tokio::test]
+    async fn test_pr_verify_reproducibility_docs_only_exempt() {
+        let pr_body = "aivcs-commit: code-only-docs-change-no-cognitive-snapshot\n".to_string();
+        let res = cmd_pr_verify_reproducibility(Some(pr_body)).await;
+        assert!(
+            res.is_ok(),
+            "docs-only exempt sentinel should pass: {:?}",
+            res.err()
+        );
     }
 
     #[tokio::test]
