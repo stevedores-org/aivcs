@@ -473,28 +473,38 @@ async fn mom_backend_write(
     req: &MemoryWriteRequest,
 ) -> std::result::Result<Value, String> {
     let url = format!("{}/api/v1/memories", config.base_url);
-    // In real implementation (Phase 2.2 Phase 4), would use:
-    // let payload = json!({
-    //     "kind": req.kind, "content": req.content, "tags": req.tags,
-    //     "importance": req.importance, "confidence": req.confidence,
-    //     "source": req.source, "commit_id": req.commit_id,
-    // });
-    // let client = reqwest::Client::new();
-    // let response = client.post(&url)
-    //     .bearer_auth(&config.api_key)
-    //     .json(&payload)
-    //     .timeout(Duration::from_secs(config.timeout_secs))
-    //     .send()
-    //     .await?;
+    let payload = json!({
+        "kind": req.kind,
+        "content": req.content,
+        "tags": req.tags,
+        "importance": req.importance,
+        "confidence": req.confidence,
+        "source": req.source,
+        "commit_id": req.commit_id,
+    });
 
-    // For MVP, simulate successful HTTP response
-    tracing::info!("MomBackend write: {} (kind: {})", url, req.kind);
-    Ok(json!({
-        "memory_id": format!("mom:mem-{}", Uuid::new_v4()),
-        "created_at_ms": Utc::now().timestamp_millis(),
-        "status": "remote_persisted",
-        "backend": "mom"
-    }))
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .bearer_auth(&config.api_key)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .send()
+        .await
+        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("MomBackend write failed with status {}", status));
+    }
+
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
+
+    tracing::info!("MomBackend write successful: {:?}", body.get("memory_id"));
+    Ok(body)
 }
 
 /// Query memories via external MomBackend HTTP service.
@@ -503,19 +513,38 @@ async fn mom_backend_query(
     req: &MemoryQueryRequest,
 ) -> std::result::Result<Value, String> {
     let url = format!("{}/api/v1/memories/search", config.base_url);
-    // In real implementation, would use reqwest to call MomBackend with:
-    // json!({"query": req.query_text, "kinds": req.kinds, "limit": req.limit, "mode": req.mode})
-    // For MVP, simulate successful response
+    let payload = json!({
+        "query": req.query_text,
+        "kinds": req.kinds,
+        "limit": req.limit.unwrap_or(10),
+        "mode": req.mode,
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .bearer_auth(&config.api_key)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .send()
+        .await
+        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("MomBackend query failed with status {}", status));
+    }
+
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
+
     tracing::info!(
-        "MomBackend query: {} (limit: {})",
-        url,
-        req.limit.unwrap_or(10)
+        "MomBackend query successful: {} hits",
+        body.get("total_hits").and_then(|v| v.as_u64()).unwrap_or(0)
     );
-    Ok(json!({
-        "items": [],
-        "total_hits": 0,
-        "backend": "mom"
-    }))
+    Ok(body)
 }
 
 // ─────────────────────────────────────────────────────────────────────────
