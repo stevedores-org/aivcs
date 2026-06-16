@@ -242,7 +242,7 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
     match risk_level {
         "read" => false,
         "write" => max_risk == "read",
-        "destructive" => max_risk != "destructive",
+        "destructive" => max_risk != "write",
         _ => true,
     }
 }
@@ -365,7 +365,7 @@ async fn list_tools(
         }));
     }
 
-    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "destructive" {
+    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "write" {
         tools.push(json!({
             "name": "repo.merge.execute",
             "description": "Merge feature branches with human guardrails",
