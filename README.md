@@ -83,12 +83,12 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 
 ```bash
 # Release registry (append-only history per agent)
-aivcs release promote --agent my-agent --commit <sha> \
-  --graph-hash <h> --prompts-hash <h> --tools-hash <h> --config-hash <h> \
+aivcs release promote my-agent --git-sha <sha> \
+  --graph-digest <h> --prompts-digest <h> --tools-digest <h> --config-digest <h> \
   --version v1.2.3 --notes "first stable spec"
-aivcs release current  --agent my-agent      # current release pointer
-aivcs release history  --agent my-agent      # newest first
-aivcs release rollback --agent my-agent      # revert to previous release
+aivcs release current  my-agent                # current release pointer
+aivcs release history  my-agent                # newest first
+aivcs release rollback my-agent                # revert to previous release
 
 # CI pipeline (records execution; default stages: fmt,check)
 aivcs ci run --stages fmt,check,clippy,test   # add --no-cache to skip cache, --fix to auto-repair
@@ -97,10 +97,10 @@ aivcs ci run --stages fmt,check,clippy,test   # add --no-cache to skip cache, --
 aivcs report cross-org --objective main --output report.md   # cross-org integration health audit
 
 # Run inspection
-aivcs replay-artifact <run-id>                 # replay a recorded run artifact (root: .aivcs/runs)
+aivcs replay-artifact --run <run-id>           # replay a recorded run artifact (root: .aivcs/runs)
 aivcs diff spec a.json b.json                  # diff two agent specs
 aivcs diff run  a.json b.json                  # diff two run event logs
-aivcs diff-runs <run-id-a> <run-id-b>          # diff tool-call sequences of two recorded runs
+aivcs diff-runs --run-a <run-id-a> --run-b <run-id-b>   # diff tool-call sequences of two recorded runs
 ```
 
 ### Environment Commands (Phase 2)

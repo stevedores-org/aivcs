@@ -76,7 +76,7 @@ more command families — confirm the live surface with `aivcs --help` and
 | Area | Commands | Where to look |
 |------|----------|---------------|
 | Versioning | `init`, `snapshot`, `restore`, `log`, `branch`, `merge` | this walkthrough |
-| Run inspection | `replay-artifact <run-id>`, `diff spec`, `diff run`, `diff-runs` | `aivcs <cmd> --help` |
+| Run inspection | `replay-artifact --run <run-id>`, `diff spec`, `diff run`, `diff-runs --run-a/--run-b` | `aivcs <cmd> --help` |
 | Releases | `release promote` / `current` / `history` / `rollback` | [release-workflow runbook](./runbooks/release-workflow.md) |
 | CI | `ci run --stages fmt,check,clippy,test [--no-cache] [--fix]` | [aivcs-ci runbook](./runbooks/aivcs-ci.md) |
 | Reports | `report cross-org --objective <id> --output <file>` | `aivcs report cross-org --help` |
@@ -91,9 +91,9 @@ more command families — confirm the live surface with `aivcs --help` and
 aivcs ci run --stages fmt,check,clippy,test
 
 # Promote a validated agent spec, then inspect the release pointer
-aivcs release promote --agent my-agent --commit <sha> \
-  --graph-hash <h> --prompts-hash <h> --tools-hash <h> --config-hash <h>
-aivcs release current --agent my-agent
+aivcs release promote my-agent --git-sha <sha> \
+  --graph-digest <h> --prompts-digest <h> --tools-digest <h> --config-digest <h>
+aivcs release current my-agent
 
 # Autonomous branch → commit → PR in one shot (base defaults to develop)
 aivcs pr pipeline --branch feature/x --path docs/x.md --file ./x.md \

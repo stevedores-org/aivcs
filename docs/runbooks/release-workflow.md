@@ -20,30 +20,30 @@ The concepts are described in [architecture.md](../architecture.md)
 
 ## Promote a release
 
-A release pins the four content hashes that define an agent spec (graph,
-prompts, tools, config) to a git commit SHA.
+A release pins the four content digests that define an agent spec (graph,
+prompts, tools, config) to a git commit SHA. The agent name is a **positional**
+argument (not a flag).
 
 ```bash
-aivcs release promote \
-  --agent my-agent \
-  --commit <git-sha> \
-  --graph-hash   <sha256-hex> \
-  --prompts-hash <sha256-hex> \
-  --tools-hash   <sha256-hex> \
-  --config-hash  <sha256-hex> \
+aivcs release promote my-agent \
+  --git-sha <git-sha> \
+  --graph-digest   <sha256-hex> \
+  --prompts-digest <sha256-hex> \
+  --tools-digest   <sha256-hex> \
+  --config-digest  <sha256-hex> \
   --version v1.2.3 \           # optional version label
   --notes "First stable spec"  # optional release notes
   # --promoted-by defaults to "aivcs-cli"
 ```
 
-`--version`, `--notes`, and `--promoted-by` are optional. The four `*-hash`
-values and `--commit` identify exactly which spec was promoted.
+`--version`, `--notes`, and `--promoted-by` are optional. The four `*-digest`
+values and `--git-sha` identify exactly which spec was promoted.
 
 ## Inspect releases
 
 ```bash
-aivcs release current --agent my-agent   # the active release pointer
-aivcs release history --agent my-agent   # full history, newest first
+aivcs release current my-agent   # the active release pointer
+aivcs release history my-agent   # full history, newest first
 ```
 
 ## Roll back
@@ -53,8 +53,8 @@ release — history is never rewritten, so a rollback is itself auditable and
 can be rolled forward again by promoting again.
 
 ```bash
-aivcs release rollback --agent my-agent
-aivcs release current  --agent my-agent  # verify the pointer moved
+aivcs release rollback my-agent
+aivcs release current  my-agent  # verify the pointer moved
 ```
 
 ## When to use
