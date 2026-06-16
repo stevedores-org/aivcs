@@ -242,7 +242,7 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
     match risk_level {
         "read" => false,
         "write" => max_risk == "read",
-        "destructive" => max_risk != "write",
+        "destructive" => max_risk != "destructive",
         _ => true,
     }
 }
@@ -365,7 +365,8 @@ async fn list_tools(
         }));
     }
 
-    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "write" {
+    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "destructive"
+    {
         tools.push(json!({
             "name": "repo.merge.execute",
             "description": "Merge feature branches with human guardrails",
@@ -848,7 +849,7 @@ mod tests {
         assert!(res_json["authority_id"].as_str().is_some());
 
         // 3. Call destructive tool without human approval - should escalate
-        let token_merge = mint_test_token("write", vec!["repo.merge.execute"]);
+        let token_merge = mint_test_token("destructive", vec!["repo.merge.execute"]);
         let req = axum::http::Request::builder()
             .method("POST")
             .uri("/v1/mcp/tools/call")
@@ -1042,6 +1043,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_gateway_max_risk_blocks_destructive_tool_for_write_token() {
+        let app = setup_router().await;
+
+        // Token with max_risk="write" and merge scope — must not list or call destructive tools.
+        let token = mint_test_token("write", vec!["repo.merge.execute"]);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/mcp/tools/list")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        let tool_names: Vec<&str> = json["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(
+            !tool_names.contains(&"repo.merge.execute"),
+            "write-level token must not list destructive tools"
+        );
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": { "branch": "develop" },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "denied");
+        assert!(res_json["reason"]
+            .as_str()
+            .unwrap()
+            .contains("exceeds maximum allowed risk"));
+    }
+
+    #[tokio::test]
     async fn test_gateway_revocation() {
         let app = setup_router().await;
         let token = mint_test_token("write", vec!["repo.diff.read"]);
@@ -1106,7 +1171,7 @@ mod tests {
     #[tokio::test]
     async fn test_gateway_human_approval_ttl_expiry() {
         let (app, state) = setup_router_with_state().await;
-        let token_merge = mint_test_token("write", vec!["repo.merge.execute"]);
+        let token_merge = mint_test_token("destructive", vec!["repo.merge.execute"]);
 
         // 1. Register a fresh human approval for the merge action.
         let payload_string = serde_json::to_string(&json!({ "branch": "develop" })).unwrap();
