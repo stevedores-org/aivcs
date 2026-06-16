@@ -85,7 +85,7 @@ Every token minted by `aivcs-auth` and validated by the gateway carries the foll
 | `agent_id` | `String` | Stable logical agent identity (`AgentPrincipal` in #228 terminology). |
 | `run_id` | `String` | Run that authorised this token; matched against approvals. |
 | `task_id` | `String` | Task within the run; matched against approvals. |
-| `scopes` | `Vec<String>` | Granted capabilities, e.g. `repo.diff.read`, `repo.merge.execute`. Gateway gates each `tools/call` on `scope ∈ scopes`. |
+| `scopes` | `Vec<String>` | Granted capabilities, e.g. `repo.diff.read`, `memory.read`, `memory.write`, `repo.merge.execute`. Gateway gates each `tools/call` on `scope ∈ scopes`. |
 | `max_risk` | `String` | Maximum tool risk the token may invoke (`read` / `write` / `destructive`). Tools above this are filtered out of `tools/list` and denied at `tools/call`. |
 | `delegated_by` | `String` | Policy / human delegation that minted this token (e.g. `policy:builder-feature-branch-write`). |
 | `jti` | `String` | JWT ID — primary key on the revocation hotlist (see §3.D). |

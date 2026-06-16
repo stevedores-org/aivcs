@@ -156,6 +156,136 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Tool metadata: (risk_level, required_scope).
+fn tool_spec(tool: &str) -> Option<(&'static str, &'static str)> {
+    match tool {
+        "repo.diff.read" => Some(("read", "repo.diff.read")),
+        "repo.diff.write" => Some(("write", "repo.diff.write")),
+        "repo.merge.execute" => Some(("destructive", "repo.merge.execute")),
+        "memory::write" => Some(("write", "memory.write")),
+        "memory::query" => Some(("read", "memory.read")),
+        "memory::context_pack" => Some(("read", "memory.read")),
+        "memory::delete" => Some(("destructive", "memory.delete")),
+        _ => None,
+    }
+}
+
+fn scope_visible(risk_level: &str, max_risk: &str) -> bool {
+    match risk_level {
+        "read" => true,
+        "write" => max_risk != "read",
+        "destructive" => max_risk == "write",
+        _ => false,
+    }
+}
+
+fn push_tool(
+    tools: &mut Vec<Value>,
+    name: &str,
+    description: &str,
+    risk_level: &str,
+    required_scope: &str,
+) {
+    tools.push(json!({
+        "name": name,
+        "description": description,
+        "risk_level": risk_level,
+        "required_scopes": [required_scope]
+    }));
+}
+
+fn append_memory_tools(tools: &mut Vec<Value>, claims: &McpClaims) {
+    if claims.scopes.contains(&"memory.read".to_string()) && scope_visible("read", &claims.max_risk)
+    {
+        push_tool(
+            tools,
+            "memory::query",
+            "Retrieve ranked memories by filter, lexical, semantic, or hybrid search",
+            "read",
+            "memory.read",
+        );
+        push_tool(
+            tools,
+            "memory::context_pack",
+            "Assemble token-budgeted context for injection",
+            "read",
+            "memory.read",
+        );
+    }
+
+    if claims.scopes.contains(&"memory.write".to_string())
+        && scope_visible("write", &claims.max_risk)
+    {
+        push_tool(
+            tools,
+            "memory::write",
+            "Persist a memory item (event, fact, summary, or session vector)",
+            "write",
+            "memory.write",
+        );
+    }
+
+    if claims.scopes.contains(&"memory.delete".to_string())
+        && scope_visible("destructive", &claims.max_risk)
+    {
+        push_tool(
+            tools,
+            "memory::delete",
+            "Remove a memory item when permitted by scope",
+            "destructive",
+            "memory.delete",
+        );
+    }
+}
+
+/// Phase 1 mock responses for `memory::*` tools (#264). Replaced by real
+/// `MemoryBackend` wiring in Phase 2.
+fn mock_memory_tool_result(tool: &str, arguments: &Value) -> Value {
+    match tool {
+        "memory::write" => {
+            let commit_id = arguments
+                .get("commit_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("mock-commit");
+            let key = arguments
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("mock-key");
+            json!({
+                "memory_id": format!("aivcs:{commit_id}/{key}"),
+                "created_at_ms": Utc::now().timestamp_millis()
+            })
+        }
+        "memory::query" => json!({
+            "items": [
+                {
+                    "memory_id": "aivcs:mock-commit/mock-key",
+                    "kind": "session_vector",
+                    "score": 0.87,
+                    "content_preview": "mock memory preview"
+                }
+            ]
+        }),
+        "memory::context_pack" => json!({
+            "highlights": [],
+            "summaries": [],
+            "facts": [],
+            "citations": []
+        }),
+        "memory::delete" => {
+            let memory_id = arguments
+                .get("memory_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("aivcs:mock-commit/mock-key");
+            json!({
+                "status": "deleted",
+                "memory_id": memory_id
+            })
+        }
+        _ => json!({}),
+    }
+}
+
 /// Returns true when a tool's risk level is above the token's `max_risk` ceiling.
 /// Mirrors the visibility rules in `list_tools`.
 fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
@@ -269,30 +399,43 @@ async fn list_tools(
     info!("Listing tools for agent: {}", claims.agent_id);
 
     // Dynamic filtering based on max risk and scopes in the token
-    let mut tools = vec![json!({
-        "name": "repo.diff.read",
-        "description": "Read file diffs in the repository",
-        "risk_level": "read",
-        "required_scopes": ["repo.diff.read"]
-    })];
+    let mut tools = Vec::new();
 
-    if claims.scopes.contains(&"repo.diff.write".to_string()) && claims.max_risk != "read" {
-        tools.push(json!({
-            "name": "repo.diff.write",
-            "description": "Write code diff changes",
-            "risk_level": "write",
-            "required_scopes": ["repo.diff.write"]
-        }));
+    if claims.scopes.contains(&"repo.diff.read".to_string()) {
+        push_tool(
+            &mut tools,
+            "repo.diff.read",
+            "Read file diffs in the repository",
+            "read",
+            "repo.diff.read",
+        );
     }
 
-    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "write" {
-        tools.push(json!({
-            "name": "repo.merge.execute",
-            "description": "Merge feature branches with human guardrails",
-            "risk_level": "destructive",
-            "required_scopes": ["repo.merge.execute"]
-        }));
+    if claims.scopes.contains(&"repo.diff.write".to_string())
+        && scope_visible("write", &claims.max_risk)
+    {
+        push_tool(
+            &mut tools,
+            "repo.diff.write",
+            "Write code diff changes",
+            "write",
+            "repo.diff.write",
+        );
     }
+
+    if claims.scopes.contains(&"repo.merge.execute".to_string())
+        && scope_visible("destructive", &claims.max_risk)
+    {
+        push_tool(
+            &mut tools,
+            "repo.merge.execute",
+            "Merge feature branches with human guardrails",
+            "destructive",
+            "repo.merge.execute",
+        );
+    }
+
+    append_memory_tools(&mut tools, &claims);
 
     Json(json!({ "tools": tools })).into_response()
 }
@@ -328,11 +471,9 @@ async fn call_tool(
     );
 
     // Step 1: Resolve risk level and scope requirements for tool
-    let (risk_level, required_scope) = match req.tool.as_str() {
-        "repo.diff.read" => ("read", "repo.diff.read"),
-        "repo.diff.write" => ("write", "repo.diff.write"),
-        "repo.merge.execute" => ("destructive", "repo.merge.execute"),
-        _ => {
+    let (risk_level, required_scope) = match tool_spec(&req.tool) {
+        Some(spec) => spec,
+        None => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "unknown_tool" })),
@@ -538,12 +679,15 @@ async fn call_tool(
     decision.outcome = Some("allowed".to_string());
     let _ = state.db.save_decision(&decision).await;
 
-    // Simulate tool execution
+    // Simulate tool execution (Phase 1 mocks for memory::* — #264)
     let result = match req.tool.as_str() {
         "repo.diff.read" => json!({ "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n" }),
         "repo.diff.write" => json!({ "status": "changes_written" }),
         "repo.merge.execute" => {
             json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" })
+        }
+        "memory::write" | "memory::query" | "memory::context_pack" | "memory::delete" => {
+            mock_memory_tool_result(&req.tool, &req.arguments)
         }
         _ => json!({}),
     };
@@ -1069,5 +1213,215 @@ mod tests {
                 "expired approval must not be marked as consumed"
             );
         }
+    }
+
+    fn memory_scopes() -> Vec<&'static str> {
+        vec![
+            "repo.diff.read",
+            "memory.read",
+            "memory.write",
+            "memory.delete",
+        ]
+    }
+
+    /// Phase 2.2 / #264 — `memory::*` tools dispatch with mocked JSON payloads.
+    #[tokio::test]
+    async fn test_gateway_memory_tool_dispatch() {
+        let app = setup_router().await;
+        let token = mint_test_token("write", memory_scopes());
+
+        // List tools includes memory family when scopes + max_risk allow.
+        let req = axum::http::Request::builder()
+            .uri("/v1/mcp/tools/list")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-memory-1")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        let names: Vec<String> = list_json["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        for expected in [
+            "memory::query",
+            "memory::context_pack",
+            "memory::write",
+            "memory::delete",
+        ] {
+            assert!(
+                names.iter().any(|n| n == expected),
+                "tools/list missing {expected}; got {names:?}"
+            );
+        }
+
+        // memory::write mock
+        let write_args = json!({
+            "kind": "session_vector",
+            "content": {"note": "test"},
+            "key": "ctx-1",
+            "commit_id": "commit-abc"
+        });
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-memory-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "memory::write",
+                    "arguments": write_args,
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "success");
+        assert_eq!(res_json["result"]["memory_id"], "aivcs:commit-abc/ctx-1");
+        assert!(res_json["result"]["created_at_ms"].as_i64().is_some());
+
+        // memory::query mock
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-memory-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "memory::query",
+                    "arguments": { "query_text": "auth flow", "limit": 5 },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "success");
+        assert!(!res_json["result"]["items"].as_array().unwrap().is_empty());
+
+        // memory::context_pack mock
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-memory-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "memory::context_pack",
+                    "arguments": { "query_text": "sso", "budget_tokens": 3000 },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "success");
+        assert!(res_json["result"]["highlights"].is_array());
+        assert!(res_json["result"]["citations"].is_array());
+
+        // memory::delete requires human approval (destructive)
+        let delete_args = json!({ "memory_id": "aivcs:commit-abc/ctx-1" });
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-memory-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "memory::delete",
+                    "arguments": delete_args,
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "approval_required");
+
+        // Unknown memory tool variant
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-memory-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "memory::summarize",
+                    "arguments": {},
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_gateway_memory_scope_denied() {
+        let app = setup_router().await;
+        let token = mint_test_token("write", vec!["memory.read"]);
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-memory-2")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "memory::write",
+                    "arguments": { "kind": "fact", "content": "x" },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "denied");
+        assert!(res_json["reason"]
+            .as_str()
+            .unwrap()
+            .contains("memory.write"));
     }
 }

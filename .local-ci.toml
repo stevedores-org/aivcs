@@ -1,3 +1,36 @@
-[stages.check]
-command = ["echo", "ok"]
+# local-ci configuration for aivcs (stevedores-org/aivcs)
+# See: https://github.com/stevedores-org/local-ci
+
+[cache]
+skip_dirs = [".git", "target", ".local-ci-cache", ".direnv"]
+include_patterns = ["*.rs", "*.toml", "flake.nix"]
+
+[stages.fmt]
+cmd = ["cargo", "fmt", "--all", "--", "--check"]
 enabled = true
+
+[stages.clippy]
+cmd = [
+    "cargo",
+    "clippy",
+    "-p",
+    "aivcs-mcp-gateway",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings",
+]
+depends_on = ["fmt"]
+enabled = true
+
+[stages.test]
+cmd = ["cargo", "test", "-p", "aivcs-mcp-gateway"]
+depends_on = ["clippy"]
+enabled = true
+
+[stages.check]
+cmd = ["echo", "ok"]
+enabled = true
+
+[dependencies]
+required = ["cargo"]
