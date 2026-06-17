@@ -267,6 +267,30 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
 // ─────────────────────────────────────────────────────────────────────────
 
 /// Deserialize and validate memory tool request arguments from JSON Value.
+/// Generate a deterministic embedding vector from text content.
+///
+/// MVP implementation uses hash-based deterministic vectors (768 dims, normalized to [-1, 1]).
+/// Production should integrate with embedding models (OpenAI, Hugging Face, etc.).
+fn generate_embedding(text: &str) -> Vec<f32> {
+    use sha2::{Digest, Sha256};
+
+    // Generate deterministic hash-based embedding for MVP
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    let hash = hasher.finalize();
+
+    // Create 768-dim vector from hash bytes (repeated and normalized)
+    const DIM: usize = 768;
+    let mut embedding = vec![0.0f32; DIM];
+
+    for (i, &byte) in hash.iter().cycle().take(DIM).enumerate() {
+        // Normalize byte (0-255) to (-1, 1) range
+        embedding[i] = ((byte as f32) / 127.5) - 1.0;
+    }
+
+    embedding
+}
+
 fn deserialize_memory_write_args(args: &Value) -> std::result::Result<MemoryWriteRequest, String> {
     serde_json::from_value::<MemoryWriteRequest>(args.clone())
         .map_err(|e| format!("Invalid memory::write arguments: {}", e))
@@ -296,14 +320,17 @@ async fn memory_write_handler(
     req: MemoryWriteRequest,
     db: &aivcs_core::SurrealHandle,
 ) -> std::result::Result<Value, String> {
+    let content_str = req.content.to_string();
+    let embedding = generate_embedding(&content_str);
+
     let memory_record = aivcs_core::MemoryRecord {
         id: None,
         commit_id: req.commit_id.unwrap_or_else(|| "unknown".to_string()),
         key: req
             .key
             .unwrap_or_else(|| format!("{}:{}", req.kind, Uuid::new_v4())),
-        content: req.content.to_string(),
-        embedding: None, // TODO: add embedding support in Phase 2.2 Phase 3
+        content: content_str,
+        embedding: Some(embedding),
         metadata: json!({
             "kind": req.kind,
             "tags": req.tags,
@@ -547,6 +574,74 @@ async fn mom_backend_query(
     Ok(body)
 }
 
+/// Pack memory context via external MomBackend HTTP service.
+async fn mom_backend_context_pack(
+    config: &MomBackendConfig,
+    req: &MemoryContextPackRequest,
+) -> std::result::Result<Value, String> {
+    let url = format!("{}/api/v1/memories/context_pack", config.base_url);
+    let payload = json!({
+        "commit_id": req.commit_id,
+        "budget_tokens": req.budget_tokens,
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .bearer_auth(&config.api_key)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .send()
+        .await
+        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!(
+            "MomBackend context_pack failed with status {}",
+            status
+        ));
+    }
+
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
+
+    tracing::info!("MomBackend context_pack successful");
+    Ok(body)
+}
+
+/// Delete memory via external MomBackend HTTP service.
+async fn mom_backend_delete(
+    config: &MomBackendConfig,
+    req: &MemoryDeleteRequest,
+) -> std::result::Result<Value, String> {
+    let url = format!("{}/api/v1/memories/{}", config.base_url, req.memory_id);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .delete(&url)
+        .bearer_auth(&config.api_key)
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .send()
+        .await
+        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("MomBackend delete failed with status {}", status));
+    }
+
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
+
+    tracing::info!("MomBackend delete successful for {}", req.memory_id);
+    Ok(body)
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Hybrid Backend Selection (Phase 2.2 Phase 3)
 // ─────────────────────────────────────────────────────────────────────────
@@ -632,6 +727,79 @@ async fn hybrid_memory_query(
             Err(e) if mom_config.is_some() => {
                 tracing::warn!("SurrealDB query failed, attempting MomBackend: {}", e);
                 mom_backend_query(mom_config.as_ref().unwrap(), &req).await
+            }
+            Err(e) => Err(e),
+        },
+    }
+}
+
+/// Hybrid memory context pack: tries primary backend, falls back to secondary.
+async fn hybrid_memory_context_pack(
+    req: MemoryContextPackRequest,
+    db: &aivcs_core::SurrealHandle,
+    selector: &BackendSelector,
+    mom_config: &Option<MomBackendConfig>,
+) -> std::result::Result<Value, String> {
+    match selector {
+        BackendSelector::LocalOnly => memory_context_pack_handler(req, db).await,
+        BackendSelector::MomPrimary => match mom_config {
+            Some(config) => match mom_backend_context_pack(config, &req).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    tracing::warn!(
+                        "MomBackend context_pack failed, falling back to SurrealDB: {}",
+                        e
+                    );
+                    memory_context_pack_handler(req, db).await
+                }
+            },
+            None => {
+                tracing::warn!("MomBackend not configured, using SurrealDB");
+                memory_context_pack_handler(req, db).await
+            }
+        },
+        BackendSelector::SurrealPrimary => match memory_context_pack_handler(req.clone(), db).await
+        {
+            Ok(result) => Ok(result),
+            Err(e) if mom_config.is_some() => {
+                tracing::warn!(
+                    "SurrealDB context_pack failed, attempting MomBackend: {}",
+                    e
+                );
+                mom_backend_context_pack(mom_config.as_ref().unwrap(), &req).await
+            }
+            Err(e) => Err(e),
+        },
+    }
+}
+
+/// Hybrid memory delete: tries primary backend, falls back to secondary.
+async fn hybrid_memory_delete(
+    req: MemoryDeleteRequest,
+    db: &aivcs_core::SurrealHandle,
+    selector: &BackendSelector,
+    mom_config: &Option<MomBackendConfig>,
+) -> std::result::Result<Value, String> {
+    match selector {
+        BackendSelector::LocalOnly => memory_delete_handler(req, db).await,
+        BackendSelector::MomPrimary => match mom_config {
+            Some(config) => match mom_backend_delete(config, &req).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    tracing::warn!("MomBackend delete failed, falling back to SurrealDB: {}", e);
+                    memory_delete_handler(req, db).await
+                }
+            },
+            None => {
+                tracing::warn!("MomBackend not configured, using SurrealDB");
+                memory_delete_handler(req, db).await
+            }
+        },
+        BackendSelector::SurrealPrimary => match memory_delete_handler(req.clone(), db).await {
+            Ok(result) => Ok(result),
+            Err(e) if mom_config.is_some() => {
+                tracing::warn!("SurrealDB delete failed, attempting MomBackend: {}", e);
+                mom_backend_delete(mom_config.as_ref().unwrap(), &req).await
             }
             Err(e) => Err(e),
         },
@@ -1087,7 +1255,14 @@ async fn call_tool(
             }
         },
         "memory::context_pack" => match deserialize_memory_context_pack_args(&req.arguments) {
-            Ok(args) => match memory_context_pack_handler(args, &state.db).await {
+            Ok(args) => match hybrid_memory_context_pack(
+                args,
+                &state.db,
+                &state.backend_selector,
+                &state.mom_config,
+            )
+            .await
+            {
                 Ok(response) => response,
                 Err(e) => {
                     warn!("memory::context_pack handler failed: {}", e);
@@ -1112,7 +1287,14 @@ async fn call_tool(
             }
         },
         "memory::delete" => match deserialize_memory_delete_args(&req.arguments) {
-            Ok(args) => match memory_delete_handler(args, &state.db).await {
+            Ok(args) => match hybrid_memory_delete(
+                args,
+                &state.db,
+                &state.backend_selector,
+                &state.mom_config,
+            )
+            .await
+            {
                 Ok(response) => response,
                 Err(e) => {
                     warn!("memory::delete handler failed: {}", e);
