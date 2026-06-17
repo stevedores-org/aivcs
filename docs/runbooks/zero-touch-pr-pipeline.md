@@ -1,6 +1,8 @@
 # Zero-Touch PR Pipeline
 
-Epic: [stevedores-org/aivcs#191](https://github.com/stevedores-org/aivcs/issues/191)
+Epic: [stevedores-org/aivcs#191](https://github.com/stevedores-org/aivcs/issues/191) — **completed (closed)**. Task [#192](https://github.com/stevedores-org/aivcs/issues/192) (`CODE_COMMITTED` A2A event) is also **closed**.
+
+> **Status: implemented / current behavior.** This runbook describes how the pipeline works today, not planned work. The `pr pipeline` / `pr branch` / `pr commit` / `pr open` subcommands and `CODE_COMMITTED` emission are all shipped — verify with `aivcs pr --help`.
 
 Autonomous builder agents running in ephemeral ADK Jobs use `aivcs` (via `uv`) to branch, commit, open Pull Requests, and emit `CODE_COMMITTED` A2A events — without a local git checkout or human in the loop.
 
