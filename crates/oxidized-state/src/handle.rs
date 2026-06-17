@@ -608,6 +608,40 @@ impl SurrealHandle {
         Ok(memories)
     }
 
+    /// Delete a memory record by key
+    ///
+    /// # Arguments
+    /// - `memory_key`: The memory's key field (UUID portion, not including "aivcs:mem-" prefix)
+    ///
+    /// # Returns
+    /// - `Ok(true)` if a memory was deleted
+    /// - `Ok(false)` if no memory matched the key
+    /// - `Err` if the database query failed
+    #[instrument(skip(self))]
+    pub async fn delete_memory(&self, memory_key: &str) -> Result<bool> {
+        let key_owned = memory_key.to_string();
+
+        // Query by the `key` field, which is user-provided and unique per commit
+        // (Unlike `id` which is auto-generated as a qualified SurrealDB Thing)
+        let mut result = self
+            .db
+            .query("DELETE FROM memories WHERE key = $key RETURN BEFORE")
+            .bind(("key", key_owned))
+            .await?;
+
+        // Get the deleted records count
+        let deleted_records: Vec<MemoryRecord> = result.take(0)?;
+        let was_deleted = !deleted_records.is_empty();
+
+        if was_deleted {
+            debug!("Memory deleted: {}", memory_key);
+        } else {
+            debug!("No memory found to delete: {}", memory_key);
+        }
+
+        Ok(was_deleted)
+    }
+
     // ========== Release Registry Operations ==========
 
     /// Promote a new release for an agent.

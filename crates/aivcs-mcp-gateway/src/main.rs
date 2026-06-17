@@ -664,10 +664,63 @@ async fn call_tool(
             })
         }
         "memory::delete" => {
-            json!({
-                "status": "deleted",
-                "memory_id": "aivcs:mem-example-1"
-            })
+            // Extract memory_id from request arguments
+            let memory_id = match req.arguments.get("memory_id").and_then(|v| v.as_str()) {
+                Some(id) => id,
+                None => {
+                    return Json(ToolCallResponse {
+                        status: "denied".to_string(),
+                        authority_id: Some(authority_id),
+                        result: None,
+                        reason: Some("Missing required argument: memory_id".to_string()),
+                    })
+                    .into_response();
+                }
+            };
+
+            // Validate memory_id format: must be "aivcs:mem-{uuid}"
+            if !memory_id.starts_with("aivcs:mem-") {
+                return Json(ToolCallResponse {
+                    status: "denied".to_string(),
+                    authority_id: Some(authority_id),
+                    result: None,
+                    reason: Some("Invalid memory_id format: must be aivcs:mem-{uuid}".to_string()),
+                })
+                .into_response();
+            }
+
+            let record_key = memory_id.strip_prefix("aivcs:mem-").unwrap();
+
+            // Execute actual deletion from SurrealDB
+            match state.db.delete_memory(record_key).await {
+                Ok(true) => {
+                    tracing::info!("Memory deleted: {}", memory_id);
+                    json!({
+                        "status": "deleted",
+                        "memory_id": memory_id
+                    })
+                }
+                Ok(false) => {
+                    tracing::warn!("Memory not found: {}", memory_id);
+                    return Json(ToolCallResponse {
+                        status: "denied".to_string(),
+                        authority_id: Some(authority_id),
+                        result: None,
+                        reason: Some(format!("Memory not found: {}", memory_id)),
+                    })
+                    .into_response();
+                }
+                Err(e) => {
+                    tracing::error!("Failed to delete memory {}: {}", memory_id, e);
+                    return Json(ToolCallResponse {
+                        status: "denied".to_string(),
+                        authority_id: Some(authority_id),
+                        result: None,
+                        reason: Some(format!("Database error: {}", e)),
+                    })
+                    .into_response();
+                }
+            }
         }
         _ => json!({}),
     };
