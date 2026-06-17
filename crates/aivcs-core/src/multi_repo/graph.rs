@@ -137,7 +137,7 @@ impl RepoDependencyGraph {
 
     /// Add a directed dependency edge: `dependent` depends on `dependency`.
     ///
-    /// Both nodes must already be registered via [`add_node`].
+    /// Both nodes must already be registered via [`Self::add_node`].
     /// Returns [`MultiRepoError::DependencyCycle`] if the edge would introduce
     /// a cycle (checked via DFS before the edge is committed).
     /// Returns [`MultiRepoError::RepoNotFound`] if either node is absent.

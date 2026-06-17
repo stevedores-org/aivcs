@@ -13,7 +13,8 @@ use tracing::info;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use aivcs_core::obs::RunSpan;
 /// let _span = RunSpan::enter("run-12345");
 /// // Now all tracing calls are automatically associated with run_id = "run-12345"
 /// ```
@@ -35,7 +36,8 @@ impl RunSpan {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use aivcs_core::obs::emit_run_started;
 /// emit_run_started("run-123", "my_agent");
 /// // logs: event=run.started run_id=run-123 agent_name=my_agent
 /// ```
