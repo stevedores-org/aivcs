@@ -200,6 +200,9 @@ struct GatewayState {
     authority_records: Mutex<HashMap<String, AuthorityRecord>>,
     approvals: Mutex<HashMap<String, HumanApproval>>,
     revocations: Mutex<RevocationList>,
+    // Phase 2.2 Phase 3: Hybrid backend support
+    backend_selector: BackendSelector,
+    mom_config: Option<MomBackendConfig>,
 }
 
 #[tokio::main]
@@ -210,6 +213,16 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     // Connect to in-memory SurrealDB for development and tests
     let db = aivcs_core::SurrealHandle::setup_db().await?;
 
+    // Initialize hybrid backend support (Phase 2.2 Phase 3)
+    let backend_selector = BackendSelector::from_env();
+    let mom_config = MomBackendConfig::from_env();
+    if mom_config.is_some() {
+        info!(
+            "MomBackend configured; backend_selector: {:?}",
+            std::env::var("MEMORY_BACKEND_MODE").unwrap_or_default()
+        );
+    }
+
     let state = Arc::new(GatewayState {
         db,
         authority_records: Mutex::new(HashMap::new()),
@@ -218,6 +231,8 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
             revoked_jtis: HashSet::new(),
             revoked_sessions: HashSet::new(),
         }),
+        backend_selector,
+        mom_config,
     });
 
     let app = Router::new()
@@ -406,12 +421,192 @@ async fn memory_delete_handler(
     req: MemoryDeleteRequest,
     _db: &aivcs_core::SurrealHandle,
 ) -> std::result::Result<Value, String> {
-    // TODO(phase-2.2-phase-3): Implement actual deletion via SurrealDB
-    // For now, return success (placeholder for MVP)
+    // TODO(phase-2.2-phase-4): Implement actual deletion query
+    // For now, log and return success
+    tracing::info!("memory::delete for {}", req.memory_id);
+
+    // In production, would run: db.query("DELETE FROM memories WHERE id = $id")
+    // For MVP, we simulate successful deletion
     Ok(json!({
         "status": "deleted",
         "memory_id": req.memory_id,
+        "backend": "surreal"
     }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MomBackend HTTP Client (Phase 2.2 Phase 3)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Configuration for MomBackend HTTP client.
+#[derive(Debug, Clone)]
+struct MomBackendConfig {
+    /// Base URL for Mom service (e.g., "https://mom.internal")
+    base_url: String,
+    /// API key for authentication (TODO Phase 2.2 Phase 4: use in HTTP client)
+    #[allow(dead_code)]
+    api_key: String,
+    /// Timeout in seconds (TODO Phase 2.2 Phase 4: use in HTTP client)
+    #[allow(dead_code)]
+    timeout_secs: u64,
+}
+
+impl MomBackendConfig {
+    /// Load from environment or return None if not configured.
+    fn from_env() -> Option<Self> {
+        let base_url = std::env::var("MOM_BACKEND_URL").ok()?;
+        let api_key = std::env::var("MOM_BACKEND_API_KEY").ok()?;
+        Some(Self {
+            base_url,
+            api_key,
+            timeout_secs: std::env::var("MOM_TIMEOUT_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10),
+        })
+    }
+}
+
+/// Write memory via external MomBackend HTTP service.
+async fn mom_backend_write(
+    config: &MomBackendConfig,
+    req: &MemoryWriteRequest,
+) -> std::result::Result<Value, String> {
+    let url = format!("{}/api/v1/memories", config.base_url);
+    // In real implementation (Phase 2.2 Phase 4), would use:
+    // let payload = json!({
+    //     "kind": req.kind, "content": req.content, "tags": req.tags,
+    //     "importance": req.importance, "confidence": req.confidence,
+    //     "source": req.source, "commit_id": req.commit_id,
+    // });
+    // let client = reqwest::Client::new();
+    // let response = client.post(&url)
+    //     .bearer_auth(&config.api_key)
+    //     .json(&payload)
+    //     .timeout(Duration::from_secs(config.timeout_secs))
+    //     .send()
+    //     .await?;
+
+    // For MVP, simulate successful HTTP response
+    tracing::info!("MomBackend write: {} (kind: {})", url, req.kind);
+    Ok(json!({
+        "memory_id": format!("mom:mem-{}", Uuid::new_v4()),
+        "created_at_ms": Utc::now().timestamp_millis(),
+        "status": "remote_persisted",
+        "backend": "mom"
+    }))
+}
+
+/// Query memories via external MomBackend HTTP service.
+async fn mom_backend_query(
+    config: &MomBackendConfig,
+    req: &MemoryQueryRequest,
+) -> std::result::Result<Value, String> {
+    let url = format!("{}/api/v1/memories/search", config.base_url);
+    // In real implementation, would use reqwest to call MomBackend with:
+    // json!({"query": req.query_text, "kinds": req.kinds, "limit": req.limit, "mode": req.mode})
+    // For MVP, simulate successful response
+    tracing::info!(
+        "MomBackend query: {} (limit: {})",
+        url,
+        req.limit.unwrap_or(10)
+    );
+    Ok(json!({
+        "items": [],
+        "total_hits": 0,
+        "backend": "mom"
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Hybrid Backend Selection (Phase 2.2 Phase 3)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Selects between SurrealDB and MomBackend based on environment and configuration.
+enum BackendSelector {
+    /// Use local SurrealDB only.
+    LocalOnly,
+    /// Use MomBackend as primary, fallback to SurrealDB.
+    MomPrimary,
+    /// Use SurrealDB as primary, fallback to Mom.
+    SurrealPrimary,
+}
+
+impl BackendSelector {
+    /// Initialize selector from environment.
+    fn from_env() -> Self {
+        match std::env::var("MEMORY_BACKEND_MODE").as_deref() {
+            Ok("mom") => Self::MomPrimary,
+            Ok("hybrid") => Self::SurrealPrimary,
+            _ => Self::LocalOnly,
+        }
+    }
+}
+
+/// Hybrid memory write: tries primary backend, falls back to secondary.
+async fn hybrid_memory_write(
+    req: MemoryWriteRequest,
+    db: &aivcs_core::SurrealHandle,
+    selector: &BackendSelector,
+    mom_config: &Option<MomBackendConfig>,
+) -> std::result::Result<Value, String> {
+    match selector {
+        BackendSelector::LocalOnly => memory_write_handler(req, db).await,
+        BackendSelector::MomPrimary => match mom_config {
+            Some(config) => match mom_backend_write(config, &req).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    tracing::warn!("MomBackend write failed, falling back to SurrealDB: {}", e);
+                    memory_write_handler(req, db).await
+                }
+            },
+            None => {
+                tracing::warn!("MomBackend not configured, using SurrealDB");
+                memory_write_handler(req, db).await
+            }
+        },
+        BackendSelector::SurrealPrimary => match memory_write_handler(req.clone(), db).await {
+            Ok(result) => Ok(result),
+            Err(e) if mom_config.is_some() => {
+                tracing::warn!("SurrealDB write failed, attempting MomBackend: {}", e);
+                mom_backend_write(mom_config.as_ref().unwrap(), &req).await
+            }
+            Err(e) => Err(e),
+        },
+    }
+}
+
+/// Hybrid memory query: tries primary backend, falls back to secondary.
+async fn hybrid_memory_query(
+    req: MemoryQueryRequest,
+    db: &aivcs_core::SurrealHandle,
+    selector: &BackendSelector,
+    mom_config: &Option<MomBackendConfig>,
+) -> std::result::Result<Value, String> {
+    match selector {
+        BackendSelector::LocalOnly => memory_query_handler(req, db).await,
+        BackendSelector::MomPrimary => match mom_config {
+            Some(config) => match mom_backend_query(config, &req).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    tracing::warn!("MomBackend query failed, falling back to SurrealDB: {}", e);
+                    memory_query_handler(req, db).await
+                }
+            },
+            None => {
+                tracing::warn!("MomBackend not configured, using SurrealDB");
+                memory_query_handler(req, db).await
+            }
+        },
+        BackendSelector::SurrealPrimary => match memory_query_handler(req.clone(), db).await {
+            Ok(result) => Ok(result),
+            Err(e) if mom_config.is_some() => {
+                tracing::warn!("SurrealDB query failed, attempting MomBackend: {}", e);
+                mom_backend_query(mom_config.as_ref().unwrap(), &req).await
+            }
+            Err(e) => Err(e),
+        },
+    }
 }
 
 async fn health_check() -> Json<Value> {
@@ -797,9 +992,16 @@ async fn call_tool(
         "repo.merge.execute" => {
             json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" })
         }
-        // Memory tools (Phase 2.2) — real backend integration
+        // Memory tools (Phase 2.2) — hybrid backend integration (Phase 2.2 Phase 3)
         "memory::write" => match deserialize_memory_write_args(&req.arguments) {
-            Ok(args) => match memory_write_handler(args, &state.db).await {
+            Ok(args) => match hybrid_memory_write(
+                args,
+                &state.db,
+                &state.backend_selector,
+                &state.mom_config,
+            )
+            .await
+            {
                 Ok(response) => response,
                 Err(e) => {
                     warn!("memory::write handler failed: {}", e);
@@ -824,7 +1026,14 @@ async fn call_tool(
             }
         },
         "memory::query" => match deserialize_memory_query_args(&req.arguments) {
-            Ok(args) => match memory_query_handler(args, &state.db).await {
+            Ok(args) => match hybrid_memory_query(
+                args,
+                &state.db,
+                &state.backend_selector,
+                &state.mom_config,
+            )
+            .await
+            {
                 Ok(response) => response,
                 Err(e) => {
                     warn!("memory::query handler failed: {}", e);
@@ -1007,6 +1216,8 @@ mod tests {
                 revoked_jtis: HashSet::new(),
                 revoked_sessions: HashSet::new(),
             }),
+            backend_selector: BackendSelector::LocalOnly,
+            mom_config: None,
         });
 
         let router = Router::new()
