@@ -8,7 +8,7 @@ use super::{CasError, CasStore, Digest, Result};
 
 /// Filesystem-backed content-addressed store with git-style 2-char sharding.
 ///
-/// Layout: <root>/objects/<first 2 hex chars>/<remaining hex chars>
+/// Layout: `<root>/objects/<first 2 hex chars>/<remaining hex chars>`
 pub struct FsCasStore {
     objects_dir: PathBuf,
 }

@@ -62,16 +62,46 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 | `init` | Initialize a new AIVCS repository |
 | `snapshot` | Create a versioned checkpoint of agent state |
 | `restore` | Restore agent to a previous state |
-| `branch` | Manage branches (list, create, delete) |
+| `replay-artifact` | Replay a recorded run artifact from disk by run ID |
+| `branch` | Manage branches (`list`, `create`, `delete`) |
 | `log` | Show commit history |
 | `merge` | Merge two branches with semantic resolution |
-| `diff` | Show differences between commits/branches |
-| `env` | Environment management (Nix/Attic integration) |
-| `fork` | Fork multiple parallel branches for exploration |
-| `trace` | Time-travel debugging - show reasoning trace |
-| `replay` | Replay a recorded run artifact by run ID |
+| `diff` | Show differences for specs or runs (`diff spec`, `diff run`) |
 | `diff-runs` | Diff the tool-call sequences of two runs |
-| `pr open` | Open a GitHub Pull Request and request review from the Librarian Agent |
+| `env` | Environment management (`hash`, `logic-hash`) |
+| `fork` | Fork multiple parallel branches for exploration |
+| `trace` | Time-travel debugging — show reasoning trace |
+| `release` | Release registry operations (`promote`, `current`, `history`, `rollback`) — see [release-workflow runbook](docs/runbooks/release-workflow.md) |
+| `ci` | CI pipeline operations (`ci run`) — see [aivcs-ci runbook](docs/runbooks/aivcs-ci.md) |
+| `report` | Generate reports (`report cross-org`) |
+| `pr` | GitHub Pull Request operations (`open`, `branch`, `commit`, `pipeline`, `verify-snapshot`, `verify-reproducibility`) |
+| `pr-note` | Emit a summary note linking a GitHub PR to the head aivcs `CommitId` |
+
+> Command names are kebab-case as exposed by Clap (e.g. `replay-artifact`, `diff-runs`). There is **no** `replay` alias — use `aivcs replay-artifact`. Verify the live surface any time with `aivcs --help` and `aivcs <command> --help`.
+
+### Release, CI & report commands
+
+```bash
+# Release registry (append-only history per agent)
+aivcs release promote my-agent --git-sha <sha> \
+  --graph-digest <h> --prompts-digest <h> --tools-digest <h> --config-digest <h> \
+  --version v1.2.3 --notes "first stable spec"
+aivcs release current  my-agent                # current release pointer
+aivcs release history  my-agent                # newest first
+aivcs release rollback my-agent                # revert to previous release
+
+# CI pipeline (records execution; default stages: fmt,check)
+aivcs ci run --stages fmt,check,clippy,test   # add --no-cache to skip cache, --fix to auto-repair
+
+# Reports
+aivcs report cross-org --objective main --output report.md   # cross-org integration health audit
+
+# Run inspection
+aivcs replay-artifact --run <run-id>           # replay a recorded run artifact (root: .aivcs/runs)
+aivcs diff spec a.json b.json                  # diff two agent specs
+aivcs diff run  a.json b.json                  # diff two run event logs
+aivcs diff-runs --run-a <run-id-a> --run-b <run-id-b>   # diff tool-call sequences of two recorded runs
+```
 
 ### Environment Commands (Phase 2)
 
@@ -151,6 +181,8 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
 ### GitHub Integration (`pr open`, `pr branch`, `pr commit`, `pr pipeline`)
 
 Autonomous builder agents use the `pr` subcommands to branch, commit, and open Pull Requests via the GitHub API. Tokens are read from `GITHUB_TOKEN` (GitHub App installation token from ESO) or `GITHUB_TOKEN_FILE` (Kubernetes secret volume mount).
+
+> **Recommended base branch is `develop`** (per `CODEX.md`). Note a default mismatch to be aware of: `pr open`, `pr branch`, and `pr commit` default `--base` to **`main`**, while the zero-touch `pr pipeline` defaults `--base` to **`develop`**. Until the CLI defaults are aligned (tracked separately — docs do not change behavior), **always pass `--base develop` explicitly** to the step-by-step `pr` commands, as the examples below do.
 
 ```bash
 export GITHUB_TOKEN="<github-app-installation-token-or-pat>"
