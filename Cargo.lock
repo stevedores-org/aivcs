@@ -157,6 +157,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "data-fabric-client",
  "hex",
  "jsonwebtoken",
  "serde",
@@ -1228,6 +1229,19 @@ name = "data-encoding"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
+
+[[package]]
+name = "data-fabric-client"
+version = "0.1.1"
+source = "git+https://github.com/stevedores-org/data-fabric.git?rev=36a9e60#36a9e6013dc52b6759f87dbd5928d7e54288b056"
+dependencies = [
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+]
 
 [[package]]
 name = "deranged"
