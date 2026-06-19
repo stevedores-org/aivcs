@@ -13,6 +13,7 @@ pub mod domain;
 pub mod event_adapter;
 pub mod forge;
 pub mod gate;
+pub mod forge;
 pub mod git;
 pub mod git_host;
 pub mod github;
