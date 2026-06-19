@@ -9,10 +9,7 @@ pub fn validate_kustomization_name(name: &str) -> Result<()> {
     if name.is_empty() || name.len() > 63 {
         bail!("invalid kustomization name length");
     }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-')
-    {
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         bail!("kustomization name must be alphanumeric + hyphen");
     }
     Ok(())

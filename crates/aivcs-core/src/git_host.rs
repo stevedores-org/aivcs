@@ -133,17 +133,11 @@ mod tests {
     fn parse_gitlab_remote_accepts_https_and_ssh() {
         assert_eq!(
             parse_gitlab_remote("https://gitlab.com/lornu-ai/infra-code.git"),
-            Some((
-                GitHost::GitLab,
-                "lornu-ai/infra-code".to_string()
-            ))
+            Some((GitHost::GitLab, "lornu-ai/infra-code".to_string()))
         );
         assert_eq!(
             parse_gitlab_remote("git@gitlab.com:lornu-ai/nested/infra-code.git"),
-            Some((
-                GitHost::GitLab,
-                "lornu-ai/nested/infra-code".to_string()
-            ))
+            Some((GitHost::GitLab, "lornu-ai/nested/infra-code".to_string()))
         );
     }
 

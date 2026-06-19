@@ -94,10 +94,7 @@ impl GitLabClient {
         } else {
             "create"
         };
-        let url = format!(
-            "{}/projects/{project_id}/repository/commits",
-            self.api_base
-        );
+        let url = format!("{}/projects/{project_id}/repository/commits", self.api_base);
         let body = serde_json::json!({
             "branch": branch,
             "commit_message": message,
@@ -153,10 +150,7 @@ impl GitLabClient {
             title, source_branch, target_branch
         );
         let project_id = self.project_id().await?;
-        let url = format!(
-            "{}/projects/{project_id}/merge_requests",
-            self.api_base
-        );
+        let url = format!("{}/projects/{project_id}/merge_requests", self.api_base);
         let payload = serde_json::json!({
             "title": title,
             "description": body,

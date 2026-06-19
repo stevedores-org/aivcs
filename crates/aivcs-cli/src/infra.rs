@@ -88,10 +88,7 @@ async fn run_cloudflare_lb(action: CloudflareLbAction) -> Result<()> {
             }
             Ok(())
         }
-        CloudflareLbAction::Prune {
-            allowlist,
-            dry_run,
-        } => {
+        CloudflareLbAction::Prune { allowlist, dry_run } => {
             let content = std::fs::read_to_string(&allowlist)
                 .with_context(|| format!("read allowlist {:?}", allowlist))?;
             let allow = parse_allowlist(&content);

@@ -31,7 +31,7 @@ export AIVCS_GIT_HOST=gitlab
 export GITLAB_TOKEN="$(cat /var/run/secrets/gitlab/token)"
 export CI_PROJECT_PATH="lornu-ai/infra-code"   # or --owner/--repo
 
-uv run aivcs pr pipeline \
+cargo run -p aivcs-cli -- pr pipeline \
   --branch chore/resume-cloudflare-lb-ks \
   --base develop \
   --owner lornu-ai \
@@ -120,10 +120,11 @@ Mount allowlist via ConfigMap. On exit code 2, Sam opens a GitLab MR via
 ## GitHub sunset checklist
 
 1. Mirror repos to GitLab; point Flux `GitRepository` URLs at GitLab (OAuth / deploy token via ESO).
-2. Move scheduled jobs from `.github/worflows/` to in-cluster CronJobs + `aivcs infra`.
-3. Set `AIVCS_GIT_HOST=gitlab` in agent Job specs.
-4. Retire `GITHUB_TOKEN` mounts where `GITLAB_TOKEN` replaces them.
-5. Keep GitHub read-only mirror temporarily for external links only.
+2. Move scheduled jobs from `.github/workflows/` to in-cluster CronJobs + `aivcs infra`.
+3. Publish OCI via GitLab (`.gitlab-ci.yml`) + `aivcs oci publish` — see [oci-publish-gitlab.md](./oci-publish-gitlab.md).
+4. Set `AIVCS_GIT_HOST=gitlab` in agent Job specs.
+5. Retire `GITHUB_TOKEN` mounts where `GITLAB_TOKEN` replaces them.
+6. Keep GitHub read-only mirror temporarily for external links only.
 
 ## Related
 

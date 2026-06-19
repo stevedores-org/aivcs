@@ -193,6 +193,16 @@ export FLUX_CONTEXT=gke_gcp-lornu-ai_us-central1_lornu-gke-prod
 aivcs infra flux reconcile --kustomization cloudflare-lb-aivcs-io --with-source
 ```
 
+### OCI publish (`aivcs oci` — GitLab CI, no GHA)
+
+Nix OCI → GAR via Rust CLI (skopeo). See [oci-publish-gitlab.md](docs/runbooks/oci-publish-gitlab.md).
+
+```bash
+cargo run -p aivcs-cli -- oci publish --target aivcs-cli --dry-run
+GCP_ACCESS_TOKEN="$(gcloud auth print-access-token)" \
+  cargo run -p aivcs-cli -- oci publish --target aivcs-cli
+```
+
 ### GitHub Integration (legacy path)
 
 GitHub remains supported when `AIVCS_GIT_HOST=github` (default without GitLab token):

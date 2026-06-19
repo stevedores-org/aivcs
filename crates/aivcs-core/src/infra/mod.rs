@@ -2,3 +2,4 @@
 
 pub mod cloudflare_lb;
 pub mod flux;
+pub mod oci;

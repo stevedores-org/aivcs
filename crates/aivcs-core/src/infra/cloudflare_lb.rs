@@ -242,9 +242,7 @@ fn parse_load_balancers(resp: &serde_json::Value) -> Vec<CfLoadBalancer> {
                         id: item["id"].as_str()?.to_string(),
                         name: item["name"].as_str()?.to_string(),
                         default_pools,
-                        fallback_pool: item["fallback_pool"]
-                            .as_str()
-                            .map(str::to_string),
+                        fallback_pool: item["fallback_pool"].as_str().map(str::to_string),
                     })
                 })
                 .collect()
@@ -312,9 +310,7 @@ mod tests {
 
     #[test]
     fn parse_allowlist_skips_comments_and_blanks() {
-        let list = parse_allowlist(
-            "# canonical\nlornu-ai-origins\n\nstevedores-org-origins\n",
-        );
+        let list = parse_allowlist("# canonical\nlornu-ai-origins\n\nstevedores-org-origins\n");
         assert_eq!(
             list,
             vec![
@@ -326,7 +322,10 @@ mod tests {
 
     #[test]
     fn audit_finds_orphans_and_missing() {
-        let allow = vec!["lornu-ai-origins".to_string(), "aivcs-io-origins".to_string()];
+        let allow = vec![
+            "lornu-ai-origins".to_string(),
+            "aivcs-io-origins".to_string(),
+        ];
         let pools = vec![
             CfPool {
                 id: "p1".into(),

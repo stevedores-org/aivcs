@@ -11,6 +11,7 @@
 //! - `log`: Show commit history
 
 mod infra;
+mod oci;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -230,6 +231,12 @@ enum Commands {
     Infra {
         #[command(subcommand)]
         action: infra::InfraAction,
+    },
+
+    /// OCI build & publish (Nix + skopeo → GAR; GitLab CI path)
+    Oci {
+        #[command(subcommand)]
+        action: oci::OciAction,
     },
 
     /// Generate reports for integration, health, or audits
@@ -783,6 +790,7 @@ async fn main() -> Result<()> {
             cmd_pr_semantic_summary(&handle, branch.as_deref(), &base).await
         }
         Commands::Infra { action } => infra::run(action).await,
+        Commands::Oci { action } => oci::run(action),
     }
 }
 
