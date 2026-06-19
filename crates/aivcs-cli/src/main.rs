@@ -10,6 +10,8 @@
 //! - `merge`: Merge two branches with semantic resolution
 //! - `log`: Show commit history
 
+mod infra;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use nix_env_manager::{
@@ -218,10 +220,16 @@ enum Commands {
         action: CiAction,
     },
 
-    /// GitHub Pull Request operations
+    /// Git forge change-request operations (GitHub PR or GitLab MR)
     Pr {
         #[command(subcommand)]
         action: PrAction,
+    },
+
+    /// Sovereign infra reconcilers (Cloudflare LB, Flux) — no GitHub Actions
+    Infra {
+        #[command(subcommand)]
+        action: infra::InfraAction,
     },
 
     /// Generate reports for integration, health, or audits
@@ -774,6 +782,7 @@ async fn main() -> Result<()> {
         Commands::PrSemanticSummary { branch, base } => {
             cmd_pr_semantic_summary(&handle, branch.as_deref(), &base).await
         }
+        Commands::Infra { action } => infra::run(action).await,
     }
 }
 
@@ -854,19 +863,23 @@ async fn cmd_pr_open(args: PrOpenArgs) -> Result<()> {
         body, digest, snapshot.local_ci_config_hash
     );
 
-    let client = github_client_from_env(owner, repo)?;
+    let client = forge_client_from_env(owner, repo)?;
 
     let pr_number = client
-        .open_pr(&title, &body, &head, &base, librarian)
+        .open_change_request(&title, &body, &head, &base, librarian)
         .await?;
 
-    println!("Successfully opened PR #{}", pr_number);
+    let label = match client.host() {
+        aivcs_core::GitHost::GitHub => "PR",
+        aivcs_core::GitHost::GitLab => "MR",
+    };
+    println!("Successfully opened {label} #{pr_number}");
 
     Ok(())
 }
 
 async fn cmd_pr_branch(name: String, base: String, owner: String, repo: String) -> Result<()> {
-    let client = github_client_from_env(owner, repo)?;
+    let client = forge_client_from_env(owner, repo)?;
     let sha = client.create_branch(&name, &base).await?;
     println!("Created branch '{}' from '{}' ({})", name, base, sha);
     Ok(())
@@ -888,9 +901,9 @@ async fn cmd_pr_commit(
     repo: String,
 ) -> Result<()> {
     let content = read_file_for_github_commit(&file).await?;
-    let github_repo = format!("{owner}/{repo}");
+    let forge_repo = format!("{owner}/{repo}");
 
-    let client = github_client_from_env(owner, repo)?;
+    let client = forge_client_from_env(owner, repo)?;
     let sha = client
         .commit_file(&branch, &path, &content, &message)
         .await?;
@@ -905,8 +918,8 @@ async fn cmd_pr_commit(
         &branch,
         &sha,
         vec![path.clone()],
-        "github-pr-commit",
-        Some(&github_repo),
+        "forge-pr-commit",
+        Some(&forge_repo),
         aivcs_commit_id.as_deref(),
     )
     .await;
@@ -959,8 +972,8 @@ async fn cmd_pr_pipeline(handle: &SurrealHandle, args: PrPipelineArgs) -> Result
         body, digest, snapshot.local_ci_config_hash
     );
 
-    let github_repo = format!("{owner}/{repo}");
-    let client = github_client_from_env(owner.clone(), repo.clone())?;
+    let forge_repo = format!("{owner}/{repo}");
+    let client = forge_client_from_env(owner.clone(), repo.clone())?;
 
     if !skip_branch {
         let sha = client.create_branch(&branch, &base).await?;
@@ -983,16 +996,20 @@ async fn cmd_pr_pipeline(handle: &SurrealHandle, args: PrPipelineArgs) -> Result
         &branch,
         &sha,
         vec![path.clone()],
-        "github-pr-pipeline",
-        Some(&github_repo),
+        "forge-pr-pipeline",
+        Some(&forge_repo),
         aivcs_commit_id.as_deref(),
     )
     .await;
 
     let pr_number = client
-        .open_pr(&title, &body, &branch, &base, librarian)
+        .open_change_request(&title, &body, &branch, &base, librarian)
         .await?;
-    println!("Successfully opened PR #{pr_number}");
+    let label = match client.host() {
+        aivcs_core::GitHost::GitHub => "PR",
+        aivcs_core::GitHost::GitLab => "MR",
+    };
+    println!("Successfully opened {label} #{pr_number}");
 
     Ok(())
 }
@@ -1201,11 +1218,8 @@ async fn cmd_pr_verify_reproducibility(pr_body: Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn github_client_from_env(owner: String, repo: String) -> Result<aivcs_core::github::GitHubClient> {
-    use aivcs_core::github::{resolve_github_token, GitHubClient};
-
-    let token = resolve_github_token()?;
-    GitHubClient::new(token, owner, repo)
+fn forge_client_from_env(owner: String, repo: String) -> Result<aivcs_core::ForgeClient> {
+    aivcs_core::ForgeClient::from_env(owner, repo)
 }
 
 /// Initialize a new AIVCS repository

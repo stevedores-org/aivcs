@@ -148,16 +148,59 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
 }
 ```
 
-### GitHub Integration (`pr open`, `pr branch`, `pr commit`, `pr pipeline`)
+### Git forge integration (`pr pipeline` — GitHub or GitLab)
 
-Autonomous builder agents use the `pr` subcommands to branch, commit, and open Pull Requests via the GitHub API. Tokens are read from `GITHUB_TOKEN` (GitHub App installation token from ESO) or `GITHUB_TOKEN_FILE` (Kubernetes secret volume mount).
+Autonomous agents branch, commit, and open **PRs (GitHub) or MRs (GitLab)** via the
+forge API. Host selection: `AIVCS_GIT_HOST=github|gitlab` (default: GitLab when
+`GITLAB_TOKEN` / GitLab CI env is present).
+
+| Host | Token env |
+|------|-----------|
+| GitHub | `GITHUB_TOKEN` or `GITHUB_TOKEN_FILE` |
+| GitLab | `GITLAB_TOKEN` or `GITLAB_TOKEN_FILE` |
+
+```bash
+export AIVCS_GIT_HOST=gitlab
+export GITLAB_TOKEN="<gitlab-project-or-group-token>"
+
+uv run aivcs pr pipeline \
+  --branch feature/my-change \
+  --base develop \
+  --path docs/example.md \
+  --file ./example.md \
+  --message "docs: add example" \
+  --title "feat: my change" \
+  --body "Summary." \
+  --owner lornu-ai \
+  --repo infra-code
+```
+
+See [Sovereign infra (GitLab, no GHA)](docs/runbooks/sovereign-infra-gitlab.md).
+
+### Sovereign infra (`aivcs infra` — no GitHub Actions)
+
+In-cluster reconcilers for Cloudflare LB hygiene and Flux handoff:
+
+```bash
+# Audit CF pools vs git allowlist (exit 2 on orphan drift)
+aivcs infra cloudflare-lb audit --allowlist policy/cloudflare-lb-allowlist.txt
+
+# Prune unreferenced legacy pools (e.g. aks-lornu-hub)
+aivcs infra cloudflare-lb prune --allowlist policy/cloudflare-lb-allowlist.txt --dry-run
+
+# Resume a suspended Flux Kustomization after MR merge
+export FLUX_CONTEXT=gke_gcp-lornu-ai_us-central1_lornu-gke-prod
+aivcs infra flux reconcile --kustomization cloudflare-lb-aivcs-io --with-source
+```
+
+### GitHub Integration (legacy path)
+
+GitHub remains supported when `AIVCS_GIT_HOST=github` (default without GitLab token):
 
 ```bash
 export GITHUB_TOKEN="<github-app-installation-token-or-pat>"
-# Or: export GITHUB_TOKEN_FILE="/var/run/secrets/github/token"
 export RELIC_LIBRARIAN_USERNAME="librarian-bot"
 
-# Zero-touch pipeline (branch → commit → CODE_COMMITTED → open PR)
 uv run aivcs pr pipeline \
   --branch feature/my-change \
   --base develop \
@@ -168,13 +211,13 @@ uv run aivcs pr pipeline \
   --body "Summary of what changed." \
   --owner stevedores-org \
   --repo aivcs
+```
 
-# Or step-by-step:
+Step-by-step (GitHub or GitLab — same flags):
 
-# 1. Create a feature branch
+```bash
 aivcs pr branch --name feature/my-change --base develop --owner stevedores-org --repo aivcs
 
-# 2. Commit a file to that branch (emits CODE_COMMITTED when A2A URL is set)
 aivcs pr commit \
   --branch feature/my-change \
   --path docs/example.md \
@@ -183,7 +226,6 @@ aivcs pr commit \
   --owner stevedores-org \
   --repo aivcs
 
-# 3. Open a PR (requests Librarian review by default)
 aivcs pr open \
   --owner stevedores-org \
   --repo aivcs \

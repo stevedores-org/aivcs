@@ -54,6 +54,8 @@ Same as the README GitHub Integration section:
 |----------|-------------|
 | `GITHUB_TOKEN` | GitHub App installation token (preferred). Projected by ESO from a Kubernetes Secret. |
 | `GITHUB_TOKEN_FILE` | Alternative: path to a mounted token file (e.g. `/var/run/secrets/github/token`). Used when `GITHUB_TOKEN` is unset or whitespace-only. |
+| `GITLAB_TOKEN` / `GITLAB_TOKEN_FILE` | GitLab API token when `AIVCS_GIT_HOST=gitlab` (sovereign path — see [sovereign-infra-gitlab.md](./sovereign-infra-gitlab.md)). |
+| `AIVCS_GIT_HOST` | `github` (default) or `gitlab`. Auto-detects GitLab when GitLab token / `CI_PROJECT_PATH` is set. |
 | `RELIC_LIBRARIAN_USERNAME` | GitHub username of the Librarian Agent. Required when `--librarian` is enabled (default). |
 | `AIVCS_A2A_JSONRPC_URL` | JSON-RPC endpoint for A2A events. Absent ⇒ `CODE_COMMITTED` emission is skipped (no-op). |
 | `AIVCS_AGENT_ID` | Authoring agent ID in the event payload. Falls back to a pipeline-specific default. |
