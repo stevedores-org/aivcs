@@ -179,9 +179,9 @@ pub async fn maybe_emit_code_committed_from_env(
     // rather than smuggling shell-metachar / newline / dot-traversal bytes
     // into the emitted A2A event.
     let repo = repo_override
-        .filter(|s| crate::git::is_owner_repo(s))
+        .filter(|s| crate::git_host::is_forge_project_path(s))
         .map(str::to_string)
-        .or_else(crate::git::detect_github_repository)
+        .or_else(crate::git_host::detect_forge_repository)
         .unwrap_or_else(|| "unknown/unknown".to_string());
     let method = std::env::var("AIVCS_A2A_JSONRPC_METHOD")
         .unwrap_or_else(|_| DEFAULT_A2A_METHOD.to_string());
