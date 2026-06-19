@@ -67,6 +67,39 @@ aivcs merge experiment-1 --target main
 aivcs restore <commit-id> --output restored.json
 ```
 
+## Command map
+
+The first-run walkthrough covers the core versioning loop. The CLI exposes several
+more command families — confirm the live surface with `aivcs --help` and
+`aivcs <command> --help`.
+
+| Area | Commands | Where to look |
+|------|----------|---------------|
+| Versioning | `init`, `snapshot`, `restore`, `log`, `branch`, `merge` | this walkthrough |
+| Run inspection | `replay-artifact --run <run-id>`, `diff spec`, `diff run`, `diff-runs --run-a/--run-b` | `aivcs <cmd> --help` |
+| Releases | `release promote` / `current` / `history` / `rollback` | [release-workflow runbook](./runbooks/release-workflow.md) |
+| CI | `ci run --stages fmt,check,clippy,test [--no-cache] [--fix]` | [aivcs-ci runbook](./runbooks/aivcs-ci.md) |
+| Reports | `report cross-org --objective <id> --output <file>` | `aivcs report cross-org --help` |
+| GitHub PRs | `pr open` / `branch` / `commit` / `pipeline`, `pr-note` | [zero-touch PR pipeline](./runbooks/zero-touch-pr-pipeline.md) |
+
+> The run-inspection command is `replay-artifact` (there is no `replay` alias).
+
+### What next? (common commands)
+
+```bash
+# Validate a workspace locally before pushing
+aivcs ci run --stages fmt,check,clippy,test
+
+# Promote a validated agent spec, then inspect the release pointer
+aivcs release promote my-agent --git-sha <sha> \
+  --graph-digest <h> --prompts-digest <h> --tools-digest <h> --config-digest <h>
+aivcs release current my-agent
+
+# Autonomous branch → commit → PR in one shot (base defaults to develop)
+aivcs pr pipeline --branch feature/x --path docs/x.md --file ./x.md \
+  --message "docs: x" --title "feat: x" --body "…" --owner stevedores-org --repo aivcs
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -86,3 +119,7 @@ aivcs restore <commit-id> --output restored.json
 - [Architecture overview](./architecture.md)
 - [Local development runbook](./runbooks/local-development.md)
 - [Database configuration runbook](./runbooks/database-configuration.md)
+- [Release workflow runbook](./runbooks/release-workflow.md)
+- [AIVCS CI (`aivcs ci run`) runbook](./runbooks/aivcs-ci.md)
+- [Zero-touch PR pipeline runbook](./runbooks/zero-touch-pr-pipeline.md)
+- [CI troubleshooting runbook](./runbooks/ci-troubleshooting.md)
