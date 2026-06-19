@@ -72,6 +72,8 @@ tempfile = "3.10"
 
 # External crates (Stevedores ecosystem)
 oxidizedgraph = "0.2.0"
+data-fabric-client = { git = "https://github.com/stevedores-org/data-fabric.git", rev = "36a9e60", package = "data-fabric-client" }
+
 
 # Internal crates (use published versions for crates.io)
 aivcs-core = { version = "0.3.2", path = "crates/aivcs-core" }

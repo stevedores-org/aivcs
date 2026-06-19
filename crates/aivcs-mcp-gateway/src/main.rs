@@ -200,9 +200,6 @@ struct GatewayState {
     authority_records: Mutex<HashMap<String, AuthorityRecord>>,
     approvals: Mutex<HashMap<String, HumanApproval>>,
     revocations: Mutex<RevocationList>,
-    // Phase 2.2 Phase 3: Hybrid backend support
-    backend_selector: BackendSelector,
-    mom_config: Option<MomBackendConfig>,
 }
 
 #[tokio::main]
@@ -213,16 +210,6 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     // Connect to in-memory SurrealDB for development and tests
     let db = aivcs_core::SurrealHandle::setup_db().await?;
 
-    // Initialize hybrid backend support (Phase 2.2 Phase 3)
-    let backend_selector = BackendSelector::from_env();
-    let mom_config = MomBackendConfig::from_env();
-    if mom_config.is_some() {
-        info!(
-            "MomBackend configured; backend_selector: {:?}",
-            std::env::var("MEMORY_BACKEND_MODE").unwrap_or_default()
-        );
-    }
-
     let state = Arc::new(GatewayState {
         db,
         authority_records: Mutex::new(HashMap::new()),
@@ -231,8 +218,6 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
             revoked_jtis: HashSet::new(),
             revoked_sessions: HashSet::new(),
         }),
-        backend_selector,
-        mom_config,
     });
 
     let app = Router::new()
@@ -257,14 +242,13 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
     match risk_level {
         "read" => false,
         "write" => max_risk == "read",
-        "destructive" => max_risk != "write",
+        "destructive" => max_risk != "destructive",
         _ => true,
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Memory Tool Backend Handlers (Phase 2.2 Phase 2)
-// ─────────────────────────────────────────────────────────────────────────
 
 /// Deserialize and validate memory tool request arguments from JSON Value.
 /// Generate a deterministic embedding vector from text content.
@@ -273,48 +257,34 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
 /// Production should integrate with embedding models (OpenAI, Hugging Face, etc.).
 fn generate_embedding(text: &str) -> Vec<f32> {
     use sha2::{Digest, Sha256};
-
     // Generate deterministic hash-based embedding for MVP
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     let hash = hasher.finalize();
-
     // Create 768-dim vector from hash bytes (repeated and normalized)
     const DIM: usize = 768;
     let mut embedding = vec![0.0f32; DIM];
-
     for (i, &byte) in hash.iter().cycle().take(DIM).enumerate() {
         // Normalize byte (0-255) to (-1, 1) range
         embedding[i] = ((byte as f32) / 127.5) - 1.0;
     }
-
     embedding
 }
-
 fn deserialize_memory_write_args(args: &Value) -> std::result::Result<MemoryWriteRequest, String> {
     serde_json::from_value::<MemoryWriteRequest>(args.clone())
         .map_err(|e| format!("Invalid memory::write arguments: {}", e))
-}
-
 fn deserialize_memory_query_args(args: &Value) -> std::result::Result<MemoryQueryRequest, String> {
     serde_json::from_value::<MemoryQueryRequest>(args.clone())
         .map_err(|e| format!("Invalid memory::query arguments: {}", e))
-}
-
 fn deserialize_memory_context_pack_args(
     args: &Value,
 ) -> std::result::Result<MemoryContextPackRequest, String> {
     serde_json::from_value::<MemoryContextPackRequest>(args.clone())
         .map_err(|e| format!("Invalid memory::context_pack arguments: {}", e))
-}
-
 fn deserialize_memory_delete_args(
-    args: &Value,
 ) -> std::result::Result<MemoryDeleteRequest, String> {
     serde_json::from_value::<MemoryDeleteRequest>(args.clone())
         .map_err(|e| format!("Invalid memory::delete arguments: {}", e))
-}
-
 /// Write a memory record to SurrealDB.
 async fn memory_write_handler(
     req: MemoryWriteRequest,
@@ -322,7 +292,6 @@ async fn memory_write_handler(
 ) -> std::result::Result<Value, String> {
     let content_str = req.content.to_string();
     let embedding = generate_embedding(&content_str);
-
     let memory_record = aivcs_core::MemoryRecord {
         id: None,
         commit_id: req.commit_id.unwrap_or_else(|| "unknown".to_string()),
@@ -341,36 +310,27 @@ async fn memory_write_handler(
         }),
         created_at: Utc::now(),
     };
-
     let saved = db
         .save_memory(&memory_record)
         .await
         .map_err(|e| format!("Failed to save memory: {}", e))?;
-
     Ok(json!({
         "memory_id": format!("aivcs:mem-{}", saved.id.as_ref().map(|id| id.to_string()).unwrap_or_else(|| Uuid::new_v4().to_string())),
         "created_at_ms": Utc::now().timestamp_millis(),
         "status": "persisted",
         "commit_id": saved.commit_id,
     }))
-}
-
 /// Query memories from SurrealDB.
 async fn memory_query_handler(
     req: MemoryQueryRequest,
-    db: &aivcs_core::SurrealHandle,
-) -> std::result::Result<Value, String> {
     let commit_id = req.commit_id.unwrap_or_else(|| "unknown".to_string());
     let memories = db
         .get_memories(&commit_id)
-        .await
         .map_err(|e| format!("Failed to query memories: {}", e))?;
-
     // Filter by kinds if provided
     let filtered: Vec<_> = if req.kinds.is_empty() {
         memories
     } else {
-        memories
             .into_iter()
             .filter(|m| {
                 if let Ok(metadata) = serde_json::from_str::<Value>(&m.metadata.to_string()) {
@@ -384,8 +344,6 @@ async fn memory_query_handler(
                 }
             })
             .collect()
-    };
-
     // Apply limit
     let limit = req.limit.unwrap_or(10);
     let items: Vec<Value> = filtered
@@ -397,74 +355,42 @@ async fn memory_query_handler(
                 "kind": m.metadata.get("kind").unwrap_or(&Value::Null),
                 "content_preview": &m.content[..std::cmp::min(200, m.content.len())],
                 "created_at_ms": m.created_at.timestamp_millis(),
-            })
         })
         .collect();
-
-    Ok(json!({
         "items": items,
         "total_hits": filtered.len(),
-    }))
-}
-
 /// Pack memory context within a token budget.
 async fn memory_context_pack_handler(
     req: MemoryContextPackRequest,
-    db: &aivcs_core::SurrealHandle,
-) -> std::result::Result<Value, String> {
-    let commit_id = req.commit_id.unwrap_or_else(|| "unknown".to_string());
-    let memories = db
-        .get_memories(&commit_id)
-        .await
         .map_err(|e| format!("Failed to pack context: {}", e))?;
-
     // Build context segments from memories
     let segments: Vec<aivcs_core::ContextSegment> = memories
-        .iter()
-        .map(|m| {
             aivcs_core::ContextSegment::new(
                 m.key.clone(),
                 m.content.clone(),
                 50, // default priority
             )
-        })
-        .collect();
-
     // Assemble context within budget
     let assembler = aivcs_core::ContextAssembler::new(req.budget_tokens);
     let assembled = assembler.assemble(segments);
-
-    Ok(json!({
         "highlights": assembled.segments.iter().map(|s| s.label.clone()).collect::<Vec<_>>(),
         "summaries": ["Context snapshot"],
         "facts": assembled.segments.iter().map(|s| s.content[..std::cmp::min(100, s.content.len())].to_string()).collect::<Vec<_>>(),
         "citations": assembled.segments.iter().map(|s| format!("aivcs:mem-{}", s.label)).collect::<Vec<_>>(),
         "token_usage": assembled.total_tokens,
-    }))
-}
-
 /// Delete a memory record from SurrealDB.
 async fn memory_delete_handler(
     req: MemoryDeleteRequest,
     _db: &aivcs_core::SurrealHandle,
-) -> std::result::Result<Value, String> {
     // TODO(phase-2.2-phase-4): Implement actual deletion query
     // For now, log and return success
     tracing::info!("memory::delete for {}", req.memory_id);
-
     // In production, would run: db.query("DELETE FROM memories WHERE id = $id")
     // For MVP, we simulate successful deletion
-    Ok(json!({
         "status": "deleted",
         "memory_id": req.memory_id,
         "backend": "surreal"
-    }))
-}
-
-// ─────────────────────────────────────────────────────────────────────────
 // MomBackend HTTP Client (Phase 2.2 Phase 3)
-// ─────────────────────────────────────────────────────────────────────────
-
 /// Configuration for MomBackend HTTP client.
 #[derive(Debug, Clone)]
 struct MomBackendConfig {
@@ -474,10 +400,7 @@ struct MomBackendConfig {
     #[allow(dead_code)]
     api_key: String,
     /// Timeout in seconds (TODO Phase 2.2 Phase 4: use in HTTP client)
-    #[allow(dead_code)]
     timeout_secs: u64,
-}
-
 impl MomBackendConfig {
     /// Load from environment or return None if not configured.
     fn from_env() -> Option<Self> {
@@ -490,15 +413,10 @@ impl MomBackendConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10),
-        })
-    }
-}
-
 /// Write memory via external MomBackend HTTP service.
 async fn mom_backend_write(
     config: &MomBackendConfig,
     req: &MemoryWriteRequest,
-) -> std::result::Result<Value, String> {
     let url = format!("{}/api/v1/memories", config.base_url);
     let payload = json!({
         "kind": req.kind,
@@ -509,7 +427,6 @@ async fn mom_backend_write(
         "source": req.source,
         "commit_id": req.commit_id,
     });
-
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
@@ -517,135 +434,46 @@ async fn mom_backend_write(
         .json(&payload)
         .timeout(std::time::Duration::from_secs(config.timeout_secs))
         .send()
-        .await
         .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
-
     let status = response.status();
     if !status.is_success() {
         return Err(format!("MomBackend write failed with status {}", status));
-    }
-
     let body = response
         .json::<Value>()
-        .await
         .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
-
     tracing::info!("MomBackend write successful: {:?}", body.get("memory_id"));
     Ok(body)
-}
-
 /// Query memories via external MomBackend HTTP service.
 async fn mom_backend_query(
-    config: &MomBackendConfig,
     req: &MemoryQueryRequest,
-) -> std::result::Result<Value, String> {
     let url = format!("{}/api/v1/memories/search", config.base_url);
-    let payload = json!({
         "query": req.query_text,
         "kinds": req.kinds,
         "limit": req.limit.unwrap_or(10),
         "mode": req.mode,
-    });
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
-        .bearer_auth(&config.api_key)
-        .json(&payload)
-        .timeout(std::time::Duration::from_secs(config.timeout_secs))
-        .send()
-        .await
-        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
-
-    let status = response.status();
-    if !status.is_success() {
         return Err(format!("MomBackend query failed with status {}", status));
-    }
-
-    let body = response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
-
     tracing::info!(
         "MomBackend query successful: {} hits",
         body.get("total_hits").and_then(|v| v.as_u64()).unwrap_or(0)
     );
-    Ok(body)
-}
-
 /// Pack memory context via external MomBackend HTTP service.
 async fn mom_backend_context_pack(
-    config: &MomBackendConfig,
     req: &MemoryContextPackRequest,
-) -> std::result::Result<Value, String> {
     let url = format!("{}/api/v1/memories/context_pack", config.base_url);
-    let payload = json!({
-        "commit_id": req.commit_id,
         "budget_tokens": req.budget_tokens,
-    });
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
-        .bearer_auth(&config.api_key)
-        .json(&payload)
-        .timeout(std::time::Duration::from_secs(config.timeout_secs))
-        .send()
-        .await
-        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
-
-    let status = response.status();
-    if !status.is_success() {
         return Err(format!(
             "MomBackend context_pack failed with status {}",
             status
         ));
-    }
-
-    let body = response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
-
     tracing::info!("MomBackend context_pack successful");
-    Ok(body)
-}
-
 /// Delete memory via external MomBackend HTTP service.
 async fn mom_backend_delete(
-    config: &MomBackendConfig,
     req: &MemoryDeleteRequest,
-) -> std::result::Result<Value, String> {
     let url = format!("{}/api/v1/memories/{}", config.base_url, req.memory_id);
-
-    let client = reqwest::Client::new();
-    let response = client
         .delete(&url)
-        .bearer_auth(&config.api_key)
-        .timeout(std::time::Duration::from_secs(config.timeout_secs))
-        .send()
-        .await
-        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
-
-    let status = response.status();
-    if !status.is_success() {
         return Err(format!("MomBackend delete failed with status {}", status));
-    }
-
-    let body = response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
-
     tracing::info!("MomBackend delete successful for {}", req.memory_id);
-    Ok(body)
-}
-
-// ─────────────────────────────────────────────────────────────────────────
 // Hybrid Backend Selection (Phase 2.2 Phase 3)
-// ─────────────────────────────────────────────────────────────────────────
-
 /// Selects between SurrealDB and MomBackend based on environment and configuration.
 enum BackendSelector {
     /// Use local SurrealDB only.
@@ -654,8 +482,6 @@ enum BackendSelector {
     MomPrimary,
     /// Use SurrealDB as primary, fallback to Mom.
     SurrealPrimary,
-}
-
 impl BackendSelector {
     /// Initialize selector from environment.
     fn from_env() -> Self {
@@ -664,16 +490,10 @@ impl BackendSelector {
             Ok("hybrid") => Self::SurrealPrimary,
             _ => Self::LocalOnly,
         }
-    }
-}
-
 /// Hybrid memory write: tries primary backend, falls back to secondary.
 async fn hybrid_memory_write(
-    req: MemoryWriteRequest,
-    db: &aivcs_core::SurrealHandle,
     selector: &BackendSelector,
     mom_config: &Option<MomBackendConfig>,
-) -> std::result::Result<Value, String> {
     match selector {
         BackendSelector::LocalOnly => memory_write_handler(req, db).await,
         BackendSelector::MomPrimary => match mom_config {
@@ -682,7 +502,6 @@ async fn hybrid_memory_write(
                 Err(e) => {
                     tracing::warn!("MomBackend write failed, falling back to SurrealDB: {}", e);
                     memory_write_handler(req, db).await
-                }
             },
             None => {
                 tracing::warn!("MomBackend not configured, using SurrealDB");
@@ -694,118 +513,44 @@ async fn hybrid_memory_write(
             Err(e) if mom_config.is_some() => {
                 tracing::warn!("SurrealDB write failed, attempting MomBackend: {}", e);
                 mom_backend_write(mom_config.as_ref().unwrap(), &req).await
-            }
             Err(e) => Err(e),
-        },
-    }
-}
-
 /// Hybrid memory query: tries primary backend, falls back to secondary.
 async fn hybrid_memory_query(
-    req: MemoryQueryRequest,
-    db: &aivcs_core::SurrealHandle,
-    selector: &BackendSelector,
-    mom_config: &Option<MomBackendConfig>,
-) -> std::result::Result<Value, String> {
-    match selector {
         BackendSelector::LocalOnly => memory_query_handler(req, db).await,
-        BackendSelector::MomPrimary => match mom_config {
             Some(config) => match mom_backend_query(config, &req).await {
-                Ok(result) => Ok(result),
-                Err(e) => {
                     tracing::warn!("MomBackend query failed, falling back to SurrealDB: {}", e);
                     memory_query_handler(req, db).await
-                }
-            },
-            None => {
-                tracing::warn!("MomBackend not configured, using SurrealDB");
                 memory_query_handler(req, db).await
-            }
-        },
         BackendSelector::SurrealPrimary => match memory_query_handler(req.clone(), db).await {
-            Ok(result) => Ok(result),
-            Err(e) if mom_config.is_some() => {
                 tracing::warn!("SurrealDB query failed, attempting MomBackend: {}", e);
                 mom_backend_query(mom_config.as_ref().unwrap(), &req).await
-            }
-            Err(e) => Err(e),
-        },
-    }
-}
-
 /// Hybrid memory context pack: tries primary backend, falls back to secondary.
 async fn hybrid_memory_context_pack(
-    req: MemoryContextPackRequest,
-    db: &aivcs_core::SurrealHandle,
-    selector: &BackendSelector,
-    mom_config: &Option<MomBackendConfig>,
-) -> std::result::Result<Value, String> {
-    match selector {
         BackendSelector::LocalOnly => memory_context_pack_handler(req, db).await,
-        BackendSelector::MomPrimary => match mom_config {
             Some(config) => match mom_backend_context_pack(config, &req).await {
-                Ok(result) => Ok(result),
-                Err(e) => {
                     tracing::warn!(
                         "MomBackend context_pack failed, falling back to SurrealDB: {}",
                         e
                     );
                     memory_context_pack_handler(req, db).await
-                }
-            },
-            None => {
-                tracing::warn!("MomBackend not configured, using SurrealDB");
                 memory_context_pack_handler(req, db).await
-            }
-        },
         BackendSelector::SurrealPrimary => match memory_context_pack_handler(req.clone(), db).await
         {
-            Ok(result) => Ok(result),
-            Err(e) if mom_config.is_some() => {
                 tracing::warn!(
                     "SurrealDB context_pack failed, attempting MomBackend: {}",
                     e
                 );
                 mom_backend_context_pack(mom_config.as_ref().unwrap(), &req).await
-            }
-            Err(e) => Err(e),
-        },
-    }
-}
-
 /// Hybrid memory delete: tries primary backend, falls back to secondary.
 async fn hybrid_memory_delete(
-    req: MemoryDeleteRequest,
-    db: &aivcs_core::SurrealHandle,
-    selector: &BackendSelector,
-    mom_config: &Option<MomBackendConfig>,
-) -> std::result::Result<Value, String> {
-    match selector {
         BackendSelector::LocalOnly => memory_delete_handler(req, db).await,
-        BackendSelector::MomPrimary => match mom_config {
             Some(config) => match mom_backend_delete(config, &req).await {
-                Ok(result) => Ok(result),
-                Err(e) => {
                     tracing::warn!("MomBackend delete failed, falling back to SurrealDB: {}", e);
                     memory_delete_handler(req, db).await
-                }
-            },
-            None => {
-                tracing::warn!("MomBackend not configured, using SurrealDB");
                 memory_delete_handler(req, db).await
-            }
-        },
         BackendSelector::SurrealPrimary => match memory_delete_handler(req.clone(), db).await {
-            Ok(result) => Ok(result),
-            Err(e) if mom_config.is_some() => {
                 tracing::warn!("SurrealDB delete failed, attempting MomBackend: {}", e);
                 mom_backend_delete(mom_config.as_ref().unwrap(), &req).await
-            }
-            Err(e) => Err(e),
-        },
-    }
-}
-
 async fn health_check() -> Json<Value> {
     Json(json!({
         "status": "healthy",
@@ -924,7 +669,8 @@ async fn list_tools(
         }));
     }
 
-    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "write" {
+    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "destructive"
+    {
         tools.push(json!({
             "name": "repo.merge.execute",
             "description": "Merge feature branches with human guardrails",
@@ -1182,65 +928,81 @@ async fn call_tool(
     decision.outcome = Some("allowed".to_string());
     let _ = state.db.save_decision(&decision).await;
 
-    // Execute tool (memory tools use real backend, repo tools still mocked)
+    // Simulate tool execution
     let result = match req.tool.as_str() {
         "repo.diff.read" => json!({ "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n" }),
         "repo.diff.write" => json!({ "status": "changes_written" }),
         "repo.merge.execute" => {
             json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" })
         }
-        // Memory tools (Phase 2.2) — hybrid backend integration (Phase 2.2 Phase 3)
-        "memory::write" => match deserialize_memory_write_args(&req.arguments) {
-            Ok(args) => match hybrid_memory_write(
-                args,
-                &state.db,
-                &state.backend_selector,
-                &state.mom_config,
-            )
-            .await
-            {
-                Ok(response) => response,
-                Err(e) => {
-                    warn!("memory::write handler failed: {}", e);
+        // Memory tools (Phase 2.2) — mocked responses for MVP
+        "memory::write" => {
+            let memory_id = format!("aivcs:mem-{}", Uuid::new_v4());
+            json!({
+                "memory_id": memory_id,
+                "created_at_ms": chrono::Utc::now().timestamp_millis(),
+                "status": "persisted"
+            })
+        }
+        "memory::query" => {
+            json!({
+                "items": [
+                    {
+                        "memory_id": "aivcs:mem-example-1",
+                        "kind": "session_vector",
+                        "score": 0.87,
+                        "content_preview": "Agent session context...",
+                        "created_at_ms": chrono::Utc::now().timestamp_millis()
+                    }
+                ],
+                "total_hits": 1
+            })
+        }
+        "memory::context_pack" => {
+            json!({
+                "highlights": ["Recent decision points", "Session goals"],
+                "summaries": ["Context snapshot"],
+                "facts": ["Key facts from memory"],
+                "citations": ["aivcs:mem-example-1"],
+                "token_usage": 1250
+            })
+        }
+        "memory::delete" => {
+            // Extract memory_id from request arguments
+            let memory_id = match req.arguments.get("memory_id").and_then(|v| v.as_str()) {
+                Some(id) => id,
+                None => {
                     return Json(ToolCallResponse {
                         status: "denied".to_string(),
                         authority_id: Some(authority_id),
                         result: None,
-                        reason: Some(e),
+                        reason: Some("Missing required argument: memory_id".to_string()),
                     })
                     .into_response();
                 }
-            },
-            Err(e) => {
-                warn!("memory::write argument validation failed: {}", e);
+            };
+
+            // Validate memory_id format: must be "aivcs:mem-{uuid}"
+            if !memory_id.starts_with("aivcs:mem-") {
                 return Json(ToolCallResponse {
                     status: "denied".to_string(),
                     authority_id: Some(authority_id),
                     result: None,
-                    reason: Some(e),
+                    reason: Some("Invalid memory_id format: must be aivcs:mem-{uuid}".to_string()),
                 })
                 .into_response();
             }
-        },
-        "memory::query" => match deserialize_memory_query_args(&req.arguments) {
-            Ok(args) => match hybrid_memory_query(
-                args,
-                &state.db,
-                &state.backend_selector,
-                &state.mom_config,
-            )
-            .await
-            {
-                Ok(response) => response,
-                Err(e) => {
-                    warn!("memory::query handler failed: {}", e);
-                    return Json(ToolCallResponse {
-                        status: "denied".to_string(),
-                        authority_id: Some(authority_id),
-                        result: None,
-                        reason: Some(e),
+
+            let record_key = memory_id.strip_prefix("aivcs:mem-").unwrap();
+
+            // Execute actual deletion from SurrealDB
+            match state.db.delete_memory(record_key).await {
+                Ok(true) => {
+                    tracing::info!("Memory deleted: {}", memory_id);
+                    json!({
+                        "status": "deleted",
+                        "memory_id": memory_id
                     })
-                    .into_response();
                 }
             },
             Err(e) => {
@@ -1266,11 +1028,13 @@ async fn call_tool(
                 Ok(response) => response,
                 Err(e) => {
                     warn!("memory::context_pack handler failed: {}", e);
+                Ok(false) => {
+                    tracing::warn!("Memory not found: {}", memory_id);
                     return Json(ToolCallResponse {
                         status: "denied".to_string(),
                         authority_id: Some(authority_id),
                         result: None,
-                        reason: Some(e),
+                        reason: Some(format!("Memory not found: {}", memory_id)),
                     })
                     .into_response();
                 }
@@ -1297,27 +1061,17 @@ async fn call_tool(
             {
                 Ok(response) => response,
                 Err(e) => {
-                    warn!("memory::delete handler failed: {}", e);
+                    tracing::error!("Failed to delete memory {}: {}", memory_id, e);
                     return Json(ToolCallResponse {
                         status: "denied".to_string(),
                         authority_id: Some(authority_id),
                         result: None,
-                        reason: Some(e),
+                        reason: Some(format!("Database error: {}", e)),
                     })
                     .into_response();
                 }
-            },
-            Err(e) => {
-                warn!("memory::delete argument validation failed: {}", e);
-                return Json(ToolCallResponse {
-                    status: "denied".to_string(),
-                    authority_id: Some(authority_id),
-                    result: None,
-                    reason: Some(e),
-                })
-                .into_response();
             }
-        },
+        }
         _ => json!({}),
     };
 
@@ -1427,8 +1181,6 @@ mod tests {
                 revoked_jtis: HashSet::new(),
                 revoked_sessions: HashSet::new(),
             }),
-            backend_selector: BackendSelector::LocalOnly,
-            mom_config: None,
         });
 
         let router = Router::new()
@@ -1500,7 +1252,7 @@ mod tests {
         assert!(res_json["authority_id"].as_str().is_some());
 
         // 3. Call destructive tool without human approval - should escalate
-        let token_merge = mint_test_token("write", vec!["repo.merge.execute"]);
+        let token_merge = mint_test_token("destructive", vec!["repo.merge.execute"]);
         let req = axum::http::Request::builder()
             .method("POST")
             .uri("/v1/mcp/tools/call")
@@ -1694,6 +1446,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_gateway_max_risk_blocks_destructive_tool_for_write_token() {
+        let app = setup_router().await;
+
+        // Token with max_risk="write" and merge scope — must not list or call destructive tools.
+        let token = mint_test_token("write", vec!["repo.merge.execute"]);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/mcp/tools/list")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        let tool_names: Vec<&str> = json["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(
+            !tool_names.contains(&"repo.merge.execute"),
+            "write-level token must not list destructive tools"
+        );
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": { "branch": "develop" },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "denied");
+        assert!(res_json["reason"]
+            .as_str()
+            .unwrap()
+            .contains("exceeds maximum allowed risk"));
+    }
+
+    #[tokio::test]
     async fn test_gateway_revocation() {
         let app = setup_router().await;
         let token = mint_test_token("write", vec!["repo.diff.read"]);
@@ -1758,7 +1574,7 @@ mod tests {
     #[tokio::test]
     async fn test_gateway_human_approval_ttl_expiry() {
         let (app, state) = setup_router_with_state().await;
-        let token_merge = mint_test_token("write", vec!["repo.merge.execute"]);
+        let token_merge = mint_test_token("destructive", vec!["repo.merge.execute"]);
 
         // 1. Register a fresh human approval for the merge action.
         let payload_string = serde_json::to_string(&json!({ "branch": "develop" })).unwrap();
