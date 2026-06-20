@@ -52,7 +52,10 @@ async fn main() -> Result<()> {
     info!("✅ Schema initialized successfully");
 
     let cas_dir = std::env::var("AIVCS_CAS_DIR").unwrap_or_else(|_| ".aivcs/cas".to_string());
-    let cas = Arc::new(aivcs_core::cas::fs::FsCasStore::new(std::path::PathBuf::from(cas_dir)).context("Failed to initialize CAS store")?);
+    let cas = Arc::new(
+        aivcs_core::cas::fs::FsCasStore::new(std::path::PathBuf::from(cas_dir))
+            .context("Failed to initialize CAS store")?,
+    );
     info!("📦 Initialized CAS store");
 
     let state = AppState { db, cas };
@@ -133,10 +136,7 @@ async fn push_state(
     }
 }
 
-async fn upload_blob(
-    State(state): State<AppState>,
-    body: Bytes,
-) -> Json<Value> {
+async fn upload_blob(State(state): State<AppState>, body: Bytes) -> Json<Value> {
     info!("📥 Received raw blob upload of {} bytes", body.len());
 
     match state.cas.put(&body) {
