@@ -78,7 +78,12 @@ impl IssueGraph {
         }
     }
 
-    pub fn commit(&mut self, message: String, execution_state: Option<serde_json::Value>, diff_summary: Option<String>) -> Uuid {
+    pub fn commit(
+        &mut self,
+        message: String,
+        execution_state: Option<serde_json::Value>,
+        diff_summary: Option<String>,
+    ) -> Uuid {
         let commit = IssueCommit {
             id: Uuid::new_v4(),
             message,
@@ -86,13 +91,21 @@ impl IssueGraph {
             diff_summary,
             timestamp: Utc::now(),
         };
-        let branch = self.branches.get_mut(&self.current_branch).expect("Current branch not found");
+        let branch = self
+            .branches
+            .get_mut(&self.current_branch)
+            .expect("Current branch not found");
         branch.commits.push(commit.clone());
         self.updated_at = Utc::now();
         commit.id
     }
 
-    pub fn add_ledger_entry(&mut self, actor: String, action: String, metadata: Option<serde_json::Value>) {
+    pub fn add_ledger_entry(
+        &mut self,
+        actor: String,
+        action: String,
+        metadata: Option<serde_json::Value>,
+    ) {
         self.ledger.push(LedgerEntry {
             timestamp: Utc::now(),
             actor,
@@ -102,13 +115,20 @@ impl IssueGraph {
         self.updated_at = Utc::now();
     }
 
-    pub fn semantic_merge(&mut self, target_branch: &str, source_branch: &str) -> Result<(), anyhow::Error> {
+    pub fn semantic_merge(
+        &mut self,
+        target_branch: &str,
+        source_branch: &str,
+    ) -> Result<(), anyhow::Error> {
         if !self.branches.contains_key(source_branch) {
             return Err(anyhow::anyhow!("Source branch not found"));
         }
-        
+
         let source = self.branches.get(source_branch).unwrap().clone();
-        let target = self.branches.get_mut(target_branch).ok_or_else(|| anyhow::anyhow!("Target branch not found"))?;
+        let target = self
+            .branches
+            .get_mut(target_branch)
+            .ok_or_else(|| anyhow::anyhow!("Target branch not found"))?;
 
         // Semantic merging logic goes here.
         // For demonstration, we simply append the intent commits.
@@ -116,7 +136,11 @@ impl IssueGraph {
             target.commits.push(commit);
         }
 
-        self.add_ledger_entry("system".into(), format!("semantic_merge {} into {}", source_branch, target_branch), None);
+        self.add_ledger_entry(
+            "system".into(),
+            format!("semantic_merge {} into {}", source_branch, target_branch),
+            None,
+        );
         self.updated_at = Utc::now();
         Ok(())
     }

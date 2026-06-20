@@ -150,6 +150,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aivcs-issuegraph"
+version = "0.3.2"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "aivcs-mcp-gateway"
 version = "0.3.2"
 dependencies = [
