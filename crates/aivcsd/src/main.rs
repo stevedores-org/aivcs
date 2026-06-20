@@ -1,11 +1,14 @@
+use aivcs_core::cas::CasStore;
 use anyhow::{Context, Result};
 use axum::{
+    body::Bytes,
     extract::State,
     routing::{get, post},
     Json, Router,
 };
 use serde_json::{json, Value};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
@@ -14,6 +17,7 @@ use tracing::{info, warn, Level};
 #[derive(Clone)]
 struct AppState {
     db: Surreal<surrealdb::engine::remote::ws::Client>,
+    cas: Arc<aivcs_core::cas::fs::FsCasStore>,
 }
 
 #[tokio::main]
@@ -47,12 +51,17 @@ async fn main() -> Result<()> {
     db.query(schema).await.context("Failed to apply schema")?;
     info!("✅ Schema initialized successfully");
 
-    let state = AppState { db };
+    let cas_dir = std::env::var("AIVCS_CAS_DIR").unwrap_or_else(|_| ".aivcs/cas".to_string());
+    let cas = Arc::new(aivcs_core::cas::fs::FsCasStore::new(std::path::PathBuf::from(cas_dir)).context("Failed to initialize CAS store")?);
+    info!("📦 Initialized CAS store");
+
+    let state = AppState { db, cas };
 
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/version", get(version_info))
         .route("/api/v1/push", post(push_state))
+        .route("/api/v1/blobs/upload", post(upload_blob))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -119,6 +128,28 @@ async fn push_state(
             Json(json!({
                 "status": "error",
                 "message": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
+async fn upload_blob(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Json<Value> {
+    info!("📥 Received raw blob upload of {} bytes", body.len());
+
+    match state.cas.put(&body) {
+        Ok(digest) => Json(json!({
+            "status": "success",
+            "blob_hash": digest.to_string(),
+            "message": "Blob stored successfully"
+        })),
+        Err(e) => {
+            warn!("Failed to store blob: {:?}", e);
+            Json(json!({
+                "status": "error",
+                "message": format!("CAS storage error: {}", e)
             }))
         }
     }
