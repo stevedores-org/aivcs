@@ -47,8 +47,8 @@ uuid.workspace = true
 sha2.workspace = true
 hex.workspace = true
 tempfile.workspace = true
+toml = "0.8"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
-toml = "0.8"
