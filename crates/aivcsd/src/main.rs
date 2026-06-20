@@ -1,11 +1,15 @@
 use anyhow::{Context, Result};
-use axum::{extract::State, routing::{get, post}, Json, Router};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
-use tracing::{info, warn, Level};
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
+use tracing::{info, warn, Level};
 
 #[derive(Clone)]
 struct AppState {
@@ -17,12 +21,13 @@ async fn main() -> Result<()> {
     aivcs_core::init_tracing(false, Level::INFO);
     info!("🚀 aivcsd starting");
 
-    let db_url = std::env::var("SURREALDB_URL").unwrap_or_else(|_| "ws://localhost:8000".to_string());
+    let db_url =
+        std::env::var("SURREALDB_URL").unwrap_or_else(|_| "ws://localhost:8000".to_string());
     let db_user = std::env::var("SURREALDB_USER").unwrap_or_else(|_| "root".to_string());
     let db_pass = std::env::var("SURREALDB_PASS").unwrap_or_else(|_| "root".to_string());
 
     info!("🔌 Connecting to SurrealDB at {}", db_url);
-    
+
     let db = Surreal::new::<Ws>(&db_url)
         .await
         .context("Failed to connect to SurrealDB")?;
@@ -86,10 +91,14 @@ async fn push_state(
     Json(payload): Json<PushPayload>,
 ) -> Json<Value> {
     // In the real system, we'd verify the cryptographic signature of the agent.
-    info!("📥 Received state push from agent {} for hive {}", payload.agent_id, payload.hive_id);
+    info!(
+        "📥 Received state push from agent {} for hive {}",
+        payload.agent_id, payload.hive_id
+    );
 
     // Create the commit in SurrealDB
-    let create_result: Result<Option<Value>, _> = state.db
+    let create_result: Result<Option<Value>, _> = state
+        .db
         .create("commit")
         .content(json!({
             "message": payload.message,
