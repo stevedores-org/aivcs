@@ -14,7 +14,7 @@ members = [
     "crates/nix-env-manager",
     "crates/semantic-rag-merge",
     "crates/aivcs-auth",
-    "crates/aivcs-mcp-gateway",
+    "crates/aivcs-mcp-gateway", "crates/aivcs-issuegraph",
 ]
 
 [workspace.package]
