@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "aivcs-auth"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "aivcs-core",
  "anyhow",
@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "aivcs-ci"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "aivcs-core",
  "anyhow",
@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "aivcs-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "aivcs-ci",
  "aivcs-core",
@@ -113,6 +113,7 @@ dependencies = [
  "clap",
  "nix-env-manager",
  "oxidized-state",
+ "reqwest",
  "semantic-rag-merge",
  "serde",
  "serde_json",
@@ -124,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "aivcs-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -151,12 +152,13 @@ dependencies = [
 
 [[package]]
 name = "aivcs-mcp-gateway"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "aivcs-core",
  "anyhow",
  "axum",
  "chrono",
+ "data-fabric-client",
  "hex",
  "jsonwebtoken",
  "serde",
@@ -170,13 +172,15 @@ dependencies = [
 
 [[package]]
 name = "aivcsd"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "aivcs-core",
  "anyhow",
  "axum",
  "chrono",
+ "serde",
  "serde_json",
+ "surrealdb",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1228,6 +1232,19 @@ name = "data-encoding"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
+
+[[package]]
+name = "data-fabric-client"
+version = "0.1.1"
+source = "git+https://github.com/stevedores-org/data-fabric.git?rev=36a9e60#36a9e6013dc52b6759f87dbd5928d7e54288b056"
+dependencies = [
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+]
 
 [[package]]
 name = "deranged"
@@ -2716,7 +2733,7 @@ dependencies = [
 
 [[package]]
 name = "nix-env-manager"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2948,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "oxidized-state"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4064,7 +4081,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-rag-merge"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-trait",

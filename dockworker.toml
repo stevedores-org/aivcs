@@ -1,16 +1,15 @@
-# dockworker.toml - OCI Standard Configuration for AIVCS
-# No Dockerfile required - dockworker.ai builds OCI-compliant images
+# dockworker.toml — OCI manifest for AIVCS (Nix + skopeo; no Dockerfile)
+# GitLab CI publishes via: cargo run -p aivcs-cli -- oci publish --target aivcs-cli
 
 [package]
-name = "aivcsd"
-version = "0.3.1"
-description = "AIVCS daemon/service"
+name = "aivcs"
+version = "0.3.2"
+description = "AIVCS CLI — sovereign infra reconcilers"
 runtime = "rust"
 
 [oci]
 spec = "1.0"
 builder = "nix"
-base = "cgr.dev/chainguard/static:latest"
 
 [oci.image]
 authors = ["Stevedores Org <engineering@stevedores.org>"]
@@ -18,19 +17,17 @@ url = "https://github.com/stevedores-org/aivcs"
 source = "https://github.com/stevedores-org/aivcs"
 vendor = "stevedores-org"
 licenses = "Apache-2.0"
-title = "aivcsd"
+title = "aivcs"
 
 [oci.image.labels]
-"lornu.ai/component" = "aivcsd"
+"lornu.ai/component" = "aivcs-cli"
 "lornu.ai/managed-by" = "dockworker"
 "lornu.ai/runtime" = "rust"
 "lornu.ai/team" = "platform"
 
 [oci.config]
-user = "nonroot:nonroot"
-workdir = "/app"
-entrypoint = ["/app/aivcsd"]
-expose = ["8080/tcp"]
+user = "65532:65532"
+entrypoint = ["/bin/aivcs"]
 stop_signal = "SIGTERM"
 
 [oci.config.env]
@@ -40,12 +37,12 @@ RUST_LOG = "info"
 runtime = "rust"
 engine = "nix"
 targets = [
+  { name = "aivcs-cli", nix_target = ".#aivcs-cli-image", image = "aivcs" },
   { name = "aivcsd", nix_target = ".#aivcsd-image", image = "aivcsd" },
-  { name = "aivcs-cli", nix_target = ".#aivcs-cli-image", image = "aivcs" }
 ]
 
 [oci.platforms]
-architectures = ["amd64", "arm64"]
+architectures = ["amd64"]
 
 [oci.security]
 user = 65532
@@ -54,21 +51,11 @@ read_only_rootfs = true
 no_new_privileges = true
 drop_capabilities = ["ALL"]
 
-[oci.sbom]
-enabled = true
-format = "spdx-json"
-
-[oci.signing]
-enabled = true
-provider = "sigstore"
-keyless = true
-
 [registry]
-url = "${ACR_NAME}.azurecr.io/lornu-ai"
-name = "aivcsd"
-tags = ["latest", "v0.3.1"]
+url = "us-central1-docker.pkg.dev/gcp-lornu-ai/lornu"
+tags = ["0.3.2", "develop", "latest"]
 
 [deploy]
 targets = ["kubernetes"]
-namespace = "aivcs"
+namespace = "flux-system"
 replicas = 1

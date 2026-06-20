@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-15
+
+### Added
+- crates.io publish workflow (`publish.yml`) and release runbook
+
 ## [0.1.0] - 2026-02-18
 
 ### Added

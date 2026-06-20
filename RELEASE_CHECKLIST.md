@@ -23,6 +23,11 @@ The workspace version in `Cargo.toml` is the single source of truth. All crates 
 
 - [ ] Merge the feature branch into `main` via pull request
 - [ ] Tag the merge commit: `git tag v<VERSION> && git push origin v<VERSION>`
+- [ ] Verify the `publish.yml` workflow completes (library crates → crates.io):
+  - Test job green (fmt, clippy, nextest, doc tests)
+  - `publish-crates-io` publishes five crates in dependency order
+  - All versions visible on crates.io (`oxidized-state`, `nix-env-manager`, `semantic-rag-merge`, `aivcs-core`, `aivcs-ci`)
+  - Full runbook: [docs/CRATES_IO_RELEASE.md](docs/CRATES_IO_RELEASE.md)
 - [ ] Verify the `release.yml` GitHub Actions workflow completes:
   - Linux binary built
   - macOS binary built

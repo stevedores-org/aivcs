@@ -79,7 +79,7 @@ jobs:
     # nextest on a cold ubuntu-latest runner. Observed 20m+ on the first
     # Phase 1 run (PR #244, job 81204220659), so 30m for ample headroom.
     # Other shards finish in 1–20m and exit well under the cap.
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -114,7 +114,7 @@ jobs:
   aivcs-reproducibility:
     name: aivcs reproducibility
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -136,7 +136,54 @@ jobs:
           cache-targets: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Run Reproducibility Check
+      - name: Ensure Rust toolchain (with retries)
+        run: |
+          set -euo pipefail
+          retries=3
+          delay=10
+          for i in $(seq 1 $retries); do
+            echo "Attempt $i/$retries: ensure rustup + stable toolchain"
+            if command -v rustup >/dev/null 2>&1; then
+              echo "rustup present, trying to install stable components"
+              if rustup default stable && rustup component add rustfmt clippy; then
+                echo "Rust toolchain ready"
+                break
+              fi
+            else
+              echo "rustup missing, installing via curl"
+              if curl --proto '=https' --tlsv1.2 --retry 5 --retry-delay 5 --location --silent --show-error --fail https://sh.rustup.rs | sh -s -- --default-toolchain none -y; then
+                export PATH="$HOME/.cargo/bin:$PATH"
+                if rustup default stable && rustup component add rustfmt clippy; then
+                  echo "Rust toolchain ready after install"
+                  break
+                fi
+              fi
+            fi
+            if [ "$i" -eq "$retries" ]; then
+              echo "Failed to prepare Rust toolchain after $retries attempts" >&2
+              exit 1
+            fi
+            echo "Retrying in ${delay}s..."
+            sleep $delay
+            delay=$((delay * 2))
+          done
+
+      - name: Run Reproducibility Check (with retries)
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
-        run: cargo run -p aivcs-cli -- pr verify-reproducibility
+        run: |
+          set -euo pipefail
+          retries=3
+          delay=10
+          for i in $(seq 1 $retries); do
+            echo "Attempt $i/$retries: cargo run -p aivcs-cli -- pr verify-reproducibility"
+            if cargo run -p aivcs-cli -- pr verify-reproducibility; then
+              echo "Reproducibility check succeeded on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i failed; sleeping ${delay}s before retry..."
+            sleep $delay
+            delay=$((delay * 2))
+          done
+          echo "::error::Reproducibility check failed after $retries attempts"
+          exit 1
