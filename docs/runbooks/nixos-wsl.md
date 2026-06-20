@@ -6,7 +6,7 @@ Run AIVCS inside a NixOS-WSL distribution with reproducible tooling and a precon
 
 - Windows 11 with WSL2 enabled
 - Nix with flakes (`nix flake` works on your host builder)
-- Optional: [Attic](https://github.com/zhaofengli/attic) credentials for `https://nix-cache.stevedores.org`
+- Optional: [Attic](https://github.com/zhaofengli/attic) credentials for `https://nix-cache.lornu.ai`
 
 ## Build the WSL tarball
 

@@ -2,12 +2,9 @@
   description = "AIVCS - AI Version Control System";
 
   nixConfig = {
-    extra-substituters = [ "https://nix-cache.stevedores.org" ];
+    extra-substituters = [ "https://nix-cache.lornu.ai" ];
     extra-trusted-public-keys = [
-      "stevedores-1:ZEtb+wHYNR/LDmMDhF3/EpRZDNma8exY2b1TGZ6uS2A="
-      # Legacy key — kept trusted for any artifacts already pushed under
-      # this name. Can be removed once the cache is re-signed under stevedores-1.
-      "stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag="
+      "lornu-1:FSWe0oOoYoYzbDU3XsZOoUz6LYouAKynidEOop1Q8yc="
     ];
   };
 

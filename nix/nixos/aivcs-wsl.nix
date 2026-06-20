@@ -14,10 +14,9 @@
 
   nix.settings = {
     experimental-features = [ "nix-command" "flakes" ];
-    extra-substituters = [ "https://nix-cache.stevedores.org" ];
+    extra-substituters = [ "https://nix-cache.lornu.ai" ];
     extra-trusted-public-keys = [
-      "stevedores-1:ZEtb+wHYNR/LDmMDhF3/EpRZDNma8exY2b1TGZ6uS2A="
-      "stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag="
+      "lornu-1:FSWe0oOoYoYzbDU3XsZOoUz6LYouAKynidEOop1Q8yc="
     ];
   };
 
