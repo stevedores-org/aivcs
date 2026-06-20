@@ -37,6 +37,11 @@ async fn main() -> Result<()> {
     db.use_ns("aivcs").use_db("core").await?;
     info!("✅ Connected to SurrealDB and selected namespace 'aivcs' database 'core'");
 
+    // Initialize Schema
+    let schema = include_str!("../schemas/001_synthetic_principal.surql");
+    db.query(schema).await.context("Failed to apply schema")?;
+    info!("✅ Schema initialized successfully");
+
     let state = AppState { db };
 
     let app = Router::new()
