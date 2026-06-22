@@ -1,27 +1,25 @@
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
+    body::Bytes,
+    extract::Path,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
+    Json,
 };
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::Sha256;
 
-#[derive(Clone)]
-pub struct CiState {
-    pub github_token: String,
-}
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GithubWebhookPayload {
     pub action: String,
-    #[serde(default)]
     pub pull_request: PullRequest,
     pub repository: Repository,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PullRequest {
     pub number: u32,
     pub head: Head,
@@ -29,14 +27,16 @@ pub struct PullRequest {
     pub title: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Head {
     pub sha: String,
+    #[serde(rename = "ref")]
     pub ref_: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Base {
+    #[serde(rename = "ref")]
     pub ref_: Option<String>,
 }
 
@@ -58,22 +58,111 @@ pub struct CiSubscriptionConfig {
     pub api_endpoint: String,
 }
 
-pub fn routes(github_token: String) -> Router {
-    let state = CiState { github_token };
+fn verify_github_signature(headers: &HeaderMap, body: &str, secret: &str) -> Result<(), String> {
+    let signature_header = headers
+        .get("x-hub-signature-256")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| "Missing x-hub-signature-256 header".to_string())?;
 
-    Router::new()
-        .route("/webhooks/github", post(handle_github_webhook))
-        .route("/checks/:pr_number", get(get_pr_checks))
-        .route("/subscribe/:repo", post(subscribe_to_ci))
-        .with_state(state)
+    let expected_sig = format!(
+        "sha256={}",
+        hex::encode(
+            HmacSha256::new_from_slice(secret.as_bytes())
+                .map_err(|_| "Invalid HMAC key".to_string())?
+                .chain_update(body.as_bytes())
+                .finalize()
+                .into_bytes()
+        )
+    );
+
+    if signature_header == expected_sig {
+        Ok(())
+    } else {
+        Err("Invalid signature".to_string())
+    }
 }
 
-async fn handle_github_webhook(
-    State(_state): State<CiState>,
-    Json(payload): Json<GithubWebhookPayload>,
-) -> impl IntoResponse {
+pub async fn handle_github_webhook(headers: HeaderMap, body: Bytes) -> impl IntoResponse {
+    let body_str = match String::from_utf8(body.to_vec()) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("Invalid UTF-8 in webhook body: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "status": "error",
+                    "message": "Invalid request body encoding"
+                })),
+            );
+        }
+    };
+
+    let webhook_secret = match std::env::var("CI_WEBHOOK_SECRET") {
+        Ok(secret) => secret,
+        Err(_) => {
+            tracing::error!("CI_WEBHOOK_SECRET not configured");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": "Webhook verification not configured"
+                })),
+            );
+        }
+    };
+
+    // Verify webhook signature
+    if let Err(e) = verify_github_signature(&headers, &body_str, &webhook_secret) {
+        tracing::warn!("Webhook signature verification failed: {}", e);
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "status": "error",
+                "message": "Invalid webhook signature"
+            })),
+        );
+    }
+
+    // Parse payload
+    let payload = match serde_json::from_str::<GithubWebhookPayload>(&body_str) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("Failed to parse webhook payload: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "status": "error",
+                    "message": "Invalid payload format"
+                })),
+            );
+        }
+    };
+
+    // Validate required fields
+    if payload.pull_request.number == 0 {
+        tracing::warn!("Webhook missing required pr_number field");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "Missing required pr_number"
+            })),
+        );
+    }
+
+    if payload.pull_request.head.sha.is_empty() {
+        tracing::warn!("Webhook missing required sha field");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "Missing required commit sha"
+            })),
+        );
+    }
+
     tracing::info!(
-        "GitHub webhook received for {} PR #{}",
+        "GitHub webhook verified for {} PR #{}",
         payload.repository.full_name,
         payload.pull_request.number
     );
@@ -92,42 +181,22 @@ async fn handle_github_webhook(
     )
 }
 
-async fn get_pr_checks(
-    State(_state): State<CiState>,
-    Path(_pr_number): Path<u32>,
-) -> impl IntoResponse {
+pub async fn get_pr_checks(Path(pr_number): Path<u32>) -> impl IntoResponse {
+    // TODO: Query SurrealDB ci_executions table for actual status
+    // For now, return 501 Not Implemented since SurrealDB integration is incomplete
+    tracing::debug!("Queried CI checks for PR #{}", pr_number);
+
     (
-        StatusCode::OK,
+        StatusCode::NOT_IMPLEMENTED,
         Json(json!({
-            "status": "pending",
-            "checks": [
-                {
-                    "name": "type_check",
-                    "status": "pending",
-                    "message": "Waiting to run"
-                },
-                {
-                    "name": "unit_tests",
-                    "status": "pending",
-                    "message": "Waiting to run"
-                },
-                {
-                    "name": "secrets_scan",
-                    "status": "pending",
-                    "message": "Waiting to run"
-                },
-                {
-                    "name": "config_lint",
-                    "status": "pending",
-                    "message": "Waiting to run"
-                }
-            ]
+            "status": "error",
+            "message": "CI checks API not yet implemented. Check GitHub status checks for results.",
+            "pr_number": pr_number
         })),
     )
 }
 
-async fn subscribe_to_ci(
-    State(_state): State<CiState>,
+pub async fn subscribe_to_ci(
     Path(repo): Path<String>,
     Json(config): Json<CiSubscriptionConfig>,
 ) -> impl IntoResponse {

@@ -189,12 +189,16 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "hex",
+ "hmac",
  "serde",
  "serde_json",
+ "sha2",
  "surrealdb",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

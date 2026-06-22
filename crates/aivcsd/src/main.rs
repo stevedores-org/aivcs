@@ -67,18 +67,33 @@ async fn main() -> Result<()> {
     );
     info!("📦 Initialized CAS store");
 
+    // Verify required env vars for CI integration
+    std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN env var must be set for CI checks")?;
+    std::env::var("CI_WEBHOOK_SECRET")
+        .context("CI_WEBHOOK_SECRET env var must be set for webhook signature verification")?;
+
     let state = AppState {
         db: db.clone(),
         cas,
     };
-    let github_token = std::env::var("GITHUB_TOKEN").unwrap_or_else(|_| "".to_string());
 
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/version", get(version_info))
         .route("/api/v1/push", post(push_state))
         .route("/api/v1/blobs/upload", post(upload_blob))
-        .nest("/api/v1/ci", routes::ci_routes(github_token))
+        .route(
+            "/api/v1/ci/webhooks/github",
+            post(routes::ci::handle_github_webhook),
+        )
+        .route(
+            "/api/v1/ci/checks/:pr_number",
+            get(routes::ci::get_pr_checks),
+        )
+        .route(
+            "/api/v1/ci/subscribe/:repo",
+            post(routes::ci::subscribe_to_ci),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
