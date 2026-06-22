@@ -10,6 +10,7 @@ use serde_json::json;
 
 #[derive(Clone)]
 pub struct CiState {
+    #[allow(dead_code)]
     pub github_token: String,
 }
 
@@ -58,7 +59,10 @@ pub struct CiSubscriptionConfig {
     pub api_endpoint: String,
 }
 
-pub fn routes(github_token: String) -> Router {
+pub fn routes<S>(github_token: String) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
     let state = CiState { github_token };
 
     Router::new()

@@ -75,3 +75,14 @@ DEFINE FIELD total_approvals_required ON ci_metrics TYPE number DEFAULT 0;
 DEFINE FIELD total_approvals_granted ON ci_metrics TYPE number DEFAULT 0;
 DEFINE FIELD created_at ON ci_metrics TYPE datetime DEFAULT time::now();
 DEFINE INDEX idx_repository_date ON ci_metrics COLUMNS repository, date;
+
+-- Seed Client 1 Subscription for Fast-Free-Testing (FFT)
+UPSERT ci_subscriptions:client_1 SET
+  repository = 'lornu-ai/aivcs-lornu-demo',
+  owner = 'lornu-ai',
+  enabled = true,
+  webhook_id = 'webhook_client_1',
+  webhook_secret = 'client_1_secret_key_12345',
+  aws_stack_name = 'stevedores-aivcs-ci-gate',
+  api_endpoint = 'https://github.com/lornu-ai/aivcs-lornu-demo';
+
