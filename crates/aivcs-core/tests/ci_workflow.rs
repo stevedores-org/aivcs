@@ -8,7 +8,7 @@ fn ci_workflow_content() -> String {
         .unwrap()
         .parent()
         .unwrap();
-    let path = workspace_root.join(".github/workflows/ci.yml");
+    let path = workspace_root.join(".github/workflows/fast-free-testing.yml");
     std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
 }
@@ -18,10 +18,10 @@ fn ci_workflow_has_concurrency_control() {
     let content = ci_workflow_content();
     assert!(
         content.contains("concurrency:"),
-        "ci workflow should define concurrency control"
+        "fast-free-testing workflow should define concurrency control"
     );
     assert!(
         content.contains("cancel-in-progress: true"),
-        "ci workflow should cancel superseded runs"
+        "fast-free-testing workflow should cancel superseded runs"
     );
 }
