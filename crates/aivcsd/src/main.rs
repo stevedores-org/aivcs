@@ -14,6 +14,8 @@ use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 use tracing::{info, warn, Level};
 
+mod routes;
+
 #[derive(Clone)]
 struct AppState {
     db: Surreal<surrealdb::engine::remote::ws::Client>,
@@ -46,10 +48,13 @@ async fn main() -> Result<()> {
     db.use_ns("aivcs").use_db("core").await?;
     info!("✅ Connected to SurrealDB and selected namespace 'aivcs' database 'core'");
 
-    // Initialize Schema
-    let schema = include_str!("../schemas/001_synthetic_principal.surql");
-    db.query(schema).await.context("Failed to apply schema")?;
-    info!("✅ Schema initialized successfully");
+    // Initialize Schemas
+    let schema_001 = include_str!("../schemas/001_synthetic_principal.surql");
+    db.query(schema_001).await.context("Failed to apply schema 001")?;
+
+    let schema_002 = include_str!("../schemas/002_ci_checks.surql");
+    db.query(schema_002).await.context("Failed to apply schema 002")?;
+    info!("✅ Schemas initialized successfully");
 
     let cas_dir = std::env::var("AIVCS_CAS_DIR").unwrap_or_else(|_| ".aivcs/cas".to_string());
     let cas = Arc::new(
@@ -58,13 +63,15 @@ async fn main() -> Result<()> {
     );
     info!("📦 Initialized CAS store");
 
-    let state = AppState { db, cas };
+    let state = AppState { db: db.clone(), cas };
+    let github_token = std::env::var("GITHUB_TOKEN").unwrap_or_else(|_| "".to_string());
 
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/version", get(version_info))
         .route("/api/v1/push", post(push_state))
         .route("/api/v1/blobs/upload", post(upload_blob))
+        .nest("/api/v1/ci", routes::ci_routes(github_token))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
