@@ -2,9 +2,10 @@
 
 **Customer**: lornu-ai/aivcs-lornu-demo  
 **Status**: Ready for integration  
-**Infrastructure**: Crossplane (from lornu-ai/infra-code)  
-**Reusing**: Fast-free-testing infrastructure for stevedores-org/aivcs  
-**Cost**: $0 (AWS free tier)  
+**Infrastructure**: Tier 1 (Crossplane on GKE Autopilot)  
+**Reference**: See `FFT_DEPLOYMENT_TIER1.md` and `lornu-ai/six-files` ADR-002  
+**Reusing**: Shared SurrealDB backend (namespaced by repository)  
+**Cost**: $0 (GKE Autopilot + AWS Lambda within free tier)  
 
 ## Quick Start
 
