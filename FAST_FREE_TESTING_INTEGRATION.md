@@ -215,24 +215,49 @@ Create `crates/aivcsd/src/ui/ci_checks.rs`:
 
 ## Deployment Steps
 
-### 1. Deploy fast-free-testing to AWS (Done ✅)
+### 1. Deploy Infrastructure via Crossplane (lornu-ai/infra-code)
+
+Deploy fast-free-testing infrastructure using Crossplane XRD/Compositions in `lornu-ai/infra-code`:
 
 ```bash
-cd ~/engineering/code/fast-free-testing/infra
-sam deploy --stack-name stevedores-aivcs-ci-gate
+cd ~/engineering/code/infra-code
+
+# Refer to existing Crossplane patterns:
+# - XRDs and Compositions: crossplane/aws/hub/control-plane/base/compositions/
+# - See CLAUDE.md for infra-code guidelines
+# - See AGENTS.md for complete deployment patterns
+
+# Deploy Claim for stevedores-org/aivcs (following infra-code patterns)
+kubectl apply -f - <<EOF
+apiVersion: fft.lornu.ai/v1alpha1
+kind: FastFreeTestingGate
+metadata:
+  name: stevedores-aivcs-ci-gate
+  namespace: fft-system
+spec:
+  # Consult actual infra-code XRD spec for correct fields
+EOF
+
+# Wait for Crossplane reconciliation
+kubectl get fft stevedores-aivcs-ci-gate -w
+
+# Get the webhook URL from Crossplane status
+WEBHOOK_URL=$(kubectl get fft stevedores-aivcs-ci-gate -o jsonpath='{.status.webhookUrl}')
 ```
 
-Outputs:
-- `GitHubWebhookURL`: Use this in step 2
-- `ArtifactBucket`: S3 storage for artifacts
-- `DashboardURL`: CloudWatch monitoring
+**Crossplane manages**:
+- API Gateway endpoint (webhookUrl)
+- Lambda functions and IAM roles
+- S3 artifact storage
+- CloudWatch logging and monitoring
 
 ### 2. Add GitHub Webhook
 
 ```bash
 gh repo edit --add-webhook \
-  --url <GitHubWebhookURL> \
+  --url "$WEBHOOK_URL" \
   --events pull_request \
+  --secret "$(openssl rand -hex 32)" \
   stevedores-org/aivcs
 ```
 
@@ -256,7 +281,7 @@ curl -X POST http://localhost:8080/api/v1/ci/subscribe/stevedores-org/aivcs \
   -H "Content-Type: application/json" \
   -d '{
     "aws_deployment_stack": "stevedores-aivcs-ci-gate",
-    "api_endpoint": "<GitHubWebhookURL>"
+    "api_endpoint": "'$WEBHOOK_URL'"
   }'
 ```
 

@@ -2,30 +2,51 @@
 
 **Customer**: lornu-ai/aivcs-lornu-demo  
 **Status**: Ready for integration  
-**Reusing**: Fast-free-testing infrastructure from stevedores-org/aivcs  
-**Cost**: $0 (same AWS free tier stack can serve multiple repos)  
+**Infrastructure**: Crossplane (from lornu-ai/infra-code)  
+**Reusing**: Fast-free-testing infrastructure for stevedores-org/aivcs  
+**Cost**: $0 (AWS free tier)  
 
 ## Quick Start
 
-The backend infrastructure is already deployed. Just add a GitHub webhook to this repo:
+The backend is already deployed. Deploy infrastructure via Crossplane and wire GitHub webhook:
 
-### Step 1: Get Webhook URL
+### Step 1: Deploy with Crossplane (lornu-ai/infra-code)
 
 ```bash
-# From existing stevedores-aivcs-ci-gate stack
-AWS_REGION="us-east-1"
-STACK_NAME="stevedores-aivcs-ci-gate"
+cd ~/engineering/code/infra-code
 
-WEBHOOK_URL=$(aws cloudformation describe-stacks \
-  --stack-name $STACK_NAME \
-  --region $AWS_REGION \
-  --query 'Stacks[0].Outputs[?OutputKey==`GitHubWebhookURL`].OutputValue' \
-  --output text)
+# Reference the existing Crossplane XRD and Composition patterns:
+# - XRDs: crossplane/aws/hub/control-plane/base/compositions/xrd-*.yaml
+# - Compositions: crossplane/aws/hub/control-plane/base/compositions/composition-*.yaml
+# See: CLAUDE.md and AGENTS.md for infra-code guidelines
 
+# Create a Claim for customer 2 (or use Flux GitOps to deploy)
+# Consult the existing Crossplane setup in infra-code for the FastFreeTestingGate XRD/Composition
+
+# Example (follow actual infra-code patterns):
+kubectl apply -f - <<EOF
+apiVersion: fft.lornu.ai/v1alpha1
+kind: FastFreeTestingGate
+metadata:
+  name: aivcs-lornu-demo-ci-gate
+  namespace: fft-system
+spec:
+  # Consult lornu-ai/infra-code for actual spec fields
+EOF
+
+# Wait for reconciliation
+kubectl get fft aivcs-lornu-demo-ci-gate -w
+```
+
+### Step 2: Get Webhook URL from Crossplane
+
+```bash
+# Retrieve from Crossplane composite status
+WEBHOOK_URL=$(kubectl get fft aivcs-lornu-demo-ci-gate -o jsonpath='{.status.webhookUrl}')
 echo "Webhook URL: $WEBHOOK_URL"
 ```
 
-### Step 2: Add GitHub Webhook
+### Step 3: Add GitHub Webhook
 
 ```bash
 gh repo edit \
@@ -36,18 +57,18 @@ gh repo edit \
   lornu-ai/aivcs-lornu-demo
 ```
 
-### Step 3: Subscribe via API
+### Step 4: Subscribe via API
 
 ```bash
 curl -X POST http://aivcsd:8080/api/v1/ci/subscribe/lornu-ai/aivcs-lornu-demo \
   -H "Content-Type: application/json" \
   -d '{
-    "aws_deployment_stack": "stevedores-aivcs-ci-gate",
+    "aws_deployment_stack": "aivcs-lornu-demo-ci-gate",
     "api_endpoint": "'$WEBHOOK_URL'"
   }'
 ```
 
-### Step 4: Test
+### Step 5: Test
 
 Create a test PR:
 ```bash
@@ -63,25 +84,38 @@ Expected: "Deterministic Gate" status check appears and runs in 8-15 seconds.
 
 ## Architecture
 
-Both customers share the same AWS stack:
+Infrastructure managed by Crossplane (infra-code repo):
 
 ```
-stevedores-org/aivcs PR          lornu-ai/aivcs-lornu-demo PR
-         ↓                                    ↓
-    GitHub Webhooks
+Crossplane XRD: FastFreeTestingGate
          ↓
-fast-free-testing (stevedores-aivcs-ci-gate)
-    ├─ API Gateway (single endpoint)
-    ├─ Lambda Orchestrator
-    ├─ Check Functions (types, tests, secrets, config)
-    └─ SurrealDB (shared execution tracking)
+┌─────────────────────────────────────┐
+│   AWS Resources (per-customer)      │
+│  ├─ API Gateway                     │
+│  ├─ Lambda Functions                │
+│  └─ IAM Roles                       │
+└────────────────┬────────────────────┘
+                 ↓
+    ┌────────────┴──────────────┐
+    ↓                           ↓
+stevedores-org/aivcs    lornu-ai/aivcs-lornu-demo
+(Customer 1)             (Customer 2)
+Crossplane Composite    Crossplane Composite
+(aivcs-ci-gate)         (aivcs-lornu-demo-ci-gate)
+    ↓                           ↓
+GitHub Webhooks         GitHub Webhooks
+    └───────────┬────────────────┘
+                ↓
+           aivcsd Backend
+         (Shared SurrealDB)
 ```
 
-**Benefits**:
-- Zero additional infrastructure cost
-- Shared Lambda execution environment
-- Unified audit trail in SurrealDB
-- Single webhook secret management
+**Benefits of Crossplane**:
+- Infrastructure as code (GitOps)
+- Declarative multi-tenancy
+- Automatic resource management
+- Self-healing infrastructure
+- Unified billing/cost tracking
 
 ## Multi-Tenant Considerations
 
@@ -104,50 +138,54 @@ SELECT * FROM ci_audit_log
 ### Webhook Secret Management
 
 Each repo has its own webhook secret (stored in GitHub):
-- stevedores-org/aivcs: secret-123...
-- lornu-ai/aivcs-lornu-demo: secret-456...
+- stevedores-org/aivcs: secret-123... (stored in k8s secret)
+- lornu-ai/aivcs-lornu-demo: secret-456... (stored in k8s secret)
 
-Both validated against `CI_WEBHOOK_SECRET` env var (currently single shared secret).
+Both validated against their respective `CI_WEBHOOK_SECRET` env var.
 
-**Future**: Support per-repo secrets in a secrets store (AWS Secrets Manager).
+**Managed by**: Kubernetes secrets (cross-referencing via Crossplane)
 
-## CloudWatch Monitoring
+## Monitoring
 
-View logs for both customers:
+View logs via Kubernetes:
 ```bash
-# All webhooks
-aws logs tail /aws/apigateway/agent-ci-webhook --follow
+# Watch all CI gateway logs
+kubectl logs -f -l app=fft-orchestrator -c orchestrator
 
-# Filtered by repo
-aws logs tail /aws/lambda/stevedores-aivcs-ci-gate-orchestrator --follow | grep 'aivcs-lornu-demo'
+# Filter by repo
+kubectl logs -f -l app=fft-orchestrator -c orchestrator | grep 'aivcs-lornu-demo'
+
+# CloudWatch (via Crossplane)
+aws logs tail /aws/lambda/aivcs-lornu-demo-ci-gate-orchestrator --follow
 ```
 
 ## Billing & Cost Tracking
 
-Still $0 with AWS free tier. Monitor combined usage:
+Still $0 with AWS free tier. Monitor via Crossplane:
 ```bash
-# Total Lambda invocations (both customers)
-aws cloudwatch get-metric-statistics \
-  --namespace AWS/Lambda \
-  --metric-name Invocations \
-  --start-time $(date -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ) \
-  --end-time $(date +%Y-%m-%dT%H:%M:%SZ) \
-  --period 2592000 \
-  --statistics Sum
+# View resource status
+kubectl get fft -A
+kubectl describe fft aivcs-lornu-demo-ci-gate
 
-# Expected: ~250 for stevedores-org/aivcs + ~250 for lornu-ai/aivcs-lornu-demo = 500 total
-# Still well under 1M free tier
+# Monitor AWS costs (if applicable)
+aws ce get-cost-and-usage \
+  --time-period Start=2026-06-01,End=2026-07-01 \
+  --granularity MONTHLY \
+  --metrics BlendedCost
 ```
+
+Expected: ~500 Lambda invocations/month combined (stevedores-org: 250 + lornu-ai: 250) — still under 1M free tier.
 
 ## Scaling to More Customers
 
-Same pattern for additional repos:
-1. Use same webhook URL (reuse stack)
-2. Add GitHub webhook to new repo
-3. Subscribe via API endpoint
-4. Monitor in unified SurrealDB
+Same pattern for additional repos via Crossplane:
+1. Create new FastFreeTestingGate Crossplane composite
+2. Crossplane automatically provisions AWS resources
+3. Add GitHub webhook to new repo
+4. Subscribe via API endpoint
+5. All backed by unified SurrealDB
 
-**No infrastructure changes needed** — the stack supports unlimited repos.
+**Infrastructure changes**: Single line YAML per new customer
 
 ## Next Steps
 
