@@ -50,10 +50,14 @@ async fn main() -> Result<()> {
 
     // Initialize Schemas
     let schema_001 = include_str!("../schemas/001_synthetic_principal.surql");
-    db.query(schema_001).await.context("Failed to apply schema 001")?;
+    db.query(schema_001)
+        .await
+        .context("Failed to apply schema 001")?;
 
     let schema_002 = include_str!("../schemas/002_ci_checks.surql");
-    db.query(schema_002).await.context("Failed to apply schema 002")?;
+    db.query(schema_002)
+        .await
+        .context("Failed to apply schema 002")?;
     info!("✅ Schemas initialized successfully");
 
     let cas_dir = std::env::var("AIVCS_CAS_DIR").unwrap_or_else(|_| ".aivcs/cas".to_string());
@@ -63,7 +67,10 @@ async fn main() -> Result<()> {
     );
     info!("📦 Initialized CAS store");
 
-    let state = AppState { db: db.clone(), cas };
+    let state = AppState {
+        db: db.clone(),
+        cas,
+    };
     let github_token = std::env::var("GITHUB_TOKEN").unwrap_or_else(|_| "".to_string());
 
     let app = Router::new()
