@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::{Path, State, Query},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
@@ -24,7 +24,7 @@ struct DbCiExecution {
     pr_number: u32,
     pr_sha: String,
     pr_title: Option<String>,
-    status: String, // queued|running|passed|failed
+    status: String,             // queued|running|passed|failed
     conclusion: Option<String>, // success|failure|neutral
     started_at: Option<chrono::DateTime<chrono::Utc>>,
     completed_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -130,7 +130,8 @@ pub async fn get_pr_checks(
                     "status": "error",
                     "message": format!("Failed to parse execution: {}", e)
                 })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -163,7 +164,8 @@ pub async fn get_pr_checks(
                     "status": "error",
                     "message": format!("Database error fetching audit logs: {}", e)
                 })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -192,7 +194,8 @@ pub async fn get_pr_checks(
             "checks": formatted_checks,
             "audit_trail": audit_trail,
         })),
-    ).into_response()
+    )
+        .into_response()
 }
 
 type HmacSha256 = Hmac<Sha256>;
@@ -365,8 +368,6 @@ pub async fn handle_github_webhook(headers: HeaderMap, body: Bytes) -> impl Into
         })),
     )
 }
-
-
 
 pub async fn subscribe_to_ci(
     Path(repo): Path<String>,
