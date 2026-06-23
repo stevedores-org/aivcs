@@ -200,9 +200,6 @@ struct GatewayState {
     authority_records: Mutex<HashMap<String, AuthorityRecord>>,
     approvals: Mutex<HashMap<String, HumanApproval>>,
     revocations: Mutex<RevocationList>,
-    // Phase 2.2 Phase 3: Hybrid backend support
-    backend_selector: BackendSelector,
-    mom_config: Option<MomBackendConfig>,
 }
 
 #[tokio::main]
@@ -213,16 +210,6 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     // Connect to in-memory SurrealDB for development and tests
     let db = aivcs_core::SurrealHandle::setup_db().await?;
 
-    // Initialize hybrid backend support (Phase 2.2 Phase 3)
-    let backend_selector = BackendSelector::from_env();
-    let mom_config = MomBackendConfig::from_env();
-    if mom_config.is_some() {
-        info!(
-            "MomBackend configured; backend_selector: {:?}",
-            std::env::var("MEMORY_BACKEND_MODE").unwrap_or_default()
-        );
-    }
-
     let state = Arc::new(GatewayState {
         db,
         authority_records: Mutex::new(HashMap::new()),
@@ -231,8 +218,6 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
             revoked_jtis: HashSet::new(),
             revoked_sessions: HashSet::new(),
         }),
-        backend_selector,
-        mom_config,
     });
 
     let app = Router::new()
@@ -257,14 +242,14 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
     match risk_level {
         "read" => false,
         "write" => max_risk == "read",
-        "destructive" => max_risk != "write",
+        "destructive" => max_risk != "destructive",
         _ => true,
     }
 }
-
 // ─────────────────────────────────────────────────────────────────────────
 // Memory Tool Backend Handlers (Phase 2.2 Phase 2)
 // ─────────────────────────────────────────────────────────────────────────
+
 
 /// Deserialize and validate memory tool request arguments from JSON Value.
 fn deserialize_memory_write_args(args: &Value) -> std::result::Result<MemoryWriteRequest, String> {
@@ -638,6 +623,7 @@ async fn hybrid_memory_query(
     }
 }
 
+
 async fn health_check() -> Json<Value> {
     Json(json!({
         "status": "healthy",
@@ -756,7 +742,8 @@ async fn list_tools(
         }));
     }
 
-    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "write" {
+    if claims.scopes.contains(&"repo.merge.execute".to_string()) && claims.max_risk == "destructive"
+    {
         tools.push(json!({
             "name": "repo.merge.execute",
             "description": "Merge feature branches with human guardrails",
@@ -1014,128 +1001,104 @@ async fn call_tool(
     decision.outcome = Some("allowed".to_string());
     let _ = state.db.save_decision(&decision).await;
 
-    // Execute tool (memory tools use real backend, repo tools still mocked)
+    // Simulate tool execution
     let result = match req.tool.as_str() {
         "repo.diff.read" => json!({ "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n" }),
         "repo.diff.write" => json!({ "status": "changes_written" }),
         "repo.merge.execute" => {
             json!({ "status": "merged", "commit_id": "sha256-merge-placeholder" })
         }
-        // Memory tools (Phase 2.2) — hybrid backend integration (Phase 2.2 Phase 3)
-        "memory::write" => match deserialize_memory_write_args(&req.arguments) {
-            Ok(args) => match hybrid_memory_write(
-                args,
-                &state.db,
-                &state.backend_selector,
-                &state.mom_config,
-            )
-            .await
-            {
-                Ok(response) => response,
-                Err(e) => {
-                    warn!("memory::write handler failed: {}", e);
+        // Memory tools (Phase 2.2) — mocked responses for MVP
+        "memory::write" => {
+            let memory_id = format!("aivcs:mem-{}", Uuid::new_v4());
+            json!({
+                "memory_id": memory_id,
+                "created_at_ms": chrono::Utc::now().timestamp_millis(),
+                "status": "persisted"
+            })
+        }
+        "memory::query" => {
+            json!({
+                "items": [
+                    {
+                        "memory_id": "aivcs:mem-example-1",
+                        "kind": "session_vector",
+                        "score": 0.87,
+                        "content_preview": "Agent session context...",
+                        "created_at_ms": chrono::Utc::now().timestamp_millis()
+                    }
+                ],
+                "total_hits": 1
+            })
+        }
+        "memory::context_pack" => {
+            json!({
+                "highlights": ["Recent decision points", "Session goals"],
+                "summaries": ["Context snapshot"],
+                "facts": ["Key facts from memory"],
+                "citations": ["aivcs:mem-example-1"],
+                "token_usage": 1250
+            })
+        }
+        "memory::delete" => {
+            // Extract memory_id from request arguments
+            let memory_id = match req.arguments.get("memory_id").and_then(|v| v.as_str()) {
+                Some(id) => id,
+                None => {
                     return Json(ToolCallResponse {
                         status: "denied".to_string(),
                         authority_id: Some(authority_id),
                         result: None,
-                        reason: Some(e),
+                        reason: Some("Missing required argument: memory_id".to_string()),
                     })
                     .into_response();
                 }
-            },
-            Err(e) => {
-                warn!("memory::write argument validation failed: {}", e);
+            };
+
+            // Validate memory_id format: must be "aivcs:mem-{uuid}"
+            if !memory_id.starts_with("aivcs:mem-") {
                 return Json(ToolCallResponse {
                     status: "denied".to_string(),
                     authority_id: Some(authority_id),
                     result: None,
-                    reason: Some(e),
+                    reason: Some("Invalid memory_id format: must be aivcs:mem-{uuid}".to_string()),
                 })
                 .into_response();
             }
-        },
-        "memory::query" => match deserialize_memory_query_args(&req.arguments) {
-            Ok(args) => match hybrid_memory_query(
-                args,
-                &state.db,
-                &state.backend_selector,
-                &state.mom_config,
-            )
-            .await
-            {
-                Ok(response) => response,
-                Err(e) => {
-                    warn!("memory::query handler failed: {}", e);
+
+            let record_key = memory_id.strip_prefix("aivcs:mem-").unwrap();
+
+            // Execute actual deletion from SurrealDB
+            match state.db.delete_memory(record_key).await {
+                Ok(true) => {
+                    tracing::info!("Memory deleted: {}", memory_id);
+                    json!({
+                        "status": "deleted",
+                        "memory_id": memory_id
+                    })
+                }
+                Ok(false) => {
+                    tracing::warn!("Memory not found: {}", memory_id);
                     return Json(ToolCallResponse {
                         status: "denied".to_string(),
                         authority_id: Some(authority_id),
                         result: None,
-                        reason: Some(e),
+                        reason: Some(format!("Memory not found: {}", memory_id)),
                     })
                     .into_response();
                 }
-            },
-            Err(e) => {
-                warn!("memory::query argument validation failed: {}", e);
-                return Json(ToolCallResponse {
-                    status: "denied".to_string(),
-                    authority_id: Some(authority_id),
-                    result: None,
-                    reason: Some(e),
-                })
-                .into_response();
-            }
-        },
-        "memory::context_pack" => match deserialize_memory_context_pack_args(&req.arguments) {
-            Ok(args) => match memory_context_pack_handler(args, &state.db).await {
-                Ok(response) => response,
                 Err(e) => {
-                    warn!("memory::context_pack handler failed: {}", e);
+                    tracing::error!("Failed to delete memory {}: {}", memory_id, e);
                     return Json(ToolCallResponse {
                         status: "denied".to_string(),
                         authority_id: Some(authority_id),
                         result: None,
-                        reason: Some(e),
+                        reason: Some(format!("Database error: {}", e)),
                     })
                     .into_response();
                 }
-            },
-            Err(e) => {
-                warn!("memory::context_pack argument validation failed: {}", e);
-                return Json(ToolCallResponse {
-                    status: "denied".to_string(),
-                    authority_id: Some(authority_id),
-                    result: None,
-                    reason: Some(e),
-                })
-                .into_response();
             }
-        },
-        "memory::delete" => match deserialize_memory_delete_args(&req.arguments) {
-            Ok(args) => match memory_delete_handler(args, &state.db).await {
-                Ok(response) => response,
-                Err(e) => {
-                    warn!("memory::delete handler failed: {}", e);
-                    return Json(ToolCallResponse {
-                        status: "denied".to_string(),
-                        authority_id: Some(authority_id),
-                        result: None,
-                        reason: Some(e),
-                    })
-                    .into_response();
-                }
-            },
-            Err(e) => {
-                warn!("memory::delete argument validation failed: {}", e);
-                return Json(ToolCallResponse {
-                    status: "denied".to_string(),
-                    authority_id: Some(authority_id),
-                    result: None,
-                    reason: Some(e),
-                })
-                .into_response();
-            }
-        },
+        }
         _ => json!({}),
     };
 
@@ -1245,8 +1208,6 @@ mod tests {
                 revoked_jtis: HashSet::new(),
                 revoked_sessions: HashSet::new(),
             }),
-            backend_selector: BackendSelector::LocalOnly,
-            mom_config: None,
         });
 
         let router = Router::new()
@@ -1318,7 +1279,7 @@ mod tests {
         assert!(res_json["authority_id"].as_str().is_some());
 
         // 3. Call destructive tool without human approval - should escalate
-        let token_merge = mint_test_token("write", vec!["repo.merge.execute"]);
+        let token_merge = mint_test_token("destructive", vec!["repo.merge.execute"]);
         let req = axum::http::Request::builder()
             .method("POST")
             .uri("/v1/mcp/tools/call")
@@ -1512,6 +1473,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_gateway_max_risk_blocks_destructive_tool_for_write_token() {
+        let app = setup_router().await;
+
+        // Token with max_risk="write" and merge scope — must not list or call destructive tools.
+        let token = mint_test_token("write", vec!["repo.merge.execute"]);
+
+        let req = axum::http::Request::builder()
+            .uri("/v1/mcp/tools/list")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        let tool_names: Vec<&str> = json["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(
+            !tool_names.contains(&"repo.merge.execute"),
+            "write-level token must not list destructive tools"
+        );
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/mcp/tools/call")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("MCP-Protocol-Version", "2025-06-18")
+            .header("Mcp-Session-Id", "session-1")
+            .header("Content-Type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&json!({
+                    "tool": "repo.merge.execute",
+                    "arguments": { "branch": "develop" },
+                    "repo": "stevedores-org/aivcs"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let res_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(res_json["status"], "denied");
+        assert!(res_json["reason"]
+            .as_str()
+            .unwrap()
+            .contains("exceeds maximum allowed risk"));
+    }
+
+    #[tokio::test]
     async fn test_gateway_revocation() {
         let app = setup_router().await;
         let token = mint_test_token("write", vec!["repo.diff.read"]);
@@ -1576,7 +1601,7 @@ mod tests {
     #[tokio::test]
     async fn test_gateway_human_approval_ttl_expiry() {
         let (app, state) = setup_router_with_state().await;
-        let token_merge = mint_test_token("write", vec!["repo.merge.execute"]);
+        let token_merge = mint_test_token("destructive", vec!["repo.merge.execute"]);
 
         // 1. Register a fresh human approval for the merge action.
         let payload_string = serde_json::to_string(&json!({ "branch": "develop" })).unwrap();
