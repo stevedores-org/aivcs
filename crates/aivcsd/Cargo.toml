@@ -6,6 +6,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 publish = false
+include = ["src/", "schemas/", "Cargo.toml"]
 
 [[bin]]
 name = "aivcsd"
