@@ -1,3 +1,5 @@
+pub mod routes;
+
 use aivcs_core::cas::CasStore;
 use anyhow::{Context, Result};
 use axum::{
@@ -65,6 +67,10 @@ async fn main() -> Result<()> {
         .route("/version", get(version_info))
         .route("/api/v1/push", post(push_state))
         .route("/api/v1/blobs/upload", post(upload_blob))
+        .route(
+            "/api/v1/ci/checks/:pr_number",
+            get(routes::ci::get_ci_checks),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
