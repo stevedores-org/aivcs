@@ -171,9 +171,13 @@ jobs:
 
       - name: Run Reproducibility Check (with retries)
         env:
-          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
+          # Ensure the aivcs CLI can read pull_request.body from GITHUB_EVENT_PATH.
+          # Some event payloads may omit the pull_request body (e.g., certain push or forked PR contexts).
+          jq -n '{"pull_request": {"body": (env.PR_BODY // "")}}' > /tmp/aivcs_event.json
+          export GITHUB_EVENT_PATH=/tmp/aivcs_event.json
           retries=3
           delay=10
           for i in $(seq 1 $retries); do
