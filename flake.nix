@@ -48,6 +48,7 @@
             filter = path: type:
               let p = toString path; in
               (pkgs.lib.hasSuffix ".pem" p)
+              # Include SurrealQL schema files in build context so include_str! macro can load them
               || (pkgs.lib.hasSuffix ".surql" p)
               || (type == "directory" && pkgs.lib.hasSuffix "/keys" p)
               || (craneLib.filterCargoSources path type);
