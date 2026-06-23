@@ -20,4 +20,4 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 tower = { version = "0.4", features = ["util"] }
 data-fabric-client = { workspace = true }
-
+base64 = { workspace = true }

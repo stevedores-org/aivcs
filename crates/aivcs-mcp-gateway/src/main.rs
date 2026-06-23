@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{error, info, warn, Level};
 use uuid::Uuid;
 
-const PUBLIC_KEY_PEM: &str = include_str!("../../aivcs-auth/keys/public.pem");
+// Public key PEM loaded at runtime
 
 /// Maximum age of a `HumanApproval` grant before it stops counting as a valid
 /// authorisation. Per the AIVCS Zero-Trust MCP Identity Model
@@ -200,6 +200,7 @@ struct GatewayState {
     authority_records: Mutex<HashMap<String, AuthorityRecord>>,
     approvals: Mutex<HashMap<String, HumanApproval>>,
     revocations: Mutex<RevocationList>,
+    public_key_pem: String,
 }
 
 #[tokio::main]
@@ -210,6 +211,14 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
     // Connect to in-memory SurrealDB for development and tests
     let db = aivcs_core::SurrealHandle::setup_db().await?;
 
+    let public_key_pem = if let Ok(pem) = std::env::var("AIVCS_MCP_VERIFICATION_KEY") {
+        pem
+    } else if let Ok(path) = std::env::var("AIVCS_MCP_VERIFICATION_KEY_FILE") {
+        std::fs::read_to_string(path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
     let state = Arc::new(GatewayState {
         db,
         authority_records: Mutex::new(HashMap::new()),
@@ -218,6 +227,7 @@ async fn main() -> std::result::Result<(), anyhow::Error> {
             revoked_jtis: HashSet::new(),
             revoked_sessions: HashSet::new(),
         }),
+        public_key_pem,
     });
 
     let app = Router::new()
@@ -259,6 +269,7 @@ async fn health_check() -> Json<Value> {
 fn validate_auth(
     headers: &HeaderMap,
     revocations: &RevocationList,
+    public_key_pem: &str,
 ) -> std::result::Result<McpClaims, (StatusCode, Json<Value>)> {
     // Check MCP headers
     let version = headers
@@ -306,7 +317,15 @@ fn validate_auth(
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_audience(&["https://mcp.aivcs.lornu.ai"]);
 
-    let dec_key = DecodingKey::from_rsa_pem(PUBLIC_KEY_PEM.as_bytes()).map_err(|e| {
+    if public_key_pem.trim().is_empty() {
+        error!("Verification key not configured: set AIVCS_MCP_VERIFICATION_KEY or AIVCS_MCP_VERIFICATION_KEY_FILE");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "verification_key_not_configured" })),
+        ));
+    }
+
+    let dec_key = DecodingKey::from_rsa_pem(public_key_pem.as_bytes()).map_err(|e| {
         error!("Decoding key load failed: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -341,7 +360,7 @@ async fn list_tools(
     headers: HeaderMap,
 ) -> axum::response::Response {
     let revocations = state.revocations.lock().unwrap();
-    let claims = match validate_auth(&headers, &revocations) {
+    let claims = match validate_auth(&headers, &revocations, &state.public_key_pem) {
         Ok(c) => c,
         Err(err) => return err.into_response(),
     };
@@ -386,7 +405,7 @@ async fn call_tool(
 ) -> axum::response::Response {
     let claims = {
         let revocations = state.revocations.lock().unwrap();
-        match validate_auth(&headers, &revocations) {
+        match validate_auth(&headers, &revocations, &state.public_key_pem) {
             Ok(c) => c,
             Err(err) => return err.into_response(),
         }
@@ -791,10 +810,13 @@ mod tests {
     use jsonwebtoken::EncodingKey;
     use tower::ServiceExt;
 
-    const PRIVATE_KEY_PEM: &str = include_str!("../../aivcs-auth/keys/private.pem");
-
     fn mint_test_token(max_risk: &str, scopes: Vec<&str>) -> String {
-        let private_key = EncodingKey::from_rsa_pem(PRIVATE_KEY_PEM.as_bytes()).unwrap();
+        let priv_b64 = "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2Z0lCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktnd2dnU2tBZ0VBQW9JQkFRRGZYMU5uMDZ3dEVreXkKamQycDdIeVZlSUZ0MzRJNGhhcVNXSFp1MW1NQ0ttWjdsTUJJcVMxWWI2bFpBNzZhZGk3S2JkVG4zSVpBdUtyaAprbElSWThDUTNPWDl5aGphcmY1SzQwMkxVRkdDMUFjU3h3cHMwSW9QTFVOUWNBekNQWllwZDhtWTJ1SmJVQks1ClBGZXhmVzhRVkQwTnl1UGlKQmJwS0JqYTAwVzJ0T2Z5MnF0RHpTeVRHSmE4ekkwdHZoZXBabEhrRytITHFZL0gKQWVyRlFpS3FqZ1dTcUZERjhHemJERUl5TUJYOWU5RHJUZkttZHJ1b2RKOWVzeFlFeWRpRUtMSmFTT3psWU5xUQpxN1hvNVlIYkZoQ0UwdGlSRkNSdjQwMGtTaHVCYzM3RGt4SDZ0NER1SFV1SDNTdmVENEFFM0gvM3dmWmxsUWxQCm9qNG56bTlwQWdNQkFBRUNnZ0VBYVNJMjRZRnhZbTFnaUJIWnFPYlQ1STRwYlF0c0FTcDRsQlRxK1ZRU21heFgKUEFkUlVXRy9KQWE2VUZsQTF2YVZJMVg2aFg3MytYSnhpMllSRm5vNjRuUDJGRE9RNnl4RnFmMitPN244QTNYRQpOb1JVVmM3NWpCY2p2YkpmYnZVSnZrN1JKZzZ2eDRheXFWakxkWkN5TzU5S2RUbHZkTHJEeGMzSGxRY25vc3cxCnUreXcwbHIxL2ZiVklzR1hxVzREMy8zaGpIZlhlK09oMzEwalNkMnIzblBCV0tIMjBEUDZrSlZVcW1wU2YvUnoKRGFhYURkaXFYOVl0NGNrMWJxQ2NtaDQrSEpIcHYyaFM4TU05ZWFjVE1kdGZyYUx2MDR0V1FDOHZJVm5rNTF0bgpyOG13NW5mbWhkczYzMytpb0FjdHVrdEZMRGVHNlVJdHRYK1FqMHZGQVFLQmdRRDNZb1c4RmUrKzREWjVUMDZpCnZlRUUwVXpZWkljTWo0WHFEOTVhclFITU5jWmxaRXY1Mk14b3RGeStIcytWNzUyVUgwdkdORW8yVlA3YXNNb08KWEM5OHRhOFZhSzJ0bzFzUnZyL0NNYm9xV3E1N01YMkRveU53ZGVqY21jbEZxa1VyY0k0UXRtdmRxcmoxOTRRMwpOekJOOXVhZ3J0WXQ3aUR3ODdvYkFLZGNFUUtCZ1FEbkpycGc3K3U3emRVZ0w3MHo1TkhrVmJnNk1EN0ZDWFJhCkJIOGRnYUMyR0tDblpmU0EzcHhBQUQ2QW05TmpWaGpudGpOb1VEbE14VDBlb0pzU3BmSmpKMVk5VkVTcWpvcWUKdTh0VmRRazFSSDdmL29KckFHZWlOQSs1aFVRbUZaYk9ENW5yK0M4dDlvcmkvbzdSS3JkUHAzajBwc2U4K1UvUgp0OVgySFNRVjJRS0JnUURBdzdHSHhPUWlyTjFsbTRtZndDdGxzSjJiaElIREpOYnBjdUlGY0FnVmt0VjhUakh4CmhxQ0krZm5HWDRYTHhJSGFXS1NYMWtqNW16TlhQeWpERmN3ZTlnZHV2RG1STXRnVXRMa0JYZlE5YXBuSS91QloKd2JZc3ZJUHQyWnQvUUZWVHF3bllOZjFKSmUyb0krMlBoTjZMOGRiMTRDYWVkWTZQa3FzeXZVaXJzUUtCZ1FDQgp3S2VXaXBiVkVURzFvNWFkYnJDemI3cStUeDZ0RkNXUDhqNDRuZTlNeUg1RitXRktoYXRIOGRzajdsUzJ5am1vCnVBb2JZQTBLSHgyejk0dVU2RG9ybG9VK1gvTTdtbEFOMG5UTlA2a3ZrWWQyelRNQVJYWG5BenBnZFlKUHJvYTgKbk4xV0xEYXZvbGxNR29Db3dVV3RIT0UwMC9vREJoL2NKVW1ob2JJRDRRS0JnRjVHbFlhMU96MWd2Q2cxQy9YbQp6RUJySHBrQnlRMTMvQWZzNi91VDJPb1BTM0hNUjZBQUlOeThieXZKL0trYWN1elliSjhPRGlXVTIvZFR0SldKCksxR2NPZGdUQUFEQmtQNTc5NXNOVmZKRjk1OUMyRnhnQnA1U0w4K0Mwc2lNNy9wUlFZMnF4OFZydEh5VUF4S2cKcFhQT2RCQ1g3TXZxdXB0VEN5dEt1a0ltCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0=";
+        let private_key_pem = String::from_utf8(
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, priv_b64).unwrap(),
+        )
+        .unwrap();
+        let private_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap();
         let exp = (Utc::now() + chrono::Duration::minutes(5)).timestamp() as usize;
 
         let claims = McpClaims {
@@ -823,6 +845,11 @@ mod tests {
     /// (needed e.g. to back-date a `HumanApproval` past the TTL).
     async fn setup_router_with_state() -> (Router, Arc<GatewayState>) {
         let db = aivcs_core::SurrealHandle::setup_db().await.unwrap();
+        let pub_b64 = "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUEzMTlUWjlPc0xSSk1zbzNkcWV4OApsWGlCYmQrQ09JV3FrbGgyYnRaakFpcG1lNVRBU0trdFdHK3BXUU8rbW5ZdXltM1U1OXlHUUxpcTRaSlNFV1BBCmtOemwvY29ZMnEzK1N1Tk5pMUJSZ3RRSEVzY0tiTkNLRHkxRFVIQU13ajJXS1hmSm1OcmlXMUFTdVR4WHNYMXYKRUZROURjcmo0aVFXNlNnWTJ0TkZ0clRuOHRxclE4MHNreGlXdk15TkxiNFhxV1pSNUJ2aHk2bVB4d0hxeFVJaQpxbzRGa3FoUXhmQnMyd3hDTWpBVi9YdlE2MDN5cG5hN3FIU2ZYck1XQk1uWWhDaXlXa2pzNVdEYWtLdTE2T1dCCjJ4WVFoTkxZa1JRa2IrTk5KRW9iZ1hOK3c1TVIrcmVBN2gxTGg5MHIzZytBQk54Lzk4SDJaWlVKVDZJK0o4NXYKYVFJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0t";
+        let public_key_pem = String::from_utf8(
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, pub_b64).unwrap(),
+        )
+        .unwrap();
         let state = Arc::new(GatewayState {
             db,
             authority_records: Mutex::new(HashMap::new()),
@@ -831,6 +858,7 @@ mod tests {
                 revoked_jtis: HashSet::new(),
                 revoked_sessions: HashSet::new(),
             }),
+            public_key_pem,
         });
 
         let router = Router::new()
