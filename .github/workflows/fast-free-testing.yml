@@ -1,0 +1,83 @@
+# fast-free-testing CI trigger
+#
+# stevedores-org/aivcs is a registered client of lornu-ai/fast-free-testing,
+# an AWS Lambda-backed CI service with an API Gateway webhook endpoint.
+#
+# Plan: unlimited-free
+#   - No quota, no rate limiting
+#   - All checks run on every PR:
+#       * type-safety  (cargo check --workspace)
+#       * unit-tests   (cargo nextest run --workspace)
+#       * secrets      (trufflehog / gitleaks scan)
+#       * config-lint  (clippy -D warnings)
+#
+# Checks appear as individual GitHub Check Runs under the heading:
+#   "fast-free-testing / <check>"
+#
+# Required secret:
+#   FAST_FREE_TESTING_WEBHOOK_URL — the API Gateway /github endpoint
+#   (rotate by updating the secret; no workflow changes needed)
+#
+# Repo config: Rust workspace, cargo-nextest, clippy -D warnings
+
+name: fast-free-testing
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  trigger:
+    name: Trigger fast-free-testing
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write        # needed to create/update check runs
+      contents: read
+    steps:
+      - name: Trigger fast-free-testing CI
+        env:
+          # The deployed fast-free-testing API Gateway endpoint
+          # Stored as a repo secret so the URL can be rotated
+          FFT_WEBHOOK_URL: ${{ secrets.FAST_FREE_TESTING_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Build the PR payload matching GitHubPREvent interface
+          PAYLOAD=$(jq -nc \
+            --arg action "synchronize" \
+            --argjson pr_number ${{ github.event.pull_request.number }} \
+            --arg head_sha "${{ github.event.pull_request.head.sha }}" \
+            --arg head_ref "${{ github.event.pull_request.head.ref }}" \
+            --arg base_ref "${{ github.event.pull_request.base.ref }}" \
+            --arg repo_name "${{ github.event.repository.name }}" \
+            --arg owner "${{ github.event.repository.owner.login }}" \
+            --arg full_name "${{ github.event.repository.full_name }}" \
+            '{
+              action: $action,
+              pull_request: {
+                number: $pr_number,
+                head: { sha: $head_sha, ref: $head_ref },
+                base: { ref: $base_ref }
+              },
+              repository: {
+                name: $repo_name,
+                owner: { login: $owner },
+                full_name: $full_name
+              }
+            }')
+
+          if [ -z "$FFT_WEBHOOK_URL" ]; then
+            echo "::warning::FAST_FREE_TESTING_WEBHOOK_URL not set — skipping fast-free-testing trigger"
+            exit 0
+          fi
+
+          STATUS=$(curl -s -o /tmp/fft-response.json -w "%{http_code}" \
+            -X POST "$FFT_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          echo "fast-free-testing response: HTTP $STATUS"
+          cat /tmp/fft-response.json
+
+          if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 202 ]; then
+            echo "::warning::fast-free-testing returned HTTP $STATUS — checks may not appear"
+          fi
