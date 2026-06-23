@@ -22,6 +22,10 @@
 
 name: fast-free-testing
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
