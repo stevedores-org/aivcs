@@ -246,6 +246,18 @@ async fn ci_webhook_handler(
         repo.full_name, pr.number, pr.head.sha
     );
 
+    // Validate SHA is not empty
+    if pr.head.sha.is_empty() {
+        warn!(
+            "⚠️ GitHub webhook has empty SHA for {}/pull/{}",
+            repo.full_name, pr.number
+        );
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Invalid commit SHA - cannot be empty"})),
+        );
+    }
+
     // Create execution record in SurrealDB
     let execution_id = format!("{}-{}", repo.full_name, pr.number);
     let create_result: Result<Option<Value>, _> = state
