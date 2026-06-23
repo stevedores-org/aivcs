@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::Path,
+    extract::{Path, State, Query},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
@@ -9,6 +9,191 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Sha256;
+
+use crate::AppState;
+
+#[derive(Debug, Deserialize)]
+pub struct ChecksQueryParams {
+    pub repository: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DbCiExecution {
+    execution_id: String,
+    repository: String,
+    pr_number: u32,
+    pr_sha: String,
+    pr_title: Option<String>,
+    status: String, // queued|running|passed|failed
+    conclusion: Option<String>, // success|failure|neutral
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+    completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    checks: serde_json::Value,
+    agent_id: Option<String>,
+    approval_required: Option<bool>,
+    approval_granted: Option<bool>,
+    approved_by: Option<String>,
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DbCiAuditLog {
+    audit_id: String,
+    execution_id: String,
+    event_kind: String,
+    agent_id: Option<String>,
+    agent_role: Option<String>,
+    result: String,
+    reason: Option<String>,
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReturnedCheck {
+    check_name: String,
+    status: String,
+    duration_ms: u64,
+    error: Option<String>,
+}
+
+fn format_checks(checks_val: &serde_json::Value) -> Vec<ReturnedCheck> {
+    let mut results = Vec::new();
+    if let Some(obj) = checks_val.as_object() {
+        for (check_name, details) in obj {
+            let status = details
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("pending")
+                .to_string();
+
+            let duration_ms = details
+                .get("duration_ms")
+                .and_then(|v| v.as_u64())
+                .or_else(|| details.get("duration").and_then(|v| v.as_u64()))
+                .unwrap_or(0);
+
+            let error = details
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            results.push(ReturnedCheck {
+                check_name: check_name.clone(),
+                status,
+                duration_ms,
+                error,
+            });
+        }
+    }
+    results
+}
+
+pub async fn get_pr_checks(
+    State(state): State<AppState>,
+    Path(pr_number): Path<u32>,
+    Query(params): Query<ChecksQueryParams>,
+) -> impl IntoResponse {
+    tracing::debug!(
+        "Queried CI checks for repo {} PR #{}",
+        params.repository,
+        pr_number
+    );
+
+    // Query SurrealDB for the CI execution record
+    let mut db_res = match state
+        .db
+        .query("SELECT * FROM ci_executions WHERE pr_number = $pr AND repository = $repo ORDER BY created_at DESC LIMIT 1")
+        .bind(("pr", pr_number))
+        .bind(("repo", params.repository.clone()))
+        .await
+    {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("Database query failed for ci_executions: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": format!("Database error: {}", e)
+                })),
+            ).into_response();
+        }
+    };
+
+    let executions: Vec<DbCiExecution> = match db_res.take(0) {
+        Ok(vec) => vec,
+        Err(e) => {
+            tracing::error!("Failed to parse ci_executions from response: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": format!("Failed to parse execution: {}", e)
+                })),
+            ).into_response();
+        }
+    };
+
+    let execution = match executions.into_iter().next() {
+        Some(exec) => exec,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({
+                    "status": "error",
+                    "message": format!("No CI execution found for PR #{} in repository {}", pr_number, params.repository)
+                })),
+            ).into_response();
+        }
+    };
+
+    // Query SurrealDB for the CI audit logs corresponding to this execution
+    let mut audit_res = match state
+        .db
+        .query("SELECT * FROM ci_audit_log WHERE execution_id = $exec_id ORDER BY created_at ASC")
+        .bind(("exec_id", execution.execution_id.clone()))
+        .await
+    {
+        Ok(res) => res,
+        Err(e) => {
+            tracing::error!("Database query failed for ci_audit_log: {:?}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": format!("Database error fetching audit logs: {}", e)
+                })),
+            ).into_response();
+        }
+    };
+
+    let audit_trail: Vec<DbCiAuditLog> = match audit_res.take(0) {
+        Ok(vec) => vec,
+        Err(e) => {
+            tracing::error!("Failed to parse ci_audit_log from response: {:?}", e);
+            Vec::new() // Fallback to empty log rather than failing the whole request
+        }
+    };
+
+    // Map database status to expected output status (passed|failed|pending|error)
+    let status = match execution.status.as_str() {
+        "passed" => "passed",
+        "failed" => "failed",
+        "queued" | "running" => "pending",
+        _ => "pending",
+    };
+
+    let formatted_checks = format_checks(&execution.checks);
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": status,
+            "checks": formatted_checks,
+            "audit_trail": audit_trail,
+        })),
+    ).into_response()
+}
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -181,20 +366,7 @@ pub async fn handle_github_webhook(headers: HeaderMap, body: Bytes) -> impl Into
     )
 }
 
-pub async fn get_pr_checks(Path(pr_number): Path<u32>) -> impl IntoResponse {
-    // TODO: Query SurrealDB ci_executions table for actual status
-    // For now, return 501 Not Implemented since SurrealDB integration is incomplete
-    tracing::debug!("Queried CI checks for PR #{}", pr_number);
 
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "status": "error",
-            "message": "CI checks API not yet implemented. Check GitHub status checks for results.",
-            "pr_number": pr_number
-        })),
-    )
-}
 
 pub async fn subscribe_to_ci(
     Path(repo): Path<String>,

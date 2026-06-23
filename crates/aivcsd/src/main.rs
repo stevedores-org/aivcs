@@ -17,9 +17,9 @@ use tracing::{info, warn, Level};
 mod routes;
 
 #[derive(Clone)]
-struct AppState {
-    db: Surreal<surrealdb::engine::remote::ws::Client>,
-    cas: Arc<aivcs_core::cas::fs::FsCasStore>,
+pub struct AppState {
+    pub db: Surreal<surrealdb::engine::remote::ws::Client>,
+    pub cas: Arc<aivcs_core::cas::fs::FsCasStore>,
 }
 
 #[tokio::main]
