@@ -5,9 +5,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::env;
 use surrealdb::engine::any::connect;
 use surrealdb::opt::auth::Database;
-use std::env;
 use tracing::{error, info};
 
 #[derive(Debug, Deserialize)]
@@ -46,7 +46,6 @@ pub struct DbAuditEvent {
     pub check_name: Option<String>,
     pub created_at: String,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApiResponseCheck {
@@ -95,7 +94,10 @@ pub async fn get_ci_checks(
     let user = env::var("SURREALDB_USER").unwrap_or_else(|_| "web_readonly".to_string());
     let pass = env::var("SURREALDB_PASS").unwrap_or_else(|_| "password".to_string());
 
-    info!("Connecting to SurrealDB at {} (NS: {}, DB: {})", url, ns, db_name);
+    info!(
+        "Connecting to SurrealDB at {} (NS: {}, DB: {})",
+        url, ns, db_name
+    );
 
     // 1. Connect to SurrealDB
     let db = match connect(&url).await {
@@ -105,7 +107,8 @@ pub async fn get_ci_checks(
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({ "error": format!("Database connection error: {}", e) })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -115,16 +118,20 @@ pub async fn get_ci_checks(
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": format!("Database initialization error: {}", e) })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     // 3. Sign In
-    if let Err(e) = db.signin(Database {
-        namespace: &ns,
-        database: &db_name,
-        username: &user,
-        password: &pass,
-    }).await {
+    if let Err(e) = db
+        .signin(Database {
+            namespace: &ns,
+            database: &db_name,
+            username: &user,
+            password: &pass,
+        })
+        .await
+    {
         error!("SurrealDB signin failed: {}", e);
         // Note: For in-memory (mem://) and embedded (surrealkv://), signin might fail depending on whether auth is enabled.
         // Let's only return 503 if we are not using these embedded backends or if signin is required.
@@ -132,13 +139,15 @@ pub async fn get_ci_checks(
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({ "error": format!("Database authentication error: {}", e) })),
-            ).into_response();
+            )
+                .into_response();
         }
     }
 
     // 4. Query ci_executions
     let query_exec = "SELECT * FROM ci_executions WHERE pr_number = $pr AND repository = $repo ORDER BY created_at DESC LIMIT 1";
-    let mut response = match db.query(query_exec)
+    let mut response = match db
+        .query(query_exec)
         .bind(("pr", pr_number))
         .bind(("repo", repository.clone()))
         .await
@@ -149,7 +158,8 @@ pub async fn get_ci_checks(
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({ "error": format!("Database query error: {}", e) })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -160,7 +170,8 @@ pub async fn get_ci_checks(
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({ "error": format!("Database deserialization error: {}", e) })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -174,13 +185,15 @@ pub async fn get_ci_checks(
                     "pr_number": pr_number,
                     "repository": repository
                 })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
     // 5. Query ci_audit_log using the execution's id
     let query_audit = "SELECT * FROM ci_audit_log WHERE execution_id = $id ORDER BY created_at ASC";
-    let mut audit_response = match db.query(query_audit)
+    let mut audit_response = match db
+        .query(query_audit)
         .bind(("id", execution.id.clone()))
         .await
     {
@@ -190,7 +203,8 @@ pub async fn get_ci_checks(
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({ "error": format!("Database query error (audit): {}", e) })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -203,17 +217,24 @@ pub async fn get_ci_checks(
     };
 
     // 6. Format response
-    let checks = execution.checks.into_iter().map(|c| ApiResponseCheck {
-        name: c.name,
-        status: c.status,
-        duration_ms: c.duration_ms,
-    }).collect();
+    let checks = execution
+        .checks
+        .into_iter()
+        .map(|c| ApiResponseCheck {
+            name: c.name,
+            status: c.status,
+            duration_ms: c.duration_ms,
+        })
+        .collect();
 
-    let audit_trail = audit_events.into_iter().map(|a| ApiResponseAuditTrailItem {
-        event: a.event_kind,
-        check: a.check_name,
-        timestamp: a.created_at,
-    }).collect();
+    let audit_trail = audit_events
+        .into_iter()
+        .map(|a| ApiResponseAuditTrailItem {
+            event: a.event_kind,
+            check: a.check_name,
+            timestamp: a.created_at,
+        })
+        .collect();
 
     let payload = ApiResponse {
         pr_number: execution.pr_number,
@@ -256,7 +277,8 @@ mod tests {
         db.use_ns("ci_test").use_db("fft_test").await.unwrap();
 
         // Populate with mock data
-        db.query("
+        db.query(
+            "
             CREATE ci_executions CONTENT {
                 id: ci_executions:exec_1,
                 pr_number: 296,
@@ -273,16 +295,23 @@ mod tests {
                 created_at: '2026-06-22T22:37:58Z',
                 completed_at: '2026-06-22T22:38:02Z'
             };
-        ").await.unwrap();
+        ",
+        )
+        .await
+        .unwrap();
 
-        db.query("
+        db.query(
+            "
             CREATE ci_audit_log CONTENT {
                 execution_id: ci_executions:exec_1,
                 event_kind: 'check_started',
                 check_name: 'type-safety',
                 created_at: '2026-06-22T22:37:58Z'
             };
-        ").await.unwrap();
+        ",
+        )
+        .await
+        .unwrap();
 
         // Call the handler
         let response = get_ci_checks(
@@ -291,14 +320,17 @@ mod tests {
                 repo: Some("stevedores-org/aivcs".to_string()),
                 repository: None,
             }),
-        ).await.into_response();
+        )
+        .await
+        .into_response();
 
         assert_eq!(response.status(), StatusCode::OK);
 
         // Get the body
-        let body_bytes = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), 10000)
+            .await
+            .unwrap();
         let api_response: ApiResponse = serde_json::from_slice(&body_bytes).unwrap();
-
 
         assert_eq!(api_response.pr_number, 296);
         assert_eq!(api_response.repository, "stevedores-org/aivcs");
@@ -309,7 +341,10 @@ mod tests {
         assert_eq!(api_response.checks[0].status, "passed");
         assert_eq!(api_response.audit_trail.len(), 1);
         assert_eq!(api_response.audit_trail[0].event, "check_started");
-        assert_eq!(api_response.audit_trail[0].check, Some("type-safety".to_string()));
+        assert_eq!(
+            api_response.audit_trail[0].check,
+            Some("type-safety".to_string())
+        );
     }
 
     #[tokio::test]
@@ -327,7 +362,9 @@ mod tests {
                 repo: Some("stevedores-org/aivcs".to_string()),
                 repository: None,
             }),
-        ).await.into_response();
+        )
+        .await
+        .into_response();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
@@ -347,9 +384,10 @@ mod tests {
                 repo: Some("stevedores-org/aivcs".to_string()),
                 repository: None,
             }),
-        ).await.into_response();
+        )
+        .await
+        .into_response();
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }
-
