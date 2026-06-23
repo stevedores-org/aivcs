@@ -1,14 +1,230 @@
+use crate::AppState;
 use axum::{
-    extract::{Path, Query},
-    http::StatusCode,
+    body::Bytes,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::Sha256;
 use std::env;
 use surrealdb::engine::any::connect;
 use surrealdb::opt::auth::Database;
-use tracing::{error, info};
+use tracing::{error, info, warn};
+
+type HmacSha256 = Hmac<Sha256>;
+
+#[derive(Debug, Deserialize)]
+pub struct GithubWebhookPayload {
+    pub action: Option<String>,
+    pub pull_request: Option<PullRequestPayload>,
+    pub repository: Option<RepositoryPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PullRequestPayload {
+    pub number: u64,
+    pub head: HeadPayload,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HeadPayload {
+    pub sha: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RepositoryPayload {
+    pub full_name: String,
+}
+
+fn verify_github_signature(headers: &HeaderMap, body: &[u8], secret: &str) -> Result<(), String> {
+    let signature_header = headers
+        .get("x-hub-signature-256")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| "Missing x-hub-signature-256 header".to_string())?;
+
+    let expected_sig = format!(
+        "sha256={}",
+        hex::encode(
+            HmacSha256::new_from_slice(secret.as_bytes())
+                .map_err(|_| "Invalid HMAC key".to_string())?
+                .chain_update(body)
+                .finalize()
+                .into_bytes()
+        )
+    );
+
+    if signature_header == expected_sig {
+        Ok(())
+    } else {
+        Err("Invalid signature".to_string())
+    }
+}
+
+pub async fn handle_github_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let webhook_secret = match std::env::var("CI_WEBHOOK_SECRET") {
+        Ok(secret) => secret,
+        Err(_) => {
+            error!("CI_WEBHOOK_SECRET not configured");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": "Webhook verification secret not configured"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    // Verify signature
+    if let Err(e) = verify_github_signature(&headers, &body, &webhook_secret) {
+        warn!("Webhook signature verification failed: {}", e);
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "status": "error",
+                "message": "Invalid webhook signature"
+            })),
+        )
+            .into_response();
+    }
+
+    // Parse payload
+    let payload = match serde_json::from_slice::<GithubWebhookPayload>(&body) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("Failed to parse webhook payload: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "status": "error",
+                    "message": "Invalid payload format"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    // Validate payload structure
+    let pr = match &payload.pull_request {
+        Some(pr) => pr,
+        None => {
+            warn!("Webhook missing required pull_request object");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "status": "error",
+                    "message": "Missing pull_request"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let repo = match &payload.repository {
+        Some(repo) => repo,
+        None => {
+            warn!("Webhook missing required repository object");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "status": "error",
+                    "message": "Missing repository"
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    // Validate PR number is non-zero
+    if pr.number == 0 {
+        warn!("Webhook has zero PR number");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "PR number must be non-zero"
+            })),
+        )
+            .into_response();
+    }
+
+    // Validate commit SHA is non-empty
+    if pr.head.sha.trim().is_empty() {
+        warn!("Webhook has empty commit SHA");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "Commit SHA must be non-empty"
+            })),
+        )
+            .into_response();
+    }
+
+    info!(
+        "GitHub webhook verified for {} PR #{} (sha: {})",
+        repo.full_name, pr.number, pr.head.sha
+    );
+
+    // Create/upsert execution record in SurrealDB under `ci_executions`
+    // using the safe delimiter `#` (format: `{repository}#{pr_number}`)
+    let execution_id = format!("{}#{}", repo.full_name, pr.number);
+    let execution_record = json!({
+        "repository": repo.full_name,
+        "pr_number": pr.number,
+        "sha": pr.head.sha,
+        "status": "pending",
+        "checks": [],
+        "duration_ms": 0,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+        "completed_at": serde_json::Value::Null,
+    });
+
+    let upsert_result: Result<Option<DbCIExecution>, _> = state
+        .db
+        .upsert(("ci_executions", &execution_id))
+        .content(execution_record)
+        .await;
+
+    match upsert_result {
+        Ok(_) => {
+            info!(
+                "✅ Recorded FFT execution for {}#{}",
+                repo.full_name, pr.number
+            );
+            (
+                StatusCode::ACCEPTED,
+                Json(json!({
+                    "status": "received",
+                    "execution_id": execution_id,
+                    "repository": repo.full_name,
+                    "pr_number": pr.number,
+                    "message": "CI execution record created"
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!("❌ Failed to record execution: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": format!("Database error: {}", e)
+                })),
+            )
+                .into_response()
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct ChecksQuery {
@@ -89,7 +305,9 @@ pub async fn get_ci_checks(
     };
 
     let url = env::var("SURREALDB_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
-    let ns = env::var("SURREALDB_NS").unwrap_or_else(|_| "ci".to_string());
+    let ns = env::var("SURREALDB_NS")
+        .or_else(|_| env::var("SURREALDB_NAMESPACE"))
+        .unwrap_or_else(|_| "ci".to_string());
     let db_name = env::var("SURREALDB_DB").unwrap_or_else(|_| "fft".to_string());
     let user = env::var("SURREALDB_USER").unwrap_or_else(|_| "web_readonly".to_string());
     let pass = env::var("SURREALDB_PASS").unwrap_or_else(|_| "password".to_string());
@@ -389,5 +607,131 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_handle_github_webhook_missing_secret() {
+        let _guard = TEST_LOCK.lock().await;
+        env::remove_var("CI_WEBHOOK_SECRET");
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().to_str().unwrap().to_string();
+        let url = format!("surrealkv://{}", db_path);
+        let db = connect(&url).await.unwrap();
+        let cas_dir = temp_dir.path().join("cas");
+        std::fs::create_dir_all(&cas_dir).unwrap();
+        let cas = std::sync::Arc::new(aivcs_core::cas::fs::FsCasStore::new(cas_dir).unwrap());
+        let state = AppState { db, cas };
+
+        let headers = HeaderMap::new();
+        let body = Bytes::from_static(b"{}");
+
+        let response = handle_github_webhook(State(state), headers, body)
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_handle_github_webhook_invalid_signature() {
+        let _guard = TEST_LOCK.lock().await;
+        env::set_var("CI_WEBHOOK_SECRET", "mysecret");
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().to_str().unwrap().to_string();
+        let url = format!("surrealkv://{}", db_path);
+        let db = connect(&url).await.unwrap();
+        let cas_dir = temp_dir.path().join("cas");
+        std::fs::create_dir_all(&cas_dir).unwrap();
+        let cas = std::sync::Arc::new(aivcs_core::cas::fs::FsCasStore::new(cas_dir).unwrap());
+        let state = AppState { db, cas };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-hub-signature-256",
+            "sha256=invalid-signature-here".parse().unwrap(),
+        );
+        let body = Bytes::from_static(b"{}");
+
+        let response = handle_github_webhook(State(state), headers, body)
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_handle_github_webhook_success() {
+        let _guard = TEST_LOCK.lock().await;
+        let secret = "mysecret";
+        env::set_var("CI_WEBHOOK_SECRET", secret);
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().to_str().unwrap().to_string();
+        let url = format!("surrealkv://{}", db_path);
+        let db = connect(&url).await.unwrap();
+        db.use_ns("ci_test").use_db("fft_test").await.unwrap();
+
+        let cas_dir = temp_dir.path().join("cas");
+        std::fs::create_dir_all(&cas_dir).unwrap();
+        let cas = std::sync::Arc::new(aivcs_core::cas::fs::FsCasStore::new(cas_dir).unwrap());
+        let state = AppState {
+            db: db.clone(),
+            cas,
+        };
+
+        let payload_json = json!({
+            "action": "opened",
+            "pull_request": {
+                "number": 42,
+                "head": {
+                    "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+                }
+            },
+            "repository": {
+                "full_name": "stevedores-org/aivcs"
+            }
+        });
+
+        let body_bytes = serde_json::to_vec(&payload_json).unwrap();
+        let hmac_sig = format!(
+            "sha256={}",
+            hex::encode(
+                HmacSha256::new_from_slice(secret.as_bytes())
+                    .unwrap()
+                    .chain_update(&body_bytes)
+                    .finalize()
+                    .into_bytes()
+            )
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-hub-signature-256", hmac_sig.parse().unwrap());
+
+        let response = handle_github_webhook(State(state), headers, Bytes::from(body_bytes))
+            .await
+            .into_response();
+
+        let status = response.status();
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        // Verify the record was persisted in SurrealDB under `ci_executions`
+        // using the key `stevedores-org/aivcs#42`
+        let query_res = db
+            .query("SELECT * FROM ci_executions WHERE pr_number = 42 AND repository = 'stevedores-org/aivcs'")
+            .await;
+        let mut res = query_res.unwrap();
+        let executions: Vec<DbCIExecution> = res.take(0).unwrap();
+        assert_eq!(executions.len(), 1);
+        let exec = &executions[0];
+        assert_eq!(exec.pr_number, 42);
+        assert_eq!(exec.repository, "stevedores-org/aivcs");
+        assert_eq!(
+            exec.sha.as_deref(),
+            Some("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")
+        );
+        assert_eq!(exec.status, "pending");
+        assert_eq!(exec.checks.len(), 0);
     }
 }
