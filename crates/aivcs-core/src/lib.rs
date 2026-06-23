@@ -11,10 +11,14 @@ pub mod deploy_runner;
 pub mod diff;
 pub mod domain;
 pub mod event_adapter;
+pub mod forge;
 pub mod gate;
 pub mod git;
+pub mod git_host;
 pub mod github;
+pub mod gitlab;
 pub mod hitl_controls;
+pub mod infra;
 pub mod memory;
 pub mod memory_context;
 pub mod metrics;
@@ -50,10 +54,17 @@ pub use a2a::{
     CodeCommittedEvent, HttpJsonRpcTransport, DEFAULT_A2A_METHOD,
 };
 
+pub use forge::ForgeClient;
 pub use git::{
     capture_head_sha, detect_current_branch, detect_github_repository, is_git_repo, is_owner_repo,
     is_valid_github_name, parse_github_remote,
 };
+pub use git_host::{detect_forge_repository, parse_git_remote, GitHost};
+pub use infra::cloudflare_lb::{
+    build_audit_report, fetch_load_balancers, fetch_pools, parse_allowlist, prune_orphans,
+    render_audit_markdown, resolve_cf_credentials, AuditReport,
+};
+pub use infra::flux::{build_reconcile_command, run_reconcile};
 
 pub use memory::{DecisionRecorder, DecisionRecorderConfig};
 

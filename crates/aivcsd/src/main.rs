@@ -1,25 +1,36 @@
+pub mod routes;
+
+use aivcs_core::cas::CasStore;
 use anyhow::{Context, Result};
 use axum::{
+    body::Bytes,
     extract::State,
     routing::{get, post},
     Json, Router,
 };
 use serde_json::{json, Value};
 use std::net::SocketAddr;
-use surrealdb::engine::remote::ws::Ws;
+use std::sync::Arc;
+use surrealdb::engine::any::connect;
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 use tracing::{info, warn, Level};
 
 #[derive(Clone)]
-struct AppState {
-    db: Surreal<surrealdb::engine::remote::ws::Client>,
+pub struct AppState {
+    pub db: Surreal<surrealdb::engine::any::Any>,
+    pub cas: Arc<aivcs_core::cas::fs::FsCasStore>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     aivcs_core::init_tracing(false, Level::INFO);
     info!("🚀 aivcsd starting");
+
+    // Verify required env vars for CI integration at startup
+    std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN env var must be set at server startup")?;
+    std::env::var("CI_WEBHOOK_SECRET")
+        .context("CI_WEBHOOK_SECRET env var must be set at server startup")?;
 
     let db_url =
         std::env::var("SURREALDB_URL").unwrap_or_else(|_| "ws://localhost:8000".to_string());
@@ -28,7 +39,7 @@ async fn main() -> Result<()> {
 
     info!("🔌 Connecting to SurrealDB at {}", db_url);
 
-    let db = Surreal::new::<Ws>(&db_url)
+    let db = connect(&db_url)
         .await
         .context("Failed to connect to SurrealDB")?;
 
@@ -39,20 +50,44 @@ async fn main() -> Result<()> {
     .await
     .context("Failed to authenticate with SurrealDB")?;
 
-    db.use_ns("aivcs").use_db("core").await?;
-    info!("✅ Connected to SurrealDB and selected namespace 'aivcs' database 'core'");
+    let db_ns = std::env::var("SURREALDB_NS")
+        .or_else(|_| std::env::var("SURREALDB_NAMESPACE"))
+        .unwrap_or_else(|_| "ci".to_string());
+    let db_name = std::env::var("SURREALDB_DB").unwrap_or_else(|_| "fft".to_string());
+
+    db.use_ns(&db_ns).use_db(&db_name).await?;
+    info!(
+        "✅ Connected to SurrealDB and selected namespace '{}' database '{}'",
+        db_ns, db_name
+    );
 
     // Initialize Schema
     let schema = include_str!("../schemas/001_synthetic_principal.surql");
     db.query(schema).await.context("Failed to apply schema")?;
     info!("✅ Schema initialized successfully");
 
-    let state = AppState { db };
+    let cas_dir = std::env::var("AIVCS_CAS_DIR").unwrap_or_else(|_| ".aivcs/cas".to_string());
+    let cas = Arc::new(
+        aivcs_core::cas::fs::FsCasStore::new(std::path::PathBuf::from(cas_dir))
+            .context("Failed to initialize CAS store")?,
+    );
+    info!("📦 Initialized CAS store");
+
+    let state = AppState { db, cas };
 
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/version", get(version_info))
         .route("/api/v1/push", post(push_state))
+        .route("/api/v1/blobs/upload", post(upload_blob))
+        .route(
+            "/api/v1/ci/webhooks/github",
+            post(routes::ci::handle_github_webhook),
+        )
+        .route(
+            "/api/v1/ci/checks/:pr_number",
+            get(routes::ci::get_ci_checks),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -119,6 +154,25 @@ async fn push_state(
             Json(json!({
                 "status": "error",
                 "message": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
+async fn upload_blob(State(state): State<AppState>, body: Bytes) -> Json<Value> {
+    info!("📥 Received raw blob upload of {} bytes", body.len());
+
+    match state.cas.put(&body) {
+        Ok(digest) => Json(json!({
+            "status": "success",
+            "blob_hash": digest.to_string(),
+            "message": "Blob stored successfully"
+        })),
+        Err(e) => {
+            warn!("Failed to store blob: {:?}", e);
+            Json(json!({
+                "status": "error",
+                "message": format!("CAS storage error: {}", e)
             }))
         }
     }

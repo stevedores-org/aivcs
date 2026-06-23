@@ -97,16 +97,63 @@
             pname = "aivcsd";
             meta.mainProgram = "aivcsd";
           });
+
+          pkgVersion = "0.3.2";
+
+          aivcs-cli-image = pkgs.dockerTools.buildLayeredImage {
+            name = "aivcs";
+            tag = pkgVersion;
+            contents = [ aivcs pkgs.cacert ];
+            config = {
+              Cmd = [ "${aivcs}/bin/aivcs" ];
+              User = "65532:65532";
+              Env = [
+                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "RUST_LOG=info"
+              ];
+              Labels = {
+                "org.opencontainers.image.source" = "https://github.com/stevedores-org/aivcs";
+                "org.opencontainers.image.title" = "aivcs";
+                "org.opencontainers.image.version" = pkgVersion;
+                "lornu.ai/managed-by" = "dockworker";
+                "lornu.ai/runtime" = "rust";
+                "lornu.ai/component" = "aivcs-cli";
+              };
+            };
+          };
+
+          aivcsd-image = pkgs.dockerTools.buildLayeredImage {
+            name = "aivcsd";
+            tag = pkgVersion;
+            contents = [ aivcsd pkgs.cacert ];
+            config = {
+              Cmd = [ "${aivcsd}/bin/aivcsd" ];
+              User = "65532:65532";
+              ExposedPorts = { "8080/tcp" = { }; };
+              Env = [
+                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "RUST_LOG=info"
+              ];
+              Labels = {
+                "org.opencontainers.image.source" = "https://github.com/stevedores-org/aivcs";
+                "org.opencontainers.image.title" = "aivcsd";
+                "org.opencontainers.image.version" = pkgVersion;
+                "lornu.ai/managed-by" = "dockworker";
+                "lornu.ai/runtime" = "rust";
+                "lornu.ai/component" = "aivcsd";
+              };
+            };
+          };
         in
         {
-          inherit pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd;
+          inherit pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd aivcs-cli-image aivcsd-image;
         };
 
       linuxPackages = mkSystemPackages "x86_64-linux";
     in
     flake-utils.lib.eachDefaultSystem (system:
       let
-        inherit (mkSystemPackages system) pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd;
+        inherit (mkSystemPackages system) pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd aivcs-cli-image aivcsd-image;
         wslChecks =
           if system == "x86_64-linux" then {
             aivcs-wsl = self.nixosConfigurations.aivcs-wsl.config.system.build.toplevel;
@@ -141,6 +188,8 @@
         packages = {
           default = workspace;
           inherit aivcs aivcsd;
+        } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          inherit aivcs-cli-image aivcsd-image;
         };
 
         devShells.default = craneLib.devShell {
