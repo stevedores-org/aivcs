@@ -255,7 +255,7 @@ pub async fn get_ci_checks(
 mod tests {
     use super::*;
 
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     async fn setup_db_path() -> (tempfile::TempDir, String) {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -266,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_ci_checks_success() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().await;
         let (_temp_dir, url) = setup_db_path().await;
 
         env::set_var("SURREALDB_URL", &url);
@@ -349,7 +349,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_ci_checks_not_found() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().await;
         let (_temp_dir, url) = setup_db_path().await;
 
         env::set_var("SURREALDB_URL", &url);
@@ -371,7 +371,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_ci_checks_offline() {
-        let _guard = TEST_LOCK.lock().unwrap();
+        let _guard = TEST_LOCK.lock().await;
 
         // Set to a port that is guaranteed to be unreachable or fail
         env::set_var("SURREALDB_URL", "http://127.0.0.1:9999");
