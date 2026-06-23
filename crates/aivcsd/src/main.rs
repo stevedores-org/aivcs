@@ -247,7 +247,8 @@ async fn ci_webhook_handler(
     );
 
     // Create execution record in SurrealDB
-    let execution_id = format!("{}-{}", repo.full_name, pr.number);
+    // Use URL-safe format to avoid ambiguity with dashes in repo names
+    let execution_id = format!("{}#{}", repo.full_name, pr.number);
     let create_result: Result<Option<Value>, _> = state
         .db
         .create("ci_executions")
