@@ -1,0 +1,46 @@
+# GitLab CI — sovereign build plane for aivcs (plans#71 / lornu-ai/plans#71)
+# Replaces GitHub Actions for OCI publish on develop + version tags.
+# Requires CI/CD variables: GCP_ACCESS_TOKEN (WIF-minted, short-lived) or GitLab OIDC → GCP.
+
+stages:
+  - test
+  - publish
+
+variables:
+  NIX_CONFIG: |
+    extra-substituters = https://nix-cache.stevedores.org
+    extra-trusted-public-keys = stevedores-1:ZEtb+wHYNR/LDmMDhF3/EpRZDNma8exY2b1TGZ6uS2A=
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+.default-rust:
+  image: nixos/nix:2.24.11
+  before_script:
+    - nix --version
+    - nix develop -c cargo --version
+
+test:rust:
+  extends: .default-rust
+  stage: test
+  script:
+    - nix develop -c cargo fmt --all -- --check
+    - nix develop -c cargo clippy -p aivcs-core -p aivcs-cli -- -D warnings
+    - nix develop -c cargo test -p aivcs-core -p aivcs-cli
+
+test:nix-oci:
+  extends: .default-rust
+  stage: test
+  script:
+    - nix build .#aivcs-cli-image --system x86_64-linux -L
+
+publish:oci-aivcs-cli:
+  extends: .default-rust
+  stage: publish
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]/
+  script:
+    - nix develop -c cargo run -p aivcs-cli -- oci publish --target aivcs-cli --system x86_64-linux
+  needs:
+    - test:rust
+    - test:nix-oci

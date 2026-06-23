@@ -62,16 +62,46 @@ echo '{"step": 1, "memory": "learned X"}' > state.json
 | `init` | Initialize a new AIVCS repository |
 | `snapshot` | Create a versioned checkpoint of agent state |
 | `restore` | Restore agent to a previous state |
-| `branch` | Manage branches (list, create, delete) |
+| `replay-artifact` | Replay a recorded run artifact from disk by run ID |
+| `branch` | Manage branches (`list`, `create`, `delete`) |
 | `log` | Show commit history |
 | `merge` | Merge two branches with semantic resolution |
-| `diff` | Show differences between commits/branches |
-| `env` | Environment management (Nix/Attic integration) |
-| `fork` | Fork multiple parallel branches for exploration |
-| `trace` | Time-travel debugging - show reasoning trace |
-| `replay` | Replay a recorded run artifact by run ID |
+| `diff` | Show differences for specs or runs (`diff spec`, `diff run`) |
 | `diff-runs` | Diff the tool-call sequences of two runs |
-| `pr open` | Open a GitHub Pull Request and request review from the Librarian Agent |
+| `env` | Environment management (`hash`, `logic-hash`) |
+| `fork` | Fork multiple parallel branches for exploration |
+| `trace` | Time-travel debugging — show reasoning trace |
+| `release` | Release registry operations (`promote`, `current`, `history`, `rollback`) — see [release-workflow runbook](docs/runbooks/release-workflow.md) |
+| `ci` | CI pipeline operations (`ci run`) — see [aivcs-ci runbook](docs/runbooks/aivcs-ci.md) |
+| `report` | Generate reports (`report cross-org`) |
+| `pr` | GitHub Pull Request operations (`open`, `branch`, `commit`, `pipeline`, `verify-snapshot`, `verify-reproducibility`) |
+| `pr-note` | Emit a summary note linking a GitHub PR to the head aivcs `CommitId` |
+
+> Command names are kebab-case as exposed by Clap (e.g. `replay-artifact`, `diff-runs`). There is **no** `replay` alias — use `aivcs replay-artifact`. Verify the live surface any time with `aivcs --help` and `aivcs <command> --help`.
+
+### Release, CI & report commands
+
+```bash
+# Release registry (append-only history per agent)
+aivcs release promote my-agent --git-sha <sha> \
+  --graph-digest <h> --prompts-digest <h> --tools-digest <h> --config-digest <h> \
+  --version v1.2.3 --notes "first stable spec"
+aivcs release current  my-agent                # current release pointer
+aivcs release history  my-agent                # newest first
+aivcs release rollback my-agent                # revert to previous release
+
+# CI pipeline (records execution; default stages: fmt,check)
+aivcs ci run --stages fmt,check,clippy,test   # add --no-cache to skip cache, --fix to auto-repair
+
+# Reports
+aivcs report cross-org --objective main --output report.md   # cross-org integration health audit
+
+# Run inspection
+aivcs replay-artifact --run <run-id>           # replay a recorded run artifact (root: .aivcs/runs)
+aivcs diff spec a.json b.json                  # diff two agent specs
+aivcs diff run  a.json b.json                  # diff two run event logs
+aivcs diff-runs --run-a <run-id-a> --run-b <run-id-b>   # diff tool-call sequences of two recorded runs
+```
 
 ### Environment Commands (Phase 2)
 
@@ -148,16 +178,71 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
 }
 ```
 
-### GitHub Integration (`pr open`, `pr branch`, `pr commit`, `pr pipeline`)
+### Git forge integration (`pr pipeline` — GitHub or GitLab)
 
-Autonomous builder agents use the `pr` subcommands to branch, commit, and open Pull Requests via the GitHub API. Tokens are read from `GITHUB_TOKEN` (GitHub App installation token from ESO) or `GITHUB_TOKEN_FILE` (Kubernetes secret volume mount).
+Autonomous agents branch, commit, and open **PRs (GitHub) or MRs (GitLab)** via the
+forge API. Host selection: `AIVCS_GIT_HOST=github|gitlab` (default: GitLab when
+`GITLAB_TOKEN` / GitLab CI env is present).
+
+| Host | Token env |
+|------|-----------|
+| GitHub | `GITHUB_TOKEN` or `GITHUB_TOKEN_FILE` |
+| GitLab | `GITLAB_TOKEN` or `GITLAB_TOKEN_FILE` |
+
+```bash
+export AIVCS_GIT_HOST=gitlab
+export GITLAB_TOKEN="<gitlab-project-or-group-token>"
+
+uv run aivcs pr pipeline \
+  --branch feature/my-change \
+  --base develop \
+  --path docs/example.md \
+  --file ./example.md \
+  --message "docs: add example" \
+  --title "feat: my change" \
+  --body "Summary." \
+  --owner lornu-ai \
+  --repo infra-code
+```
+
+See [Sovereign infra (GitLab, no GHA)](docs/runbooks/sovereign-infra-gitlab.md).
+
+### Sovereign infra (`aivcs infra` — no GitHub Actions)
+
+In-cluster reconcilers for Cloudflare LB hygiene and Flux handoff:
+
+```bash
+# Audit CF pools vs git allowlist (exit 2 on orphan drift)
+aivcs infra cloudflare-lb audit --allowlist policy/cloudflare-lb-allowlist.txt
+
+# Prune unreferenced legacy pools (e.g. aks-lornu-hub)
+aivcs infra cloudflare-lb prune --allowlist policy/cloudflare-lb-allowlist.txt --dry-run
+
+# Resume a suspended Flux Kustomization after MR merge
+export FLUX_CONTEXT=gke_gcp-lornu-ai_us-central1_lornu-gke-prod
+aivcs infra flux reconcile --kustomization cloudflare-lb-aivcs-io --with-source
+```
+
+### OCI publish (`aivcs oci` — GitLab CI, no GHA)
+
+Nix OCI → GAR via Rust CLI (skopeo). See [oci-publish-gitlab.md](docs/runbooks/oci-publish-gitlab.md).
+
+```bash
+cargo run -p aivcs-cli -- oci publish --target aivcs-cli --dry-run
+GCP_ACCESS_TOKEN="$(gcloud auth print-access-token)" \
+  cargo run -p aivcs-cli -- oci publish --target aivcs-cli
+```
+
+### GitHub Integration (legacy path)
+
+GitHub remains supported when `AIVCS_GIT_HOST=github` (default without GitLab token):
+
+> **Recommended base branch is `develop`** (per `CODEX.md`). Note a default mismatch to be aware of: `pr open`, `pr branch`, and `pr commit` default `--base` to **`main`**, while the zero-touch `pr pipeline` defaults `--base` to **`develop`**. Until the CLI defaults are aligned (tracked separately — docs do not change behavior), **always pass `--base develop` explicitly** to the step-by-step `pr` commands, as the examples below do.
 
 ```bash
 export GITHUB_TOKEN="<github-app-installation-token-or-pat>"
-# Or: export GITHUB_TOKEN_FILE="/var/run/secrets/github/token"
 export RELIC_LIBRARIAN_USERNAME="librarian-bot"
 
-# Zero-touch pipeline (branch → commit → CODE_COMMITTED → open PR)
 uv run aivcs pr pipeline \
   --branch feature/my-change \
   --base develop \
@@ -168,13 +253,13 @@ uv run aivcs pr pipeline \
   --body "Summary of what changed." \
   --owner stevedores-org \
   --repo aivcs
+```
 
-# Or step-by-step:
+Step-by-step (GitHub or GitLab — same flags):
 
-# 1. Create a feature branch
+```bash
 aivcs pr branch --name feature/my-change --base develop --owner stevedores-org --repo aivcs
 
-# 2. Commit a file to that branch (emits CODE_COMMITTED when A2A URL is set)
 aivcs pr commit \
   --branch feature/my-change \
   --path docs/example.md \
@@ -183,7 +268,6 @@ aivcs pr commit \
   --owner stevedores-org \
   --repo aivcs
 
-# 3. Open a PR (requests Librarian review by default)
 aivcs pr open \
   --owner stevedores-org \
   --repo aivcs \
