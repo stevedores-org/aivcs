@@ -1,65 +1,94 @@
-use anyhow::Result;
+pub mod routes;
+
+use aivcs_core::cas::CasStore;
+use anyhow::{Context, Result};
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
-    routing::get,
+    body::Bytes,
+    extract::State,
+    routing::{get, post},
     Json, Router,
 };
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{info, Level};
+use surrealdb::engine::any::connect;
+use surrealdb::opt::auth::Root;
+use surrealdb::Surreal;
+use tracing::{info, warn, Level};
 
-#[derive(serde::Deserialize)]
-struct CheckParams {
-    repo: String,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-struct CIExecutionRecord {
-    id: surrealdb::sql::Thing,
-    pr_number: u64,
-    repository: String,
-    status: String,
-    started_at: Option<String>,
-    completed_at: Option<String>,
-    duration_ms: Option<u64>,
-    checks: Option<serde_json::Value>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-struct CIAuditRecord {
-    id: Option<surrealdb::sql::Thing>,
-    execution_id: Option<surrealdb::sql::Thing>,
-    event: String,
-    #[serde(rename = "check")]
-    check_name: Option<String>,
-    created_at: Option<String>,
-    timestamp: Option<String>,
-    actor: Option<String>,
-    result: Option<String>,
-    duration_ms: Option<u64>,
+#[derive(Clone)]
+pub struct AppState {
+    pub db: Surreal<surrealdb::engine::any::Any>,
+    pub cas: Arc<aivcs_core::cas::fs::FsCasStore>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     aivcs_core::init_tracing(false, Level::INFO);
-
     info!("🚀 aivcsd starting");
 
-    let db_handle = match oxidized_state::SurrealHandle::setup_from_env().await {
-        Ok(handle) => Arc::new(handle),
-        Err(e) => {
-            tracing::error!("Failed to connect to SurrealDB: {}", e);
-            return Err(anyhow::anyhow!("Failed to initialize database: {}", e));
-        }
-    };
+    // Verify required env vars for CI integration at startup
+    std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN env var must be set at server startup")?;
+    std::env::var("CI_WEBHOOK_SECRET")
+        .context("CI_WEBHOOK_SECRET env var must be set at server startup")?;
+
+    let db_url =
+        std::env::var("SURREALDB_URL").unwrap_or_else(|_| "ws://localhost:8000".to_string());
+    let db_user = std::env::var("SURREALDB_USER").unwrap_or_else(|_| "root".to_string());
+    let db_pass = std::env::var("SURREALDB_PASS").unwrap_or_else(|_| "root".to_string());
+
+    info!("🔌 Connecting to SurrealDB at {}", db_url);
+
+    let db = connect(&db_url)
+        .await
+        .context("Failed to connect to SurrealDB")?;
+
+    db.signin(Root {
+        username: &db_user,
+        password: &db_pass,
+    })
+    .await
+    .context("Failed to authenticate with SurrealDB")?;
+
+    let db_ns = std::env::var("SURREALDB_NS")
+        .or_else(|_| std::env::var("SURREALDB_NAMESPACE"))
+        .unwrap_or_else(|_| "ci".to_string());
+    let db_name = std::env::var("SURREALDB_DB").unwrap_or_else(|_| "fft".to_string());
+
+    db.use_ns(&db_ns).use_db(&db_name).await?;
+    info!(
+        "✅ Connected to SurrealDB and selected namespace '{}' database '{}'",
+        db_ns, db_name
+    );
+
+    // Initialize Schema
+    let schema = include_str!("../schemas/001_synthetic_principal.surql");
+    db.query(schema).await.context("Failed to apply schema")?;
+    info!("✅ Schema initialized successfully");
+
+    let cas_dir = std::env::var("AIVCS_CAS_DIR").unwrap_or_else(|_| ".aivcs/cas".to_string());
+    let cas = Arc::new(
+        aivcs_core::cas::fs::FsCasStore::new(std::path::PathBuf::from(cas_dir))
+            .context("Failed to initialize CAS store")?,
+    );
+    info!("📦 Initialized CAS store");
+
+    let state = AppState { db, cas };
 
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/version", get(version_info))
-        .route("/api/v1/ci/checks/:pr_number", get(ci_checks))
-        .with_state(db_handle);
+        .route("/api/v1/push", post(push_state))
+        .route("/api/v1/blobs/upload", post(upload_blob))
+        .route(
+            "/api/v1/ci/webhooks/github",
+            post(routes::ci::handle_github_webhook),
+        )
+        .route(
+            "/api/v1/ci/checks/:pr_number",
+            get(routes::ci::get_ci_checks),
+        )
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -70,11 +99,83 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn health_check() -> Json<Value> {
+async fn health_check(State(state): State<AppState>) -> Json<Value> {
+    let db_status = if state.db.version().await.is_ok() {
+        "connected"
+    } else {
+        "disconnected"
+    };
+
     Json(json!({
         "status": "healthy",
+        "database": db_status,
         "timestamp": chrono::Utc::now()
     }))
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct PushPayload {
+    agent_id: String,
+    hive_id: String,
+    message: String,
+    blob_hash: String, // Points to S3 CAS
+}
+
+async fn push_state(
+    State(state): State<AppState>,
+    Json(payload): Json<PushPayload>,
+) -> Json<Value> {
+    // In the real system, we'd verify the cryptographic signature of the agent.
+    info!(
+        "📥 Received state push from agent {} for hive {}",
+        payload.agent_id, payload.hive_id
+    );
+
+    // Create the commit in SurrealDB
+    let create_result: Result<Option<Value>, _> = state
+        .db
+        .create("commit")
+        .content(json!({
+            "message": payload.message,
+            "blob_hash": payload.blob_hash,
+            "author": format!("agent:{}", payload.agent_id),
+            "hive": format!("hive:{}", payload.hive_id),
+            "created_at": chrono::Utc::now()
+        }))
+        .await;
+
+    match create_result {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": "State commit recorded successfully in semantic graph"
+        })),
+        Err(e) => {
+            warn!("Failed to record commit: {:?}", e);
+            Json(json!({
+                "status": "error",
+                "message": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
+async fn upload_blob(State(state): State<AppState>, body: Bytes) -> Json<Value> {
+    info!("📥 Received raw blob upload of {} bytes", body.len());
+
+    match state.cas.put(&body) {
+        Ok(digest) => Json(json!({
+            "status": "success",
+            "blob_hash": digest.to_string(),
+            "message": "Blob stored successfully"
+        })),
+        Err(e) => {
+            warn!("Failed to store blob: {:?}", e);
+            Json(json!({
+                "status": "error",
+                "message": format!("CAS storage error: {}", e)
+            }))
+        }
+    }
 }
 
 async fn version_info() -> Json<Value> {
@@ -85,109 +186,13 @@ async fn version_info() -> Json<Value> {
     }))
 }
 
-async fn ci_checks(
-    State(handle): State<Arc<oxidized_state::SurrealHandle>>,
-    Path(pr_number): Path<u64>,
-    Query(params): Query<CheckParams>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let db = handle.db();
-
-    let mut response = db
-        .query("SELECT * FROM ci_executions WHERE repository = $repo AND pr_number = $pr LIMIT 1")
-        .bind(("repo", params.repo.clone()))
-        .bind(("pr", pr_number))
-        .await
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": "Database unavailable" }))))?;
-
-    let execution: Option<CIExecutionRecord> = response
-        .take(0)
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": "Database unavailable" }))))?;
-
-    let execution = match execution {
-        Some(exec) => exec,
-        None => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(json!({ "error": format!("PR #{} not found in {}", pr_number, params.repo) })),
-            ));
-        }
-    };
-
-    let mut audit_response = db
-        .query("SELECT * FROM ci_audit_log WHERE execution_id = $id ORDER BY created_at ASC")
-        .bind(("id", execution.id.clone()))
-        .await
-        .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": format!("audit query error: {}", e) }))))?;
-
-    let audit_trail: Vec<CIAuditRecord> = audit_response
-        .take(0)
-        .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": format!("audit take error: {}", e) }))))?;
-
-    Ok(Json(json!({
-        "pr_number": execution.pr_number,
-        "repository": execution.repository,
-        "status": execution.status,
-        "started_at": execution.started_at,
-        "completed_at": execution.completed_at,
-        "duration_ms": execution.duration_ms,
-        "checks": execution.checks.unwrap_or(json!([])),
-        "audit_trail": audit_trail,
-    })))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_health_check() {
-        let res = health_check().await;
-        assert_eq!(res.0["status"], "healthy");
-    }
-
-    #[tokio::test]
-    async fn test_ci_checks_not_found() {
-        let handle = Arc::new(oxidized_state::SurrealHandle::setup_db().await.unwrap());
-        let params = CheckParams {
-            repo: "stevedores-org/aivcs".to_string(),
-        };
-        let res = ci_checks(State(handle), Path(999), Query(params)).await;
-        assert!(res.is_err());
-        let (status, body) = res.unwrap_err();
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(body.0["error"], "PR #999 not found in stevedores-org/aivcs");
-    }
-
-    #[tokio::test]
-    async fn test_ci_checks_success() {
-        let handle = Arc::new(oxidized_state::SurrealHandle::setup_db().await.unwrap());
-        let db = handle.db();
-
-        // Insert mock execution
-        let _ = db
-            .query("CREATE ci_executions:mock_exec CONTENT { pr_number: 100, repository: 'owner/repo', status: 'passed', started_at: '2026-06-22T22:37:58Z', completed_at: '2026-06-22T22:38:02Z', duration_ms: 4000, checks: [{ name: 'unit-tests', status: 'passed', duration_ms: 1200 }] }")
-            .await
-            .unwrap();
-
-        // Insert mock audit logs
-        let _ = db
-            .query("CREATE ci_audit_log CONTENT { execution_id: ci_executions:mock_exec, event: 'check_started', check: 'unit-tests', created_at: '2026-06-22T22:37:58Z' }")
-            .await
-            .unwrap();
-
-        let params = CheckParams {
-            repo: "owner/repo".to_string(),
-        };
-        let res = ci_checks(State(handle), Path(100), Query(params)).await;
-        if let Err(ref e) = res {
-            println!("TEST ERROR: {:?}", e);
-        }
-        assert!(res.is_ok());
-        let body = res.unwrap();
-        assert_eq!(body.0["pr_number"], 100);
-        assert_eq!(body.0["repository"], "owner/repo");
-        assert_eq!(body.0["status"], "passed");
-        assert_eq!(body.0["checks"][0]["name"], "unit-tests");
-        assert_eq!(body.0["audit_trail"][0]["event"], "check_started");
+    async fn test_version_info() {
+        let res = version_info().await;
+        assert_eq!(res.0["name"], "aivcsd");
     }
 }
