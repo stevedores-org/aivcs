@@ -146,7 +146,7 @@ aivcs trace experiment-0 --depth 50
 export AIVCS_A2A_JSONRPC_URL="https://a2a.example.com/jsonrpc"
 export AIVCS_AGENT_ID="builder-agent"
 export AIVCS_JOB_ID="agent-job-123"
-aivcs snapshot --state state.json --message "Update state" --branch develop
+aivcs snapshot --state state.json --message "Update state" --branch main
 ```
 
 Optional settings:
@@ -167,7 +167,7 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
     "kind": "CODE_COMMITTED",
     "payload": {
       "repo": "stevedores-org/aivcs",
-      "branch": "develop",
+      "branch": "main",
       "commit_sha": "<aivcs-commit-hash>",
       "changed_paths": ["state.json"],
       "authoring_agent_id": "builder-agent",
@@ -245,7 +245,7 @@ export RELIC_LIBRARIAN_USERNAME="librarian-bot"
 
 uv run aivcs pr pipeline \
   --branch feature/my-change \
-  --base develop \
+  --base main \
   --path docs/example.md \
   --file ./example.md \
   --message "docs: add example" \
@@ -258,7 +258,8 @@ uv run aivcs pr pipeline \
 Step-by-step (GitHub or GitLab — same flags):
 
 ```bash
-aivcs pr branch --name feature/my-change --base develop --owner stevedores-org --repo aivcs
+# 1. Create a feature branch
+aivcs pr branch --name feature/my-change --base main --owner stevedores-org --repo aivcs
 
 aivcs pr commit \
   --branch feature/my-change \
@@ -272,7 +273,7 @@ aivcs pr open \
   --owner stevedores-org \
   --repo aivcs \
   --head feature/my-change \
-  --base develop \
+  --base main \
   --title "feat: my change" \
   --body  "Summary of what changed."
 ```

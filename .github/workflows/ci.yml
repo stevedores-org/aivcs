@@ -5,7 +5,6 @@ on:
     types: [opened, synchronize, reopened, edited]
   push:
     branches:
-      - develop
       - main
 
 concurrency:
@@ -42,7 +41,7 @@ jobs:
         with:
           shared-key: "workspace"
           cache-targets: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -135,7 +134,7 @@ jobs:
         with:
           shared-key: "workspace"
           cache-targets: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Ensure Rust toolchain (with retries)
         run: |

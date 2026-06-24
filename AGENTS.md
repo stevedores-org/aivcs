@@ -126,16 +126,17 @@ python -m pytest tests/
 
 #### Branch Strategy
 ```
-develop (PR target) → staging (Admin approval) → main (Production)
+Feature branches (PR target) → main (Production)
 ```
 
 #### Immutable Deployments
 **Principle:** "Build Once, Deploy Many"
 
-1. Build OCI images on `develop` branch
+1. Build OCI images on Pull Requests targeting the `main` branch
 2. Promote images through environments via Kustomize overlays
 3. Update `newTag` in `overlays/prod/kustomization.yaml` via Git PR
 4. Never rebuild images per environment
+5. Code is NEVER directly merged or pushed to `main` except in pull requests. Direct pushes/merges to `main` are strictly prohibited.
 
 ### 5. Repository Structure
 
