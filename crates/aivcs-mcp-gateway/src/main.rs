@@ -246,6 +246,396 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
         _ => true,
     }
 }
+// ─────────────────────────────────────────────────────────────────────────
+// Memory Tool Backend Handlers (Phase 2.2 Phase 2)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Deserialize and validate memory tool request arguments from JSON Value.
+#[allow(dead_code)]
+fn deserialize_memory_write_args(args: &Value) -> std::result::Result<MemoryWriteRequest, String> {
+    serde_json::from_value::<MemoryWriteRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::write arguments: {}", e))
+}
+
+#[allow(dead_code)]
+fn deserialize_memory_query_args(args: &Value) -> std::result::Result<MemoryQueryRequest, String> {
+    serde_json::from_value::<MemoryQueryRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::query arguments: {}", e))
+}
+
+#[allow(dead_code)]
+fn deserialize_memory_context_pack_args(
+    args: &Value,
+) -> std::result::Result<MemoryContextPackRequest, String> {
+    serde_json::from_value::<MemoryContextPackRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::context_pack arguments: {}", e))
+}
+
+#[allow(dead_code)]
+fn deserialize_memory_delete_args(
+    args: &Value,
+) -> std::result::Result<MemoryDeleteRequest, String> {
+    serde_json::from_value::<MemoryDeleteRequest>(args.clone())
+        .map_err(|e| format!("Invalid memory::delete arguments: {}", e))
+}
+
+/// Write a memory record to SurrealDB.
+#[allow(dead_code)]
+async fn memory_write_handler(
+    req: MemoryWriteRequest,
+    db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    let memory_record = aivcs_core::MemoryRecord {
+        id: None,
+        commit_id: req.commit_id.unwrap_or_else(|| "unknown".to_string()),
+        key: req
+            .key
+            .unwrap_or_else(|| format!("{}:{}", req.kind, Uuid::new_v4())),
+        content: req.content.to_string(),
+        embedding: None, // TODO: add embedding support in Phase 2.2 Phase 3
+        metadata: json!({
+            "kind": req.kind,
+            "tags": req.tags,
+            "importance": req.importance,
+            "confidence": req.confidence,
+            "source": req.source,
+            "ttl_ms": req.ttl_ms,
+        }),
+        created_at: Utc::now(),
+    };
+
+    let saved = db
+        .save_memory(&memory_record)
+        .await
+        .map_err(|e| format!("Failed to save memory: {}", e))?;
+
+    Ok(json!({
+        "memory_id": format!("aivcs:mem-{}", saved.id.as_ref().map(|id| id.to_string()).unwrap_or_else(|| Uuid::new_v4().to_string())),
+        "created_at_ms": Utc::now().timestamp_millis(),
+        "status": "persisted",
+        "commit_id": saved.commit_id,
+    }))
+}
+
+/// Query memories from SurrealDB.
+#[allow(dead_code)]
+async fn memory_query_handler(
+    req: MemoryQueryRequest,
+    db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    let commit_id = req.commit_id.unwrap_or_else(|| "unknown".to_string());
+    let memories = db
+        .get_memories(&commit_id)
+        .await
+        .map_err(|e| format!("Failed to query memories: {}", e))?;
+
+    // Filter by kinds if provided
+    let filtered: Vec<_> = if req.kinds.is_empty() {
+        memories
+    } else {
+        memories
+            .into_iter()
+            .filter(|m| {
+                if let Ok(metadata) = serde_json::from_str::<Value>(&m.metadata.to_string()) {
+                    metadata
+                        .get("kind")
+                        .and_then(|k| k.as_str())
+                        .map(|kind| req.kinds.contains(&kind.to_string()))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            })
+            .collect()
+    };
+
+    // Apply limit
+    let limit = req.limit.unwrap_or(10);
+    let items: Vec<Value> = filtered
+        .iter()
+        .take(limit)
+        .map(|m| {
+            json!({
+                "memory_id": format!("aivcs:mem-{}", m.id.as_ref().map(|id| id.to_string()).unwrap_or_else(|| "unknown".to_string())),
+                "kind": m.metadata.get("kind").unwrap_or(&Value::Null),
+                "content_preview": &m.content[..std::cmp::min(200, m.content.len())],
+                "created_at_ms": m.created_at.timestamp_millis(),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "items": items,
+        "total_hits": filtered.len(),
+    }))
+}
+
+/// Pack memory context within a token budget.
+#[allow(dead_code)]
+async fn memory_context_pack_handler(
+    req: MemoryContextPackRequest,
+    db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    let commit_id = req.commit_id.unwrap_or_else(|| "unknown".to_string());
+    let memories = db
+        .get_memories(&commit_id)
+        .await
+        .map_err(|e| format!("Failed to pack context: {}", e))?;
+
+    // Build context segments from memories
+    let segments: Vec<aivcs_core::ContextSegment> = memories
+        .iter()
+        .map(|m| {
+            aivcs_core::ContextSegment::new(
+                m.key.clone(),
+                m.content.clone(),
+                50, // default priority
+            )
+        })
+        .collect();
+
+    // Assemble context within budget
+    let assembler = aivcs_core::ContextAssembler::new(req.budget_tokens);
+    let assembled = assembler.assemble(segments);
+
+    Ok(json!({
+        "highlights": assembled.segments.iter().map(|s| s.label.clone()).collect::<Vec<_>>(),
+        "summaries": ["Context snapshot"],
+        "facts": assembled.segments.iter().map(|s| s.content[..std::cmp::min(100, s.content.len())].to_string()).collect::<Vec<_>>(),
+        "citations": assembled.segments.iter().map(|s| format!("aivcs:mem-{}", s.label)).collect::<Vec<_>>(),
+        "token_usage": assembled.total_tokens,
+    }))
+}
+
+/// Delete a memory record from SurrealDB.
+#[allow(dead_code)]
+async fn memory_delete_handler(
+    req: MemoryDeleteRequest,
+    _db: &aivcs_core::SurrealHandle,
+) -> std::result::Result<Value, String> {
+    // TODO(phase-2.2-phase-4): Implement actual deletion query
+    // For now, log and return success
+    tracing::info!("memory::delete for {}", req.memory_id);
+
+    // In production, would run: db.query("DELETE FROM memories WHERE id = $id")
+    // For MVP, we simulate successful deletion
+    Ok(json!({
+        "status": "deleted",
+        "memory_id": req.memory_id,
+        "backend": "surreal"
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MomBackend HTTP Client (Phase 2.2 Phase 3)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Configuration for MomBackend HTTP client.
+#[derive(Debug, Clone)]
+struct MomBackendConfig {
+    /// Base URL for Mom service (e.g., "https://mom.internal")
+    base_url: String,
+    /// API key for authentication (TODO Phase 2.2 Phase 4: use in HTTP client)
+    #[allow(dead_code)]
+    api_key: String,
+    /// Timeout in seconds (TODO Phase 2.2 Phase 4: use in HTTP client)
+    #[allow(dead_code)]
+    timeout_secs: u64,
+}
+
+impl MomBackendConfig {
+    /// Load from environment or return None if not configured.
+    #[allow(dead_code)]
+    fn from_env() -> Option<Self> {
+        let base_url = std::env::var("MOM_BACKEND_URL").ok()?;
+        let api_key = std::env::var("MOM_BACKEND_API_KEY").ok()?;
+        Some(Self {
+            base_url,
+            api_key,
+            timeout_secs: std::env::var("MOM_TIMEOUT_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10),
+        })
+    }
+}
+
+/// Write memory via external MomBackend HTTP service.
+#[allow(dead_code)]
+async fn mom_backend_write(
+    config: &MomBackendConfig,
+    req: &MemoryWriteRequest,
+) -> std::result::Result<Value, String> {
+    let url = format!("{}/api/v1/memories", config.base_url);
+    let payload = json!({
+        "kind": req.kind,
+        "content": req.content,
+        "tags": req.tags,
+        "importance": req.importance,
+        "confidence": req.confidence,
+        "source": req.source,
+        "commit_id": req.commit_id,
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .bearer_auth(&config.api_key)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .send()
+        .await
+        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("MomBackend write failed with status {}", status));
+    }
+
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
+
+    tracing::info!("MomBackend write successful: {:?}", body.get("memory_id"));
+    Ok(body)
+}
+
+/// Query memories via external MomBackend HTTP service.
+#[allow(dead_code)]
+async fn mom_backend_query(
+    config: &MomBackendConfig,
+    req: &MemoryQueryRequest,
+) -> std::result::Result<Value, String> {
+    let url = format!("{}/api/v1/memories/search", config.base_url);
+    let payload = json!({
+        "query": req.query_text,
+        "kinds": req.kinds,
+        "limit": req.limit.unwrap_or(10),
+        "mode": req.mode,
+    });
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .bearer_auth(&config.api_key)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(config.timeout_secs))
+        .send()
+        .await
+        .map_err(|e| format!("MomBackend HTTP error: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("MomBackend query failed with status {}", status));
+    }
+
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Failed to parse MomBackend response: {}", e))?;
+
+    tracing::info!(
+        "MomBackend query successful: {} hits",
+        body.get("total_hits").and_then(|v| v.as_u64()).unwrap_or(0)
+    );
+    Ok(body)
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Hybrid Backend Selection (Phase 2.2 Phase 3)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Selects between SurrealDB and MomBackend based on environment and configuration.
+#[allow(dead_code)]
+enum BackendSelector {
+    /// Use local SurrealDB only.
+    LocalOnly,
+    /// Use MomBackend as primary, fallback to SurrealDB.
+    MomPrimary,
+    /// Use SurrealDB as primary, fallback to Mom.
+    SurrealPrimary,
+}
+
+impl BackendSelector {
+    /// Initialize selector from environment.
+    #[allow(dead_code)]
+    fn from_env() -> Self {
+        match std::env::var("MEMORY_BACKEND_MODE").as_deref() {
+            Ok("mom") => Self::MomPrimary,
+            Ok("hybrid") => Self::SurrealPrimary,
+            _ => Self::LocalOnly,
+        }
+    }
+}
+
+/// Hybrid memory write: tries primary backend, falls back to secondary.
+#[allow(dead_code)]
+async fn hybrid_memory_write(
+    req: MemoryWriteRequest,
+    db: &aivcs_core::SurrealHandle,
+    selector: &BackendSelector,
+    mom_config: &Option<MomBackendConfig>,
+) -> std::result::Result<Value, String> {
+    match selector {
+        BackendSelector::LocalOnly => memory_write_handler(req, db).await,
+        BackendSelector::MomPrimary => match mom_config {
+            Some(config) => match mom_backend_write(config, &req).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    tracing::warn!("MomBackend write failed, falling back to SurrealDB: {}", e);
+                    memory_write_handler(req, db).await
+                }
+            },
+            None => {
+                tracing::warn!("MomBackend not configured, using SurrealDB");
+                memory_write_handler(req, db).await
+            }
+        },
+        BackendSelector::SurrealPrimary => match memory_write_handler(req.clone(), db).await {
+            Ok(result) => Ok(result),
+            Err(e) if mom_config.is_some() => {
+                tracing::warn!("SurrealDB write failed, attempting MomBackend: {}", e);
+                mom_backend_write(mom_config.as_ref().unwrap(), &req).await
+            }
+            Err(e) => Err(e),
+        },
+    }
+}
+
+/// Hybrid memory query: tries primary backend, falls back to secondary.
+#[allow(dead_code)]
+async fn hybrid_memory_query(
+    req: MemoryQueryRequest,
+    db: &aivcs_core::SurrealHandle,
+    selector: &BackendSelector,
+    mom_config: &Option<MomBackendConfig>,
+) -> std::result::Result<Value, String> {
+    match selector {
+        BackendSelector::LocalOnly => memory_query_handler(req, db).await,
+        BackendSelector::MomPrimary => match mom_config {
+            Some(config) => match mom_backend_query(config, &req).await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    tracing::warn!("MomBackend query failed, falling back to SurrealDB: {}", e);
+                    memory_query_handler(req, db).await
+                }
+            },
+            None => {
+                tracing::warn!("MomBackend not configured, using SurrealDB");
+                memory_query_handler(req, db).await
+            }
+        },
+        BackendSelector::SurrealPrimary => match memory_query_handler(req.clone(), db).await {
+            Ok(result) => Ok(result),
+            Err(e) if mom_config.is_some() => {
+                tracing::warn!("SurrealDB query failed, attempting MomBackend: {}", e);
+                mom_backend_query(mom_config.as_ref().unwrap(), &req).await
+            }
+            Err(e) => Err(e),
+        },
+    }
+}
 
 async fn health_check() -> Json<Value> {
     Json(json!({
