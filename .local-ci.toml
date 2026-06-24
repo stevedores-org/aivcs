@@ -1,3 +1,28 @@
-[stages.check]
-command = ["echo", "ok"]
+[cache]
+skip_dirs = [".git", ".github", "target", "vendor", ".local-ci-cache"]
+
+[dependencies]
+required = ["gitleaks", "cargo"]
+optional = []
+
+[stages.fmt]
+cmd = ["cargo", "fmt", "--all", "--", "--check"]
+timeout = 60
+enabled = true
+
+[stages.clippy]
+cmd = ["cargo", "clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
+depends_on = ["fmt"]
+timeout = 300
+enabled = true
+
+[stages.test]
+cmd = ["cargo", "test", "--workspace"]
+depends_on = ["clippy"]
+timeout = 300
+enabled = true
+
+[stages.gitleaks]
+cmd = ["gitleaks", "detect", "--no-banner", "--redact"]
+timeout = 60
 enabled = true

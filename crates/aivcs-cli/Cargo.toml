@@ -38,6 +38,7 @@ clap.workspace = true
 # Utilities
 tempfile.workspace = true
 chrono.workspace = true
+reqwest = { workspace = true, default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
