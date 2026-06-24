@@ -24,6 +24,7 @@ pkgs.testers.nixosTest {
 
     services.surrealdb = {
       enable = true;
+      dbPath = "memory";
       extraFlags = [ "--user" "root" "--pass" "root" ];
     };
 
