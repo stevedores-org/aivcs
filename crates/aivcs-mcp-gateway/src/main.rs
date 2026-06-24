@@ -250,7 +250,6 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
 // Memory Tool Backend Handlers (Phase 2.2 Phase 2)
 // ─────────────────────────────────────────────────────────────────────────
 
-
 /// Deserialize and validate memory tool request arguments from JSON Value.
 fn deserialize_memory_write_args(args: &Value) -> std::result::Result<MemoryWriteRequest, String> {
     serde_json::from_value::<MemoryWriteRequest>(args.clone())
@@ -622,7 +621,6 @@ async fn hybrid_memory_query(
         },
     }
 }
-
 
 async fn health_check() -> Json<Value> {
     Json(json!({
