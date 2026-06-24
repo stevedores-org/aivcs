@@ -445,6 +445,7 @@ struct MomBackendConfig {
 
 impl MomBackendConfig {
     /// Load from environment or return None if not configured.
+    #[allow(dead_code)]
     fn from_env() -> Option<Self> {
         let base_url = std::env::var("MOM_BACKEND_URL").ok()?;
         let api_key = std::env::var("MOM_BACKEND_API_KEY").ok()?;
@@ -546,6 +547,7 @@ async fn mom_backend_query(
 // ─────────────────────────────────────────────────────────────────────────
 
 /// Selects between SurrealDB and MomBackend based on environment and configuration.
+#[allow(dead_code)]
 enum BackendSelector {
     /// Use local SurrealDB only.
     LocalOnly,
@@ -557,6 +559,7 @@ enum BackendSelector {
 
 impl BackendSelector {
     /// Initialize selector from environment.
+    #[allow(dead_code)]
     fn from_env() -> Self {
         match std::env::var("MEMORY_BACKEND_MODE").as_deref() {
             Ok("mom") => Self::MomPrimary,
