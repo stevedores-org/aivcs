@@ -21,4 +21,3 @@ hex = { workspace = true }
 tower = { version = "0.4", features = ["util"] }
 reqwest = { workspace = true }
 data-fabric-client = { workspace = true }
-
