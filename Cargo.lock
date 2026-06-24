@@ -187,8 +187,10 @@ version = "0.3.2"
 dependencies = [
  "aivcs-core",
  "anyhow",
+ "async-trait",
  "axum",
  "chrono",
+ "oxidizedgraph",
  "serde",
  "serde_json",
  "surrealdb",

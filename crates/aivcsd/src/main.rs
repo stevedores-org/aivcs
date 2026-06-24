@@ -15,6 +15,8 @@ use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
 use tracing::{info, warn, Level};
 
+mod ci;
+
 #[derive(Clone)]
 struct AppState {
     db: Surreal<surrealdb::engine::remote::ws::Client>,
