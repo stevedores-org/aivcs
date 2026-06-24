@@ -251,16 +251,19 @@ fn exceeds_max_risk(risk_level: &str, max_risk: &str) -> bool {
 // ─────────────────────────────────────────────────────────────────────────
 
 /// Deserialize and validate memory tool request arguments from JSON Value.
+#[allow(dead_code)]
 fn deserialize_memory_write_args(args: &Value) -> std::result::Result<MemoryWriteRequest, String> {
     serde_json::from_value::<MemoryWriteRequest>(args.clone())
         .map_err(|e| format!("Invalid memory::write arguments: {}", e))
 }
 
+#[allow(dead_code)]
 fn deserialize_memory_query_args(args: &Value) -> std::result::Result<MemoryQueryRequest, String> {
     serde_json::from_value::<MemoryQueryRequest>(args.clone())
         .map_err(|e| format!("Invalid memory::query arguments: {}", e))
 }
 
+#[allow(dead_code)]
 fn deserialize_memory_context_pack_args(
     args: &Value,
 ) -> std::result::Result<MemoryContextPackRequest, String> {
@@ -268,6 +271,7 @@ fn deserialize_memory_context_pack_args(
         .map_err(|e| format!("Invalid memory::context_pack arguments: {}", e))
 }
 
+#[allow(dead_code)]
 fn deserialize_memory_delete_args(
     args: &Value,
 ) -> std::result::Result<MemoryDeleteRequest, String> {
@@ -276,6 +280,7 @@ fn deserialize_memory_delete_args(
 }
 
 /// Write a memory record to SurrealDB.
+#[allow(dead_code)]
 async fn memory_write_handler(
     req: MemoryWriteRequest,
     db: &aivcs_core::SurrealHandle,
@@ -313,6 +318,7 @@ async fn memory_write_handler(
 }
 
 /// Query memories from SurrealDB.
+#[allow(dead_code)]
 async fn memory_query_handler(
     req: MemoryQueryRequest,
     db: &aivcs_core::SurrealHandle,
@@ -365,6 +371,7 @@ async fn memory_query_handler(
 }
 
 /// Pack memory context within a token budget.
+#[allow(dead_code)]
 async fn memory_context_pack_handler(
     req: MemoryContextPackRequest,
     db: &aivcs_core::SurrealHandle,
@@ -401,6 +408,7 @@ async fn memory_context_pack_handler(
 }
 
 /// Delete a memory record from SurrealDB.
+#[allow(dead_code)]
 async fn memory_delete_handler(
     req: MemoryDeleteRequest,
     _db: &aivcs_core::SurrealHandle,
@@ -452,6 +460,7 @@ impl MomBackendConfig {
 }
 
 /// Write memory via external MomBackend HTTP service.
+#[allow(dead_code)]
 async fn mom_backend_write(
     config: &MomBackendConfig,
     req: &MemoryWriteRequest,
@@ -492,6 +501,7 @@ async fn mom_backend_write(
 }
 
 /// Query memories via external MomBackend HTTP service.
+#[allow(dead_code)]
 async fn mom_backend_query(
     config: &MomBackendConfig,
     req: &MemoryQueryRequest,
@@ -557,6 +567,7 @@ impl BackendSelector {
 }
 
 /// Hybrid memory write: tries primary backend, falls back to secondary.
+#[allow(dead_code)]
 async fn hybrid_memory_write(
     req: MemoryWriteRequest,
     db: &aivcs_core::SurrealHandle,
@@ -590,6 +601,7 @@ async fn hybrid_memory_write(
 }
 
 /// Hybrid memory query: tries primary backend, falls back to secondary.
+#[allow(dead_code)]
 async fn hybrid_memory_query(
     req: MemoryQueryRequest,
     db: &aivcs_core::SurrealHandle,
