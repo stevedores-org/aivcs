@@ -16,6 +16,7 @@ use surrealdb::Surreal;
 use tracing::{info, warn, Level};
 
 mod ci;
+mod df;
 
 #[derive(Clone)]
 struct AppState {
