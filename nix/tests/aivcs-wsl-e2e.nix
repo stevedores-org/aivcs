@@ -15,6 +15,18 @@ pkgs.testers.nixosTest {
     services.aivcsd = {
       enable = true;
       package = aivcsdPackage;
+      settings = {
+        GITHUB_TOKEN = "dummy-token-for-e2e";
+        CI_WEBHOOK_SECRET = "dummy-secret-for-e2e";
+        SURREALDB_URL = "ws://localhost:8000";
+        AIVCS_CAS_DIR = "/var/lib/aivcsd/cas";
+      };
+    };
+
+    services.surrealdb = {
+      enable = true;
+      dbPath = "memory";
+      extraFlags = [ "--user" "root" "--pass" "root" ];
     };
 
     environment.systemPackages = [ aivcsPackage ];

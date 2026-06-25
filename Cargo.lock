@@ -173,6 +173,7 @@ dependencies = [
  "data-fabric-client",
  "hex",
  "jsonwebtoken",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",

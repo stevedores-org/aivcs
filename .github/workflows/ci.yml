@@ -5,7 +5,6 @@ on:
     types: [opened, synchronize, reopened, edited]
   push:
     branches:
-      - develop
       - main
 
 concurrency:
@@ -13,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ATTIC_SERVER: https://nix-cache.stevedores.org
+  ATTIC_SERVER: https://nix-cache.lornu.ai
   ATTIC_CACHE: aivcs
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
@@ -42,7 +41,7 @@ jobs:
         with:
           shared-key: "workspace"
           cache-targets: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -89,8 +88,8 @@ jobs:
         uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
-            extra-substituters = https://nix-cache.stevedores.org
-            extra-trusted-public-keys = stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag=
+            extra-substituters = https://nix-cache.lornu.ai
+            extra-trusted-public-keys = lornu-1:FSWe0oOoYoYzbDU3XsZOoUz6LYouAKynidEOop1Q8yc=
 
       - name: Build ${{ matrix.path }}.${{ matrix.check }}
         run: nix build ".#${{ matrix.path }}.x86_64-linux.${{ matrix.check }}" --print-build-logs
@@ -124,8 +123,8 @@ jobs:
         uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
-            extra-substituters = https://nix-cache.stevedores.org
-            extra-trusted-public-keys = stevedores-cache-1:bXLxkipycRWproIJnk8pPWNFdgVfeV+I2mJXCoW4/ag=
+            extra-substituters = https://nix-cache.lornu.ai
+            extra-trusted-public-keys = lornu-1:FSWe0oOoYoYzbDU3XsZOoUz6LYouAKynidEOop1Q8yc=
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -135,7 +134,7 @@ jobs:
         with:
           shared-key: "workspace"
           cache-targets: true
-          save-if: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Ensure Rust toolchain (with retries)
         run: |
