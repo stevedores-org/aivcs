@@ -304,7 +304,7 @@ enum ReportAction {
         graph: Option<PathBuf>,
 
         /// Objective identifier to aggregate health for
-        #[arg(short, long, default_value = "main")]
+        #[arg(long, default_value = "main")]
         objective: String,
 
         /// Output path for the Markdown report
@@ -326,11 +326,11 @@ enum PrAction {
         body: String,
 
         /// Head branch (source of changes)
-        #[arg(short, long)]
+        #[arg(long)]
         head: String,
 
         /// Base branch (target for changes, default: main)
-        #[arg(short, long, default_value = "main")]
+        #[arg(long, default_value = "main")]
         base: String,
 
         /// GitHub organization/owner
