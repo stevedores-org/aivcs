@@ -37,3 +37,53 @@ impl NodeExecutor for SetupNode {
         Some("Setup CI run context from request")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ci::state::{CiTaskParams, context_keys};
+    use oxidizedgraph::state::AgentState;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn test_writes_context_keys() {
+        use std::sync::RwLock as StdRwLock;
+
+        // Create initial state with task_params set
+        let mut initial_state = AgentState::default();
+        initial_state.set_context(
+            "task_params",
+            CiTaskParams {
+                repo: "stevedores-org/aivcs".to_string(),
+                pr_number: 123,
+                sha: "abc123def456".to_string(),
+            },
+        );
+
+        let state = Arc::new(StdRwLock::new(initial_state));
+        let node = SetupNode;
+
+        // Execute SetupNode
+        let result = node.execute(state.clone()).await;
+        assert!(result.is_ok(), "SetupNode execution should succeed: {:?}", result);
+
+        // Verify context keys were written
+        let final_state = state.read().unwrap();
+        assert_eq!(
+            final_state.get_context::<String>(context_keys::CI_REPO),
+            Some("stevedores-org/aivcs".to_string()),
+            "ci.repo should be set"
+        );
+        assert_eq!(
+            final_state.get_context::<u64>(context_keys::CI_PR_NUMBER),
+            Some(123),
+            "ci.pr_number should be set"
+        );
+        assert_eq!(
+            final_state.get_context::<String>(context_keys::CI_SHA),
+            Some("abc123def456".to_string()),
+            "ci.sha should be set"
+        );
+    }
+}
