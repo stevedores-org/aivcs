@@ -12,7 +12,7 @@ The workspace version in `Cargo.toml` is the single source of truth. All crates 
 
 ## Pre-Release
 
-- [ ] All CI checks pass on `develop` (`cargo fmt`, `cargo clippy`, `cargo test`)
+- [ ] All CI checks pass on the feature branch / Pull Request (`cargo fmt`, `cargo clippy`, `cargo test`)
 - [ ] `CHANGELOG.md` is updated with the new version entry
 - [ ] Workspace version in `Cargo.toml` is bumped
 - [ ] Version consistency test passes: `cargo test version_consistency`
@@ -21,7 +21,7 @@ The workspace version in `Cargo.toml` is the single source of truth. All crates 
 
 ## Release
 
-- [ ] Merge `develop` into `main` via pull request
+- [ ] Merge the feature branch into `main` via pull request
 - [ ] Tag the merge commit: `git tag v<VERSION> && git push origin v<VERSION>`
 - [ ] Verify the `publish.yml` workflow completes (library crates → crates.io):
   - Test job green (fmt, clippy, nextest, doc tests)
