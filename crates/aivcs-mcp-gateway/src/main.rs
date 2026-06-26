@@ -201,6 +201,9 @@ struct GatewayState {
     approvals: Mutex<HashMap<String, HumanApproval>>,
     revocations: Mutex<RevocationList>,
     public_key_pem: String,
+    // Phase 2.2 Phase 3: Hybrid backend support
+    backend_selector: BackendSelector,
+    mom_config: Option<MomBackendConfig>,
 }
 
 #[tokio::main]
