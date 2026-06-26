@@ -17,6 +17,7 @@ use tracing::{info, warn, Level};
 
 mod ci;
 mod df;
+mod github;
 
 #[derive(Clone)]
 struct AppState {
@@ -92,6 +93,24 @@ async fn main() -> Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("📡 listening on {}", addr);
+
+    // Spawn WorkerLoop as background task for CI execution
+    let ci_max_concurrent = std::env::var("CI_MAX_CONCURRENT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8);
+
+    let worker_loop = ci::worker::WorkerLoop::new(ci_max_concurrent);
+    tokio::spawn(async move {
+        match worker_loop.run().await {
+            Ok(_) => info!("✅ WorkerLoop exited cleanly"),
+            Err(e) => warn!("⚠️ WorkerLoop error: {}", e),
+        }
+    });
+    info!(
+        "✅ Spawned CI WorkerLoop (max_concurrent: {})",
+        ci_max_concurrent
+    );
 
     axum::serve(listener, app).await?;
 

@@ -1,11 +1,10 @@
 /// SetupNode — writes request fields to context
-
-use crate::ci::state::{CiTaskParams, context_keys};
-use oxidizedgraph::graph::{NodeExecutor, NodeOutput};
+use crate::ci::state::{context_keys, CiTaskParams};
+use async_trait::async_trait;
 use oxidizedgraph::error::NodeError;
+use oxidizedgraph::graph::{NodeExecutor, NodeOutput};
 use oxidizedgraph::state::SharedState;
 use serde_json::json;
-use async_trait::async_trait;
 
 pub struct SetupNode;
 
@@ -16,9 +15,9 @@ impl NodeExecutor for SetupNode {
     }
 
     async fn execute(&self, state: SharedState) -> Result<NodeOutput, NodeError> {
-        let mut state_lock = state.write().map_err(|e| {
-            NodeError::other(format!("Failed to acquire state lock: {}", e))
-        })?;
+        let mut state_lock = state
+            .write()
+            .map_err(|e| NodeError::other(format!("Failed to acquire state lock: {}", e)))?;
 
         // Read task params from context (set by WorkerLoop before spawning graph)
         let params: CiTaskParams = state_lock
@@ -41,7 +40,7 @@ impl NodeExecutor for SetupNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ci::state::{CiTaskParams, context_keys};
+    use crate::ci::state::{context_keys, CiTaskParams};
     use oxidizedgraph::state::AgentState;
     use std::sync::Arc;
     use tokio::sync::RwLock;
@@ -66,7 +65,11 @@ mod tests {
 
         // Execute SetupNode
         let result = node.execute(state.clone()).await;
-        assert!(result.is_ok(), "SetupNode execution should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "SetupNode execution should succeed: {:?}",
+            result
+        );
 
         // Verify context keys were written
         let final_state = state.read().unwrap();

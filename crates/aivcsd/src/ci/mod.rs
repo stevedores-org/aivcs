@@ -1,3 +1,6 @@
+pub mod graph;
+pub mod nodes;
+pub mod runner;
 /// CI orchestration module
 ///
 /// Provides agentic CI execution via oxidizedgraph:
@@ -13,14 +16,5 @@
 /// 3. WorkerLoop polls data_fabric_client.claim_next_task("ci_check_run")
 /// 4. On claim, WorkerLoop spawns run_ci_graph() which invokes GraphRunner::invoke(CiAgentGraph)
 /// 5. Graph runs 4 checks in parallel, aggregates results, persists to data-fabric, updates GitHub
-
 pub mod state;
-pub mod graph;
-pub mod nodes;
-pub mod runner;
 pub mod worker;
-
-pub use graph::{build_ci_graph, CiDeps};
-pub use state::{CiRunRequest, CiTaskParams, CheckResult, CiStatus};
-pub use runner::CheckRunner;
-pub use worker::WorkerLoop;

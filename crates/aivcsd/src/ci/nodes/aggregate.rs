@@ -1,11 +1,10 @@
 /// AggregateNode — collects parallel check results
-
-use crate::ci::state::{CheckResult, CiStatus, context_keys};
+use crate::ci::state::{context_keys, CheckResult, CiStatus};
+use async_trait::async_trait;
+use oxidizedgraph::error::NodeError;
 use oxidizedgraph::graph::NodeExecutor;
 use oxidizedgraph::graph::NodeOutput;
-use oxidizedgraph::error::NodeError;
 use oxidizedgraph::state::SharedState;
-use async_trait::async_trait;
 
 pub struct AggregateNode;
 
@@ -16,9 +15,9 @@ impl NodeExecutor for AggregateNode {
     }
 
     async fn execute(&self, state: SharedState) -> Result<NodeOutput, NodeError> {
-        let mut state_lock = state.write().map_err(|e| {
-            NodeError::other(format!("Failed to acquire state lock: {}", e))
-        })?;
+        let mut state_lock = state
+            .write()
+            .map_err(|e| NodeError::other(format!("Failed to acquire state lock: {}", e)))?;
 
         // Get checks from context
         let checks: Vec<CheckResult> = state_lock
@@ -27,7 +26,7 @@ impl NodeExecutor for AggregateNode {
 
         // Determine overall status: passed if all checks passed, failed if any failed
         let overall_status = if checks.is_empty() {
-            CiStatus::Passed  // No checks = no failures
+            CiStatus::Passed // No checks = no failures
         } else if checks.iter().all(|c| c.status == "passed") {
             CiStatus::Passed
         } else {
@@ -82,7 +81,10 @@ mod tests {
         let status = final_state
             .get_context::<String>(context_keys::CI_STATUS)
             .unwrap_or_default();
-        assert_eq!(status, "passed", "status should be 'passed' when all checks pass");
+        assert_eq!(
+            status, "passed",
+            "status should be 'passed' when all checks pass"
+        );
     }
 
     #[tokio::test]
@@ -116,6 +118,9 @@ mod tests {
         let status = final_state
             .get_context::<String>(context_keys::CI_STATUS)
             .unwrap_or_default();
-        assert_eq!(status, "failed", "status should be 'failed' when any check fails");
+        assert_eq!(
+            status, "failed",
+            "status should be 'failed' when any check fails"
+        );
     }
 }

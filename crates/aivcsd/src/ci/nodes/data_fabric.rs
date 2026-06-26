@@ -1,13 +1,12 @@
 /// DataFabricNode — persists results to data-fabric
-
 use crate::ci::state::context_keys;
 use crate::df::DataFabricGateway;
+use async_trait::async_trait;
+use oxidizedgraph::error::NodeError;
 use oxidizedgraph::graph::NodeExecutor;
 use oxidizedgraph::graph::NodeOutput;
-use oxidizedgraph::error::NodeError;
 use oxidizedgraph::state::SharedState;
 use std::sync::Arc;
-use async_trait::async_trait;
 
 pub struct DataFabricNode {
     pub gateway: Arc<dyn DataFabricGateway>,
@@ -22,9 +21,9 @@ impl NodeExecutor for DataFabricNode {
     async fn execute(&self, state: SharedState) -> Result<NodeOutput, NodeError> {
         // Get task_id from context in a scoped block to release lock before async call
         let task_id = {
-            let state_lock = state.write().map_err(|e| {
-                NodeError::other(format!("Failed to acquire state lock: {}", e))
-            })?;
+            let state_lock = state
+                .write()
+                .map_err(|e| NodeError::other(format!("Failed to acquire state lock: {}", e)))?;
 
             state_lock
                 .get_context::<String>(context_keys::CI_TASK_ID)

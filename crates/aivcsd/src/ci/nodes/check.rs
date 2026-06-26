@@ -1,13 +1,12 @@
 /// CheckNode — runs a single CI check
-
 use crate::ci::runner::CheckRunner;
-use crate::ci::state::{CheckResult, context_keys};
+use crate::ci::state::{context_keys, CheckResult};
+use async_trait::async_trait;
+use oxidizedgraph::error::NodeError;
 use oxidizedgraph::graph::NodeExecutor;
 use oxidizedgraph::graph::NodeOutput;
-use oxidizedgraph::error::NodeError;
 use oxidizedgraph::state::SharedState;
 use std::sync::Arc;
-use async_trait::async_trait;
 
 pub struct CheckNode {
     pub name: String,
@@ -24,8 +23,13 @@ impl NodeExecutor for CheckNode {
 
     async fn execute(&self, state: SharedState) -> Result<NodeOutput, NodeError> {
         // Run the check command
-        let (exit_code, output, duration_ms) = self.runner
-            .run(&self.cmd, &self.args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), &[])
+        let (exit_code, output, duration_ms) = self
+            .runner
+            .run(
+                &self.cmd,
+                &self.args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                &[],
+            )
             .await
             .map_err(|e| NodeError::other(format!("Check execution failed: {}", e)))?;
 
@@ -41,9 +45,9 @@ impl NodeExecutor for CheckNode {
         };
 
         // Write result to context
-        let mut state_lock = state.write().map_err(|e| {
-            NodeError::other(format!("Failed to acquire state lock: {}", e))
-        })?;
+        let mut state_lock = state
+            .write()
+            .map_err(|e| NodeError::other(format!("Failed to acquire state lock: {}", e)))?;
 
         // Get or create checks array
         let mut checks: Vec<CheckResult> = state_lock

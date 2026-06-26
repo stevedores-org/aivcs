@@ -1,7 +1,6 @@
-/// data-fabric integration gateway
-
-use async_trait::async_trait;
 use anyhow::Result;
+/// data-fabric integration gateway
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// PipelineEvent for data-fabric ingestion
@@ -46,7 +45,10 @@ impl DataFabricGateway for MockDataFabricGateway {
     }
 
     async fn complete_task(&self, task_id: &str) -> Result<()> {
-        self.completed_tasks.lock().unwrap().push(task_id.to_string());
+        self.completed_tasks
+            .lock()
+            .unwrap()
+            .push(task_id.to_string());
         Ok(())
     }
 }

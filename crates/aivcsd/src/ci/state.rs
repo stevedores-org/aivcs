@@ -1,5 +1,4 @@
 /// CI orchestration state and context types
-
 use serde::{Deserialize, Serialize};
 
 /// Request to trigger a CI run
@@ -56,8 +55,8 @@ pub mod context_keys {
 
 /// Serde helpers
 pub mod serde_helpers {
-    use serde_json::{json, Value};
     use super::CheckResult;
+    use serde_json::{json, Value};
 
     /// Convert Vec<CheckResult> to JSON Value for context storage
     pub fn checks_to_value(checks: &[CheckResult]) -> Value {

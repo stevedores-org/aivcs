@@ -1,5 +1,4 @@
 /// CheckRunner trait and implementations for subprocess execution
-
 use anyhow::Result;
 
 /// Trait for pluggable check execution (subprocess or mock)

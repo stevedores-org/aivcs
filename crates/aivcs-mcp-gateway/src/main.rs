@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 use tracing::{error, info, warn, Level};
 use uuid::Uuid;
 
+mod ci_tools;
+
 const PUBLIC_KEY_PEM: &str = include_str!("../../aivcs-auth/keys/public.pem");
 
 /// Maximum age of a `HumanApproval` grant before it stops counting as a valid
