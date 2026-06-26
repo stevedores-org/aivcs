@@ -94,7 +94,6 @@ jobs:
     needs: trigger
     if: always()
     permissions:
-      checks: write
       contents: read
     steps:
       - name: Wait for fast-free-testing checks to complete
@@ -102,13 +101,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          max_attempts=120
+          max_attempts=240
           attempt=0
 
           while [ $attempt -lt $max_attempts ]; do
-            # Count completed fast-free-testing checks
-            result=$(gh api repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}/check-runs \
-              --jq '.check_runs[] | select(.name | startswith("fast-free-testing"))' 2>/dev/null || echo "")
+            # Fetch fast-free-testing checks; catch API errors explicitly
+            if ! result=$(gh api repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}/check-runs \
+              --jq '.check_runs[] | select(.name | startswith("fast-free-testing"))'); then
+              echo "::error::GitHub API call failed (likely auth/permissions issue)"
+              exit 1
+            fi
 
             if [ -z "$result" ]; then
               echo "Waiting for fast-free-testing checks... (attempt $((attempt+1))/$max_attempts)"
@@ -117,20 +119,23 @@ jobs:
               continue
             fi
 
-            # Check if any check failed
-            if echo "$result" | jq -e 'select(.conclusion == "failure")' >/dev/null 2>&1; then
-              echo "::error::fast-free-testing checks FAILED"
+            # Check if all checks are in terminal state (not null/pending)
+            # Terminal states: success, failure, cancelled, timed_out, stale, action_required
+            if echo "$result" | jq -e 'select(.conclusion == null)' >/dev/null 2>&1; then
+              echo "Checks still in progress... (attempt $((attempt+1))/$max_attempts)"
+              sleep 1
+              attempt=$((attempt+1))
+              continue
+            fi
+
+            # All checks are terminal; verify none failed
+            if echo "$result" | jq -e 'select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral")' >/dev/null 2>&1; then
+              echo "::error::fast-free-testing checks completed with failures/cancellations"
               exit 1
             fi
 
-            # Check if all checks are completed (no null conclusions)
-            if ! echo "$result" | jq -e 'select(.conclusion == null)' >/dev/null 2>&1; then
-              echo "✓ fast-free-testing checks PASSED"
-              exit 0
-            fi
-
-            sleep 1
-            attempt=$((attempt+1))
+            echo "✓ fast-free-testing checks PASSED"
+            exit 0
           done
 
           echo "::error::Timeout waiting for fast-free-testing checks after ${max_attempts}s"
