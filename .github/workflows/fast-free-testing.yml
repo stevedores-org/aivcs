@@ -101,7 +101,7 @@ jobs:
   # Branch protection aggregator: creates "rust-checks" status from FFT check results
   # This maintains backward compatibility with branch protection rules that require "rust-checks"
   rust-checks:
-    name: rust-checks (FFT aggregator)
+    name: rust-checks
     runs-on: ubuntu-latest
     needs: trigger
     if: always()
