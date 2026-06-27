@@ -31,14 +31,24 @@ jobs:
     name: Trigger fast-free-testing
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       checks: write        # needed to create/update check runs
       contents: read
     steps:
+      - name: Retrieve secrets from aivcs-secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: https://secrets.aivcs.io
+          role: github-actions
+          method: jwt
+          secrets: |
+            secret/data/ci/gcp FAST_FREE_TESTING_WEBHOOK_URL | FAST_FREE_TESTING_WEBHOOK_URL
+
       - name: Trigger fast-free-testing CI
         env:
           # The deployed fast-free-testing API Gateway endpoint
           # Stored as a repo secret so the URL can be rotated
-          FFT_WEBHOOK_URL: ${{ secrets.FAST_FREE_TESTING_WEBHOOK_URL }}
+          FFT_WEBHOOK_URL: ${{ env.FAST_FREE_TESTING_WEBHOOK_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Build the PR payload matching GitHubPREvent interface
