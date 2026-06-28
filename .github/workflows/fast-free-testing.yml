@@ -38,7 +38,7 @@ jobs:
       - name: Retrieve secrets from aivcs-secrets
         uses: hashicorp/vault-action@v3
         with:
-          url: https://secrets.aivcs.io
+          url: https://aivcs.aivcs.io
           role: github-actions
           method: jwt
           secrets: |
