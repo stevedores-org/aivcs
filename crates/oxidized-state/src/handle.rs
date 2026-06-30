@@ -156,6 +156,11 @@ impl DbReleaseRecord {
 }
 
 impl SurrealHandle {
+    /// Get a reference to the underlying SurrealDB client.
+    pub fn db(&self) -> &Surreal<Any> {
+        &self.db
+    }
+
     /// Connect to SurrealDB in-memory and set up schema
     ///
     /// # TDD: test_surreal_connection_and_schema_creation

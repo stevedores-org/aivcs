@@ -193,6 +193,7 @@ dependencies = [
  "chrono",
  "hex",
  "hmac",
+ "oxidized-state",
  "serde",
  "serde_json",
  "sha2",
