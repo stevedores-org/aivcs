@@ -1,4 +1,4 @@
-# Propel Phase 1 Specification & oci-dockworker-build Integration
+# Propel Phase 1 Specification & oci-dockworker-build-propel Integration
 
 **Status:** Phase 1.5 Complete — Ready for Phase 1 Implementation
 
@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document tracks the Propel Phase 1 specification and its integration with `oci-dockworker-build`, the centralized OCI image builder for lornu-ai.
+This document tracks the Propel Phase 1 specification and its integration with `oci-dockworker-build-propel`, the centralized OCI image builder for lornu-ai.
 
 **Goal:** Replace GitHub Actions with Propel (NixOS-based CI/CD) for OCI image builds and general CI checks.
 
@@ -18,11 +18,11 @@ This document tracks the Propel Phase 1 specification and its integration with `
 
 ### Configuration & Build Matrix
 
-**File:** `lornu-ai/oci-dockworker-build/.propel/config.toml`
+**File:** `lornu-ai/oci-dockworker-build-propel/.propel/config.toml`
 
 Defines all 14 OCI images to be built via Propel:
 
-**Local images (oci-dockworker-build):**
+**Local images (oci-dockworker-build-propel):**
 - zen, sre-agent-rs, yaml-optimizer, zero-copy-connector, lornu-gateway, lornu-mcp-hub-rs
 
 **Satellite images (external repos):**
@@ -45,7 +45,7 @@ Each entry includes:
 
 ### Implementation Specification
 
-**File:** `lornu-ai/oci-dockworker-build/docs/PHASE1_IMPLEMENTATION.md`
+**File:** `lornu-ai/oci-dockworker-build-propel/docs/PHASE1_IMPLEMENTATION.md`
 
 Complete technical specification for Phase 1:
 
@@ -79,7 +79,7 @@ Complete technical specification for Phase 1:
 
 ### Validation & Deployment
 
-**Validation script:** `lornu-ai/oci-dockworker-build/scripts/validate-nix-outputs.sh`
+**Validation script:** `lornu-ai/oci-dockworker-build-propel/scripts/validate-nix-outputs.sh`
 
 Pre-flight checks for all 14 images:
 ```bash
@@ -88,7 +88,7 @@ Pre-flight checks for all 14 images:
 ./scripts/validate-nix-outputs.sh --satellite  # Satellites only
 ```
 
-**Kustomize manifests:** `lornu-ai/oci-dockworker-build/deploy/base/`
+**Kustomize manifests:** `lornu-ai/oci-dockworker-build-propel/deploy/base/`
 
 - `namespace.yaml` — propel namespace
 - `rbac.yaml` — service accounts + roles (propel-api, propel-runner)
@@ -100,7 +100,7 @@ Ready for overlays: `deploy/overlays/{dev,staging,prod}/`
 
 ### CI/CD Pipeline
 
-**File:** `lornu-ai/oci-dockworker-build/.github/workflows/ci.yml`
+**File:** `lornu-ai/oci-dockworker-build-propel/.github/workflows/ci.yml`
 
 Validation checks for every PR:
 - **nix-check:** `nix flake check` (syntax validation)
@@ -161,7 +161,7 @@ These workflows will be re-enabled if Propel Phase 1 is delayed beyond 2 weeks.
 - Staging deployment validation
 - GHA workflow archival
 - Production cutover
-- FFT + oci-dockworker-build fully on Propel
+- FFT + oci-dockworker-build-propel fully on Propel
 
 ---
 
@@ -174,7 +174,7 @@ These workflows will be re-enabled if Propel Phase 1 is delayed beyond 2 weeks.
 - `propel-github` crate publishes check-runs
 - Kustomize base in `propel/deploy/base/` (reusable across repos)
 
-### With oci-dockworker-build repo
+### With oci-dockworker-build-propel repo
 
 - `.propel/config.toml` defines build matrix
 - Validation script ensures Nix outputs exist
@@ -215,7 +215,7 @@ Implementation checklist:
 ### Phase 1 Success Metrics
 
 - ✅ First webhook received and logged
-- ✅ K8s Job created for oci-dockworker-build push event
+- ✅ K8s Job created for oci-dockworker-build-propel push event
 - ✅ Nix build completes (success or failure) in < 10 minutes
 - ✅ Job logs appear in Propel API
 - ✅ Check-run published to GitHub PR
@@ -238,8 +238,8 @@ Implementation checklist:
 
 ## References
 
-- **oci-dockworker-build PR #16:** Build matrix configuration (MERGED)
-- **oci-dockworker-build PR #17:** Phase 1.5 specification + K8s manifests (OPEN)
+- **oci-dockworker-build-propel PR #16:** Build matrix configuration (MERGED)
+- **oci-dockworker-build-propel PR #17:** Phase 1.5 specification + K8s manifests (OPEN)
 - **Propel README:** https://github.com/lornu-ai/propel/blob/main/README.md
 - **Propel PHASES.md:** https://github.com/lornu-ai/propel/blob/main/PHASES.md
 - **GitHub App (lornu-ai):** App ID 2665041, already installed on org
