@@ -1,3 +1,0 @@
-[stages.check]
-command = ["echo", "ok"]
-enabled = true

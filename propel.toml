@@ -1,0 +1,9 @@
+[project]
+name = "aivcs"
+description = "CI config for aivcs"
+
+[[check]]
+name = "check"
+description = "Basic CI verification check"
+command = ["echo", "ok"]
+check = true
