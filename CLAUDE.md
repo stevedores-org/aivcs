@@ -58,23 +58,20 @@ The approved technology stack for this repository. Do not introduce alternatives
 
 ### 1. Pre-Push Validation (MANDATORY)
 
-**Run `local-ci` before pushing any PR.** This is the canonical pre-push gate for every contributor and every coding agent that touches this repo. Configuration lives in [`.local-ci.toml`](.local-ci.toml); the binary comes from [stevedores-org/local-ci](https://github.com/stevedores-org/local-ci).
+**Run `og-crab` before pushing any PR.** This is the canonical pre-push gate for every contributor and every coding agent that touches this repo. Configuration lives in [`propel.toml`](propel.toml).
 
 ```bash
-local-ci            # run all enabled stages from .local-ci.toml
-local-ci --fix      # apply auto-fixes (rustfmt, etc.) where supported
-local-ci fmt clippy # run a subset of stages
+og-crab                  # run all enabled checks from propel.toml
+og-crab run rust-format  # run a specific check (e.g., rust-format)
 ```
 
-Install once with `go install github.com/stevedores-org/local-ci@latest` (binary lands in `$(go env GOPATH)/bin`). Cache state in `.local-ci-cache/` means repeat runs only re-execute stages whose inputs changed.
+**The rule:** if `og-crab` is red, do not push. Either fix the failure or resolve it. **Do not** push a known-red PR with the expectation that CI will surface the same failure.
 
-**The rule:** if `local-ci` is red, do not push. Either fix the failure or, with a documented reason, `--skip` the stage. **Do not** push a known-red PR with the expectation that GitHub CI will surface the same failure — that wastes reviewer time and burns CI minutes on issues you could have caught in seconds locally.
+**Why this is mandatory:** the most common reason a PR sits BLOCKED on this repo is a format/lint/test failure that `og-crab` would have caught before push. Agents that bypass this gate produce PRs that consume team review bandwidth on self-inflicted issues. This rule applies equally to humans and to coding agents (Claude, Codex, Cursor, Copilot, Jules, Antigravity).
 
-**Why this is mandatory:** the most common reason a PR sits BLOCKED on this repo is a fmt/clippy/test failure that `local-ci` would have caught before push. Agents that bypass this gate produce PRs that consume team review bandwidth on self-inflicted issues. This rule applies equally to humans and to coding agents (Claude, Codex, Cursor, Copilot, Jules, Antigravity).
+#### Fallbacks (only when `og-crab` is unavailable)
 
-#### Fallbacks (only when `local-ci` is unavailable)
-
-If `local-ci` cannot be installed for some reason, fall back to one of these — but the gate is still the same set of checks (fmt + clippy + test + yaml validate):
+If `og-crab` cannot be run for some reason, fall back to one of these — but the gate is still the same set of checks (fmt + clippy + test + yaml validate):
 
 ```bash
 just validate-all                                   # via just task runner
@@ -82,12 +79,12 @@ make test                                           # via make
 cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features
 ```
 
-**Documentation sync validation** (runs separately from `local-ci`):
+**Documentation sync validation** (runs separately from `og-crab`):
 ```bash
 ai-agent-agent-guides validate
 ```
 
-**See also:** [CODING_STANDARDS.md](CODING_STANDARDS.md) for language standards, [.cursorrules](.cursorrules) for IDE rules, [.ai/CHECKLIST.md](.ai/CHECKLIST.md) for the pre-commit checklist, [.local-ci.toml](.local-ci.toml) for the stage definitions.
+**See also:** [CODING_STANDARDS.md](CODING_STANDARDS.md) for language standards, [.cursorrules](.cursorrules) for IDE rules, [.ai/CHECKLIST.md](.ai/CHECKLIST.md) for the pre-commit checklist, [`propel.toml`](propel.toml) for the check definitions.
 
 ### 2. Python-to-Rust Migration (Strangler Fig Pattern)
 
