@@ -119,6 +119,56 @@ struct PushPayload {
     hive_id: String,
     message: String,
     blob_hash: String, // Points to S3 CAS
+    // Signature over the payload by the agent's key. Not yet verified;
+    // recorded as-is so later phases can audit retroactively.
+    signature: Option<String>,
+}
+
+/// Record a state push: ensure the hive and agent records exist, then create
+/// the commit with proper record references per `001_synthetic_principal.surql`
+/// (`agent_id: record<agent>`, `hive_id: record<hive>`, `signature` required).
+async fn record_push(
+    db: &Surreal<surrealdb::engine::any::Any>,
+    payload: &PushPayload,
+) -> Result<Value> {
+    let mut response = db
+        .query(
+            "UPSERT type::thing('hive', $hive_id) SET name = $hive_id;
+             UPSERT type::thing('agent', $agent_id) SET
+                 name = $agent_id,
+                 public_key = $public_key,
+                 hive_id = type::thing('hive', $hive_id),
+                 role = 'agent';
+             CREATE commit SET
+                 agent_id = type::thing('agent', $agent_id),
+                 hive_id = type::thing('hive', $hive_id),
+                 message = $message,
+                 blob_hash = $blob_hash,
+                 signature = $signature
+             RETURN record::id(id) AS commit_id, message, blob_hash, signature;",
+        )
+        .bind(("hive_id", payload.hive_id.clone()))
+        .bind(("agent_id", payload.agent_id.clone()))
+        // Placeholder until agent identity bootstrap supplies a real key;
+        // must stay unique per agent (idx_agent_pubkey).
+        .bind(("public_key", format!("unverified:{}", payload.agent_id)))
+        .bind(("message", payload.message.clone()))
+        .bind(("blob_hash", payload.blob_hash.clone()))
+        .bind((
+            "signature",
+            payload
+                .signature
+                .clone()
+                .unwrap_or_else(|| "unsigned".to_string()),
+        ))
+        .await
+        .context("push query failed")?;
+
+    let created: Vec<Value> = response.take(2).context("commit create failed")?;
+    created
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("commit create returned no record"))
 }
 
 async fn push_state(
@@ -131,23 +181,11 @@ async fn push_state(
         payload.agent_id, payload.hive_id
     );
 
-    // Create the commit in SurrealDB
-    let create_result: Result<Option<Value>, _> = state
-        .db
-        .create("commit")
-        .content(json!({
-            "message": payload.message,
-            "blob_hash": payload.blob_hash,
-            "author": format!("agent:{}", payload.agent_id),
-            "hive": format!("hive:{}", payload.hive_id),
-            "created_at": chrono::Utc::now()
-        }))
-        .await;
-
-    match create_result {
-        Ok(_) => Json(json!({
+    match record_push(&state.db, &payload).await {
+        Ok(commit) => Json(json!({
             "status": "success",
-            "message": "State commit recorded successfully in semantic graph"
+            "message": "State commit recorded successfully in semantic graph",
+            "commit_id": commit.get("commit_id").cloned().unwrap_or(Value::Null)
         })),
         Err(e) => {
             warn!("Failed to record commit: {:?}", e);
@@ -194,5 +232,53 @@ mod tests {
     async fn test_version_info() {
         let res = version_info().await;
         assert_eq!(res.0["name"], "aivcsd");
+    }
+
+    /// Regression test: push_state must write commits that satisfy the real
+    /// SCHEMAFULL schema (record<agent>/record<hive> refs + signature), not
+    /// ad-hoc field names. Runs against the same schema main() applies.
+    #[tokio::test]
+    async fn test_record_push_matches_schema() {
+        let db = connect("mem://").await.unwrap();
+        db.use_ns("ci").use_db("fft").await.unwrap();
+        db.query(include_str!("../schemas/001_synthetic_principal.surql"))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+
+        let payload = PushPayload {
+            agent_id: "claude-code-01".to_string(),
+            hive_id: "sparky-verify".to_string(),
+            message: "first snapshot".to_string(),
+            blob_hash: "sha256:deadbeef".to_string(),
+            signature: None,
+        };
+
+        let commit = record_push(&db, &payload)
+            .await
+            .expect("push should satisfy schema");
+        assert_eq!(commit["message"], "first snapshot");
+        assert_eq!(commit["signature"], "unsigned");
+        assert!(
+            commit["commit_id"].is_string(),
+            "commit_id should be returned"
+        );
+
+        // Same agent pushing again must reuse the upserted agent/hive records
+        // (unique public_key index) — only the duplicate blob_hash is rejected.
+        let dup = record_push(&db, &payload).await;
+        assert!(
+            dup.is_err(),
+            "duplicate blob_hash must be rejected by idx_commit_blob"
+        );
+
+        let second = PushPayload {
+            blob_hash: "sha256:cafebabe".to_string(),
+            signature: Some("sig:test".to_string()),
+            ..payload
+        };
+        let commit2 = record_push(&db, &second).await.expect("second push");
+        assert_eq!(commit2["signature"], "sig:test");
     }
 }
