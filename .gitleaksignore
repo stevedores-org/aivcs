@@ -1,0 +1,6 @@
+# Historical finding, already remediated: the committed RS256 dev key was
+# removed and replaced with a runtime secret in 5d2f433 ("fix(aivcs-auth)!:
+# load RS256 signing key from runtime secret; remove committed key"). The blob
+# remains in git history, so the og-crab gitleaks check would fail every
+# history scan without this entry.
+223c89a900e66c30a933a4bb8682c895407f5865:crates/aivcs-auth/keys/private.pem:private-key:1
