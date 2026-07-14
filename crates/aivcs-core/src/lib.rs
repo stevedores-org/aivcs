@@ -65,6 +65,7 @@ pub use infra::cloudflare_lb::{
     render_audit_markdown, resolve_cf_credentials, AuditReport,
 };
 pub use infra::flux::{build_reconcile_command, run_reconcile};
+pub use infra::gsm::{resolve_project_id, vault_kv_path_to_gsm_secret_id, GsmClient};
 
 pub use memory::{DecisionRecorder, DecisionRecorderConfig};
 

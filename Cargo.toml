@@ -56,6 +56,10 @@ axum = "0.7"
 # HTTP Client
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# GCP Auth
+google-cloud-auth = "0.17"
+google-cloud-token = "0.1.2"
+
 # GitHub API integration
 octocrab = "0.41"
 
