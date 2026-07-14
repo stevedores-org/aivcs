@@ -1305,7 +1305,7 @@ mod tests {
         let snapshot = CiSnapshot {
             repo_sha: "abc123".to_string(),
             workspace_hash: "work-1".to_string(),
-            local_ci_config_hash: "cfg-1".to_string(),
+            ci_config_hash: "cfg-1".to_string(),
             env_hash: "env-1".to_string(),
         };
         let snapshot_digest = handle.save_ci_snapshot(&snapshot).await.unwrap();

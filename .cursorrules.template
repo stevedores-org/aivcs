@@ -21,7 +21,7 @@ just yaml-validate    # YAML workflow validation
 **Alternative: Use `make` task runner (legacy)**
 ```bash
 make test             # Complete validation
-make lci              # Rust workspace checks
+make ci               # Rust workspace checks (og-crab)
 make test-scripts     # Python logic validation
 make test-yaml        # YAML workflow validation
 ```
@@ -32,7 +32,7 @@ Install actionlint for YAML validation:
 brew install actionlint
 ```
 
-For details, see [GEMINI.md](GEMINI.md) Section 1 and [LOCAL_CI_VALIDATION.md](docs/LOCAL_CI_VALIDATION.md).
+For details, see [GEMINI.md](GEMINI.md) Section 1.
 
 This workflow ensures that all Cursor rules, CI scripts, and YAML workflows are robust and error-free before merging to develop.
 # Grow Without Limits — Cursor Rules (Lornuai, Inc.)

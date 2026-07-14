@@ -68,7 +68,7 @@ pub use infra::flux::{build_reconcile_command, run_reconcile};
 
 pub use memory::{DecisionRecorder, DecisionRecorderConfig};
 
-pub use ci_snapshot::{build_ci_snapshot, compute_workspace_hash, find_repo_root, run_local_ci};
+pub use ci_snapshot::{build_ci_snapshot, compute_workspace_hash, find_repo_root, run_og_crab};
 
 pub use oxidized_state::{
     BranchRecord, CommitId, CommitRecord, DecisionRecord, MemoryProvenanceRecord, MemoryRecord,

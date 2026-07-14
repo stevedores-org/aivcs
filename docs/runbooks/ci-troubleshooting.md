@@ -6,12 +6,12 @@ CI runs on every push to `develop`/`main` and on all pull requests. Two jobs:
 
 | Job | Tool | Blocking? |
 |---|---|---|
-| `local-ci` | `stevedores-org/local-ci` (Go) | Yes |
+| `og-crab` | `lornu-ai/og-crab` (Rust) | Yes |
 | `nix-report` | `nix flake check` | No (report-only) |
 
-### local-ci
+### og-crab
 
-`local-ci --json` discovers and runs checks defined in the repository. For AIVCS this includes:
+`og-crab run` runs the checks defined in `propel.toml`. For AIVCS this includes:
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
@@ -43,17 +43,17 @@ Diff in src/foo.rs
 
 **Fix:** Run `cargo test --all` locally. For flaky tests involving SurrealDB, ensure no global state leaks between tests (each test should call `SurrealHandle::setup_db()` for a fresh in-memory instance).
 
-### local-ci not found
+### og-crab not found
 
 ```
-local-ci: command not found
+og-crab: command not found
 ```
 
-CI installs it via `go install github.com/stevedores-org/local-ci@latest`. If building locally:
+Install it from source:
 
 ```bash
-go install github.com/stevedores-org/local-ci@latest
-local-ci --json
+cargo install --git https://github.com/lornu-ai/og-crab og-crab
+og-crab run
 ```
 
 ### Nix flake check failure (non-blocking)
@@ -71,7 +71,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
-# Or use local-ci directly
-go install github.com/stevedores-org/local-ci@latest
-local-ci --json
+# Or use og-crab directly
+cargo install --git https://github.com/lornu-ai/og-crab og-crab
+og-crab run
 ```

@@ -1,0 +1,37 @@
+# propel.toml — og-crab CI configuration for aivcs
+# Run locally with `og-crab run` (also executed by `aivcs pr open` unless --require-og-crab=false).
+
+[project]
+name = "aivcs"
+description = "AI Agent Version Control System"
+
+[[check]]
+name = "fmt"
+description = "Check code formatting with rustfmt"
+command = ["cargo", "fmt", "--all", "--", "--check"]
+timeout_seconds = 60
+enabled = true
+
+[[check]]
+name = "clippy"
+description = "Run clippy on all targets with warnings denied"
+command = ["cargo", "clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
+timeout_seconds = 300
+enabled = true
+
+[[check]]
+name = "test"
+description = "Run workspace tests"
+command = ["cargo", "test", "--workspace"]
+timeout_seconds = 600
+enabled = true
+
+[[check]]
+name = "gitleaks"
+description = "Scan for leaked secrets"
+command = ["gitleaks", "detect", "--no-banner", "--redact"]
+timeout_seconds = 60
+enabled = true
+
+[policy]
+required_checks = ["fmt", "clippy", "test", "gitleaks"]

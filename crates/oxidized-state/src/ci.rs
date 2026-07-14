@@ -15,8 +15,8 @@ pub struct CiSnapshot {
     pub repo_sha: String,
     /// Hash of working tree contents.
     pub workspace_hash: String,
-    /// Hash of `.local-ci.toml` contents.
-    pub local_ci_config_hash: String,
+    /// Hash of the og-crab CI config (`propel.toml`) contents.
+    pub ci_config_hash: String,
     /// Fingerprint of execution environment/toolchain.
     pub env_hash: String,
 }
@@ -210,7 +210,7 @@ mod tests {
         let a = CiSnapshot {
             repo_sha: "abc123".to_string(),
             workspace_hash: "ws1".to_string(),
-            local_ci_config_hash: "cfg1".to_string(),
+            ci_config_hash: "cfg1".to_string(),
             env_hash: "env1".to_string(),
         };
         let b = a.clone();

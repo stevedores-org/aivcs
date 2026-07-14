@@ -345,9 +345,9 @@ enum PrAction {
         #[arg(long, default_value_t = true)]
         librarian: bool,
 
-        /// Require local-ci validation before opening PR
+        /// Require og-crab validation before opening PR
         #[arg(long, default_value_t = true)]
-        require_local_ci: bool,
+        require_og_crab: bool,
     },
 
     /// Create a GitHub branch from a base ref
@@ -445,9 +445,9 @@ enum PrAction {
         #[arg(long, default_value_t = false)]
         skip_branch: bool,
 
-        /// Require local-ci validation before opening PR
+        /// Require og-crab validation before opening PR
         #[arg(long, default_value_t = true)]
-        require_local_ci: bool,
+        require_og_crab: bool,
     },
 
     /// Verify aivcs-ci-snapshot against HEAD
@@ -712,7 +712,7 @@ async fn main() -> Result<()> {
                 owner,
                 repo,
                 librarian,
-                require_local_ci,
+                require_og_crab,
             } => {
                 cmd_pr_open(PrOpenArgs {
                     title,
@@ -722,7 +722,7 @@ async fn main() -> Result<()> {
                     owner,
                     repo,
                     librarian,
-                    require_local_ci,
+                    require_og_crab,
                 })
                 .await
             }
@@ -752,7 +752,7 @@ async fn main() -> Result<()> {
                 repo,
                 librarian,
                 skip_branch,
-                require_local_ci,
+                require_og_crab,
             } => {
                 cmd_pr_pipeline(
                     &handle,
@@ -768,7 +768,7 @@ async fn main() -> Result<()> {
                         repo,
                         librarian,
                         skip_branch,
-                        require_local_ci,
+                        require_og_crab,
                     },
                 )
                 .await
@@ -842,7 +842,7 @@ struct PrOpenArgs {
     owner: String,
     repo: String,
     librarian: bool,
-    require_local_ci: bool,
+    require_og_crab: bool,
 }
 
 async fn cmd_pr_open(args: PrOpenArgs) -> Result<()> {
@@ -854,13 +854,13 @@ async fn cmd_pr_open(args: PrOpenArgs) -> Result<()> {
         owner,
         repo,
         librarian,
-        require_local_ci,
+        require_og_crab,
     } = args;
 
     let repo_root = aivcs_core::find_repo_root();
 
-    if require_local_ci {
-        aivcs_core::run_local_ci(&repo_root)?;
+    if require_og_crab {
+        aivcs_core::run_og_crab(&repo_root)?;
     }
 
     // Always generate snapshot and embed in body
@@ -868,7 +868,7 @@ async fn cmd_pr_open(args: PrOpenArgs) -> Result<()> {
     let digest = snapshot.digest();
     body = format!(
         "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
-        body, digest, snapshot.local_ci_config_hash
+        body, digest, snapshot.ci_config_hash
     );
 
     let client = forge_client_from_env(owner, repo)?;
@@ -947,7 +947,7 @@ struct PrPipelineArgs {
     repo: String,
     librarian: bool,
     skip_branch: bool,
-    require_local_ci: bool,
+    require_og_crab: bool,
 }
 
 async fn cmd_pr_pipeline(handle: &SurrealHandle, args: PrPipelineArgs) -> Result<()> {
@@ -963,13 +963,13 @@ async fn cmd_pr_pipeline(handle: &SurrealHandle, args: PrPipelineArgs) -> Result
         repo,
         librarian,
         skip_branch,
-        require_local_ci,
+        require_og_crab,
     } = args;
 
     let repo_root = aivcs_core::find_repo_root();
 
-    if require_local_ci {
-        aivcs_core::run_local_ci(&repo_root)?;
+    if require_og_crab {
+        aivcs_core::run_og_crab(&repo_root)?;
     }
 
     // Always generate snapshot and embed in body
@@ -977,7 +977,7 @@ async fn cmd_pr_pipeline(handle: &SurrealHandle, args: PrPipelineArgs) -> Result
     let digest = snapshot.digest();
     body = format!(
         "{}\n\n<!-- aivcs-ci-snapshot: sha256:{} config-hash:{} -->",
-        body, digest, snapshot.local_ci_config_hash
+        body, digest, snapshot.ci_config_hash
     );
 
     let forge_repo = format!("{owner}/{repo}");
@@ -1072,9 +1072,9 @@ async fn cmd_pr_verify_snapshot(pr_body: Option<String>) -> Result<()> {
         println!("Expected snapshot details:");
         println!("  repo_sha: {}", snapshot.repo_sha);
         println!("  workspace_hash: {}", snapshot.workspace_hash);
-        println!("  local_ci_config_hash: {}", snapshot.local_ci_config_hash);
+        println!("  ci_config_hash: {}", snapshot.ci_config_hash);
         println!("  env_hash: {}", snapshot.env_hash);
-        anyhow::bail!("✗ Snapshot verification failed! The current HEAD state does not match the local-ci snapshot in the PR body. Did you push unstaged/untested changes without using aivcs pr pipeline?")
+        anyhow::bail!("✗ Snapshot verification failed! The current HEAD state does not match the CI snapshot in the PR body. Did you push unstaged/untested changes without using aivcs pr pipeline?")
     }
 }
 

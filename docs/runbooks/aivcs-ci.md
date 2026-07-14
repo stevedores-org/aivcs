@@ -2,7 +2,7 @@
 
 `aivcs ci run` runs CI stages **and records the execution** as part of the
 AIVCS ledger. It is distinct from the repository's GitHub Actions workflow and
-from running raw `cargo`/`local-ci` (see
+from running raw `cargo`/`og-crab` (see
 [ci-troubleshooting.md](./ci-troubleshooting.md)).
 
 > Confirm the live surface with `aivcs ci run --help`.
@@ -24,12 +24,12 @@ aivcs ci run \
 | `--no-cache` | off | Skip the stage cache (force a clean run) |
 | `--fix` | off | Run fix variants (e.g. `cargo fmt`, `clippy --fix`) to auto-repair |
 
-## `aivcs ci run` vs raw cargo / local-ci
+## `aivcs ci run` vs raw cargo / og-crab
 
 | Use… | When |
 |------|------|
 | `aivcs ci run` | You want the run **recorded** in the AIVCS ledger, stage caching, and the option to auto-repair (`--fix`) in one command. The default `fmt,check` is a fast pre-commit gate; widen to `fmt,check,clippy,test` for a full local mirror. |
-| `local-ci` | You want to reproduce the **GitHub Actions** pipeline exactly before pushing (the canonical pre-push gate). |
+| `og-crab run` | You want to reproduce the **GitHub Actions** pipeline exactly before pushing (the canonical pre-push gate). |
 | Raw `cargo fmt` / `clippy` / `test` | Ad-hoc, single-stage iteration while editing. |
 
 For diagnosing GitHub Actions failures and the precise cargo invocations CI

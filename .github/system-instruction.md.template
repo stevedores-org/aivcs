@@ -22,8 +22,6 @@ If you do not have actionlint installed:
 brew install actionlint
 ```
 
-For more details, see LOCAL_CI_VALIDATION.md in the main repo.
-
 This workflow ensures that all system instructions, CI scripts, and YAML workflows are robust and error-free before merging to develop.
 # Grow Without Limits — System Instruction (Lornuai, Inc.)
 
