@@ -39,6 +39,8 @@ engine = "nix"
 targets = [
   { name = "aivcs-cli", nix_target = ".#aivcs-cli-image", image = "aivcs" },
   { name = "aivcsd", nix_target = ".#aivcsd-image", image = "aivcsd" },
+  { name = "aivcs-auth", nix_target = ".#aivcs-auth-image", image = "aivcs-auth" },
+  { name = "aivcs-mcp-gateway", nix_target = ".#aivcs-mcp-gateway-image", image = "aivcs-mcp-gateway" },
 ]
 
 [oci.platforms]
