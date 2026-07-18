@@ -124,7 +124,7 @@ This repository is **PRIVATE** and uses **OAuth token authentication** for Flux 
 - **Bootstrap**: Always use `--token-auth` flag when bootstrapping Flux.
 
 ### Container Images — NEVER Dockerfile (org policy)
-**lornu-ai** and **stevedores-org** use **Nix OCI + dockworker.ai** for images almost since the beginning.
+**lornu-ai** and **lornu-ai** use **Nix OCI + dockworker.ai** for images almost since the beginning.
 **Never add, restore, or recommend `Dockerfile` / `Dockerfile.*`, `docker build`, or `docker buildx`.**
 
 | ✅ Always | ❌ Never |

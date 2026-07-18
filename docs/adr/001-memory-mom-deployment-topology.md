@@ -4,9 +4,9 @@
 |-------|-------|
 | **Status** | Accepted |
 | **Date** | 2026-06-16 |
-| **Issue** | [stevedores-org/aivcs#258](https://github.com/stevedores-org/aivcs/issues/258) |
+| **Issue** | [lornu-ai/aivcs#258](https://github.com/lornu-ai/aivcs/issues/258) |
 | **Proposal** | [mcp-memory-surface.md](../proposals/mcp-memory-surface.md) |
-| **Parent** | [stevedores-org/aivcs#220](https://github.com/stevedores-org/aivcs/issues/220) Phase 2.2 |
+| **Parent** | [lornu-ai/aivcs#220](https://github.com/lornu-ai/aivcs/issues/220) Phase 2.2 |
 
 ## Context
 
@@ -50,12 +50,12 @@ Session memory (`oxidized-state`) stays **in-process inside aivcs** in all profi
 |----------|----------|---------|---------|
 | `MOM_BACKEND_URL` | No | *(unset)* | Base URL of `mom-service`. Unset → embedded in-process backend. |
 | `MOM_BACKEND_TIMEOUT_MS` | No | `30000` | HTTP client timeout for sidecar mode. |
-| `SURREALDB_ENDPOINT` | Prod | — | mom-service uses this for durable store (unchanged from mom runbooks). aivcs session memory uses oxidized-state config separately ([#259](https://github.com/stevedores-org/aivcs/issues/259)). |
+| `SURREALDB_ENDPOINT` | Prod | — | mom-service uses this for durable store (unchanged from mom runbooks). aivcs session memory uses oxidized-state config separately ([#259](https://github.com/lornu-ai/aivcs/issues/259)). |
 
 ### Gateway ↔ mom auth (sidecar mode)
 
 - **v1:** Internal network trust — gateway runs in same K8s namespace / NixOS slice as mom; no public mom ingress.
-- **v1.1 (follow-up):** Service JWT or mTLS between gateway and mom (`Authorization: Bearer <internal>`), minted by `aivcs-auth` with `aud=mom-internal`. Tracked under [#239](https://github.com/stevedores-org/aivcs/issues/239) hardening gaps.
+- **v1.1 (follow-up):** Service JWT or mTLS between gateway and mom (`Authorization: Bearer <internal>`), minted by `aivcs-auth` with `aud=mom-internal`. Tracked under [#239](https://github.com/lornu-ai/aivcs/issues/239) hardening gaps.
 
 Tenant isolation remains enforced by mom's `ScopeKey` on every store call; the gateway forwards scope from MCP token claims ([proposal §3](../proposals/mcp-memory-surface.md)).
 
@@ -132,8 +132,8 @@ Nix flake changes (implementation follow-up, not this ADR):
 
 | Issue | Topic |
 |-------|-------|
-| [#259](https://github.com/stevedores-org/aivcs/issues/259) | SurrealDB cluster topology (mom vs aivcs namespaces) |
-| [#239](https://github.com/stevedores-org/aivcs/issues/239) | Gateway ↔ mom service auth |
+| [#259](https://github.com/lornu-ai/aivcs/issues/259) | SurrealDB cluster topology (mom vs aivcs namespaces) |
+| [#239](https://github.com/lornu-ai/aivcs/issues/239) | Gateway ↔ mom service auth |
 | *TBD* | Implement `aivcs-memory` crate + `MomBackend` trait |
 | [lornu-ai/mom#84](https://github.com/lornu-ai/mom/issues/84) | mom `MomBackend::connect` factory export |
 

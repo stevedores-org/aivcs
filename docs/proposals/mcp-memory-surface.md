@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Draft — design only (no code) |
-| **Issue** | [stevedores-org/aivcs#248](https://github.com/stevedores-org/aivcs/issues/248) |
-| **Parent** | [stevedores-org/aivcs#220](https://github.com/stevedores-org/aivcs/issues/220) Phase 2.2 |
+| **Issue** | [lornu-ai/aivcs#248](https://github.com/lornu-ai/aivcs/issues/248) |
+| **Parent** | [lornu-ai/aivcs#220](https://github.com/lornu-ai/aivcs/issues/220) Phase 2.2 |
 | **Related** | [lornu-ai/mom](https://github.com/lornu-ai/mom) — event-sourced memory kernel |
 
 ## Summary
@@ -338,9 +338,9 @@ mom changes required **before** aivcs can consume it as a backend (implementatio
 
 **aivcs-side (post-proposal, separate issues):**
 
-- New facade module behind `aivcs-mcp-gateway` tool registry ([#239 gap-5](https://github.com/stevedores-org/aivcs/issues/239))
+- New facade module behind `aivcs-mcp-gateway` tool registry ([#239 gap-5](https://github.com/lornu-ai/aivcs/issues/239))
 - `Cargo.toml` workspace dependency on `mom-core` (git rev pin) or HTTP client to mom-service
-- Gateway audit events typed as `mcp.memory.*` ([#239 gap-4](https://github.com/stevedores-org/aivcs/issues/239))
+- Gateway audit events typed as `mcp.memory.*` ([#239 gap-4](https://github.com/lornu-ai/aivcs/issues/239))
 
 ---
 

@@ -1,6 +1,6 @@
 # Zero-Touch PR Pipeline
 
-Epic: [stevedores-org/aivcs#191](https://github.com/stevedores-org/aivcs/issues/191) — **completed (closed)**. Task [#192](https://github.com/stevedores-org/aivcs/issues/192) (`CODE_COMMITTED` A2A event) is also **closed**.
+Epic: [lornu-ai/aivcs#191](https://github.com/lornu-ai/aivcs/issues/191) — **completed (closed)**. Task [#192](https://github.com/lornu-ai/aivcs/issues/192) (`CODE_COMMITTED` A2A event) is also **closed**.
 
 > **Status: implemented / current behavior.** This runbook describes how the pipeline works today, not planned work. The `pr pipeline` / `pr branch` / `pr commit` / `pr open` subcommands and `CODE_COMMITTED` emission are all shipped — verify with `aivcs pr --help`.
 
@@ -35,8 +35,8 @@ uv run aivcs pr pipeline \
   --file ./example.md \
   --message "docs: add example" \
   --title "feat: my change" \
-  --body "Closes stevedores-org/aivcs#191" \
-  --owner stevedores-org \
+  --body "Closes lornu-ai/aivcs#191" \
+  --owner lornu-ai \
   --repo aivcs
 ```
 
@@ -66,7 +66,7 @@ Same as the README GitHub Integration section:
 
 ## ESO + Workload Identity (task 2.2)
 
-GitHub App tokens are minted by External Secrets Operator and projected into Agent Job pods. Until the crossplane-heaven GitHub App minter lands ([crossplane-heaven#6](https://github.com/stevedores-org/crossplane-heaven/issues/6)), mount the token as either:
+GitHub App tokens are minted by External Secrets Operator and projected into Agent Job pods. Until the crossplane-heaven GitHub App minter lands ([crossplane-heaven#6](https://github.com/lornu-ai/crossplane-heaven/issues/6)), mount the token as either:
 
 - **`GITHUB_TOKEN`** — ESO `dataFrom` → env var, or
 - **`GITHUB_TOKEN_FILE`** — secret volume mount at a stable path
@@ -79,5 +79,5 @@ Every PR opened via `aivcs pr open` or `aivcs pr pipeline` requests review from 
 
 ## Related issues
 
-- [#192](https://github.com/stevedores-org/aivcs/issues/192) — `CODE_COMMITTED` A2A event schema
-- [crossplane-heaven#6](https://github.com/stevedores-org/crossplane-heaven/issues/6) — ESO GitHub App token minter
+- [#192](https://github.com/lornu-ai/aivcs/issues/192) — `CODE_COMMITTED` A2A event schema
+- [crossplane-heaven#6](https://github.com/lornu-ai/crossplane-heaven/issues/6) — ESO GitHub App token minter

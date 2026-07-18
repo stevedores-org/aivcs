@@ -3,9 +3,9 @@
 This guide details the design, architecture, and usage of the Zero-Trust Model-Context Protocol (MCP) Identity and Authentication services built for AIVCS.
 
 **See also**:
-- Architecture-of-record: [#227](https://github.com/stevedores-org/aivcs/issues/227)
-- Epics & user stories: [#228](https://github.com/stevedores-org/aivcs/issues/228)
-- Known Phase-1 gaps tracker: [#239](https://github.com/stevedores-org/aivcs/issues/239)
+- Architecture-of-record: [#227](https://github.com/lornu-ai/aivcs/issues/227)
+- Epics & user stories: [#228](https://github.com/lornu-ai/aivcs/issues/228)
+- Known Phase-1 gaps tracker: [#239](https://github.com/lornu-ai/aivcs/issues/239)
 
 ---
 
@@ -109,23 +109,23 @@ Any difference in tool arguments invalidates the approval. Note that the current
 
 ### C. Single-Use Invariants & Approval TTL
 1. **Human Approvals — single-use**: Once consumed by a tool execution, a human approval is immediately marked as `used` and cannot be replayed.
-2. **Human Approvals — time-bounded**: Approvals expire after `APPROVAL_TTL_HOURS` (currently **2 hours**) per [#228](https://github.com/stevedores-org/aivcs/issues/228) Feature 3.1. A `tools/call` whose only matching approval is stale returns `status: "approval_required"` with a `reason` that explicitly names the **`expired`** path — distinguishable from the never-approved and already-consumed cases. The underlying `DecisionRecord.outcome` is set to one of `expired` / `consumed` / `escalated` so the audit trail mirrors the operator-facing reason.
+2. **Human Approvals — time-bounded**: Approvals expire after `APPROVAL_TTL_HOURS` (currently **2 hours**) per [#228](https://github.com/lornu-ai/aivcs/issues/228) Feature 3.1. A `tools/call` whose only matching approval is stale returns `status: "approval_required"` with a `reason` that explicitly names the **`expired`** path — distinguishable from the never-approved and already-consumed cases. The underlying `DecisionRecord.outcome` is set to one of `expired` / `consumed` / `escalated` so the audit trail mirrors the operator-facing reason.
 3. **Authority Records — single-use**: Gateway mints a short-lived, single-use `AuthorityRecord` for every successful execution, proving authorization.
 
 ### D. Token & Session Revocation
 The gateway maintains a hotlist of revoked token IDs (`jti`) and session IDs. Attempts to access tools using revoked credentials return `401 Unauthorized`. See §4 for the precise wire shape.
 
-### E. Phase-1 limitations (tracked in [#239](https://github.com/stevedores-org/aivcs/issues/239))
+### E. Phase-1 limitations (tracked in [#239](https://github.com/lornu-ai/aivcs/issues/239))
 
 The current implementation matches #228's epic shape but five hardening gaps remain. **Do not deploy this gateway to production until these are closed**:
 
 | # | Limitation | Where | Tracked |
 |---|---|---|---|
-| 1 | Tool manifests are **not signed or verified** — `AuthorityRecord.tool_manifest_hash` is the literal placeholder string. | `crates/aivcs-mcp-gateway/src/main.rs:386` | [#239#gap-1](https://github.com/stevedores-org/aivcs/issues/239) |
-| 2 | Revocation hotlist is **in-memory only** — does not survive gateway restart and has no cross-replica visibility. | `crates/aivcs-mcp-gateway/src/main.rs:99–102` | [#239#gap-2](https://github.com/stevedores-org/aivcs/issues/239) |
-| 3 | `AuthorityRecord`s are **in-memory only** — `authority_id` is an opaque UUID, not a cryptographic downstream token, so cascading MCP calls cannot be cryptographically bound. | `crates/aivcs-mcp-gateway/src/main.rs:399–403` | [#239#gap-3](https://github.com/stevedores-org/aivcs/issues/239) |
-| 4 | Audit emission uses generic `DecisionRecord` with no structured `event_type` taxonomy — the `mcp.tool.executed` / `human.approved` event types from #228 Feature 4.1 are not yet typed. | `crates/oxidized-state/src/schema.rs:568` | [#239#gap-4](https://github.com/stevedores-org/aivcs/issues/239) |
-| 5 | Agent and tool registries are **inline static data** in the gateway, not separate `aivcs-agent-registry` / `aivcs-tool-registry` crates. | `crates/aivcs-mcp-gateway/src/main.rs:244–268` | [#239#gap-5](https://github.com/stevedores-org/aivcs/issues/239) |
+| 1 | Tool manifests are **not signed or verified** — `AuthorityRecord.tool_manifest_hash` is the literal placeholder string. | `crates/aivcs-mcp-gateway/src/main.rs:386` | [#239#gap-1](https://github.com/lornu-ai/aivcs/issues/239) |
+| 2 | Revocation hotlist is **in-memory only** — does not survive gateway restart and has no cross-replica visibility. | `crates/aivcs-mcp-gateway/src/main.rs:99–102` | [#239#gap-2](https://github.com/lornu-ai/aivcs/issues/239) |
+| 3 | `AuthorityRecord`s are **in-memory only** — `authority_id` is an opaque UUID, not a cryptographic downstream token, so cascading MCP calls cannot be cryptographically bound. | `crates/aivcs-mcp-gateway/src/main.rs:399–403` | [#239#gap-3](https://github.com/lornu-ai/aivcs/issues/239) |
+| 4 | Audit emission uses generic `DecisionRecord` with no structured `event_type` taxonomy — the `mcp.tool.executed` / `human.approved` event types from #228 Feature 4.1 are not yet typed. | `crates/oxidized-state/src/schema.rs:568` | [#239#gap-4](https://github.com/lornu-ai/aivcs/issues/239) |
+| 5 | Agent and tool registries are **inline static data** in the gateway, not separate `aivcs-agent-registry` / `aivcs-tool-registry` crates. | `crates/aivcs-mcp-gateway/src/main.rs:244–268` | [#239#gap-5](https://github.com/lornu-ai/aivcs/issues/239) |
 
 ---
 
@@ -198,5 +198,5 @@ cargo test --workspace
 
 - Lornu hub summary: [`lornu.ai/docs/MCP_ZERO_TRUST_AUTH.md`](https://github.com/lornu-ai/lornu.ai/blob/develop/docs/MCP_ZERO_TRUST_AUTH.md)
 - Agent skill: `.cursor/skills/mcp-auth/SKILL.md` — invoke when integrating or reviewing MCP auth
-- Phase-1 gaps: [#239](https://github.com/stevedores-org/aivcs/issues/239)
+- Phase-1 gaps: [#239](https://github.com/lornu-ai/aivcs/issues/239)
 

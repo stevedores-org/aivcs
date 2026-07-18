@@ -12,10 +12,10 @@ spec = "1.0"
 builder = "nix"
 
 [oci.image]
-authors = ["Stevedores Org <engineering@stevedores.org>"]
-url = "https://github.com/stevedores-org/aivcs"
-source = "https://github.com/stevedores-org/aivcs"
-vendor = "stevedores-org"
+authors = ["Stevedores Org <engineering@lornu.ai>"]
+url = "https://github.com/lornu-ai/aivcs"
+source = "https://github.com/lornu-ai/aivcs"
+vendor = "lornu-ai"
 licenses = "Apache-2.0"
 title = "aivcs"
 

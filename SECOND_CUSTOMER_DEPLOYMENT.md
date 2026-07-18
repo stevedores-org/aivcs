@@ -99,7 +99,7 @@ Crossplane XRD: FastFreeTestingGate
                  ↓
     ┌────────────┴──────────────┐
     ↓                           ↓
-stevedores-org/aivcs    lornu-ai/aivcs-lornu-demo
+lornu-ai/aivcs    lornu-ai/aivcs-lornu-demo
 (Customer 1)             (Customer 2)
 Crossplane Composite    Crossplane Composite
 (aivcs-ci-gate)         (aivcs-lornu-demo-ci-gate)
@@ -139,7 +139,7 @@ SELECT * FROM ci_audit_log
 ### Webhook Secret Management
 
 Each repo has its own webhook secret (stored in GitHub):
-- stevedores-org/aivcs: secret-123... (stored in k8s secret)
+- lornu-ai/aivcs: secret-123... (stored in k8s secret)
 - lornu-ai/aivcs-lornu-demo: secret-456... (stored in k8s secret)
 
 Both validated against their respective `CI_WEBHOOK_SECRET` env var.
@@ -175,7 +175,7 @@ aws ce get-cost-and-usage \
   --metrics BlendedCost
 ```
 
-Expected: ~500 Lambda invocations/month combined (stevedores-org: 250 + lornu-ai: 250) — still under 1M free tier.
+Expected: ~500 Lambda invocations/month combined (lornu-ai: 250 + lornu-ai: 250) — still under 1M free tier.
 
 ## Scaling to More Customers
 

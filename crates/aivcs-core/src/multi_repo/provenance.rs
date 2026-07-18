@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn test_provenance_roundtrip() {
         let p = ReleaseProvenance::new(
-            RepoId::new("stevedores-org/aivcs"),
+            RepoId::new("lornu-ai/aivcs"),
             uuid::Uuid::new_v4(),
             "abc123".to_string(),
             "digest-spec".to_string(),

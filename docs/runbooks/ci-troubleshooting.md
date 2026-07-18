@@ -6,7 +6,7 @@ CI runs on every push to `develop`/`main` and on all pull requests. Two jobs:
 
 | Job | Tool | Blocking? |
 |---|---|---|
-| `local-ci` | `stevedores-org/local-ci` (Go) | Yes |
+| `local-ci` | `lornu-ai/local-ci` (Go) | Yes |
 | `nix-report` | `nix flake check` | No (report-only) |
 
 ### local-ci
@@ -49,10 +49,10 @@ Diff in src/foo.rs
 local-ci: command not found
 ```
 
-CI installs it via `go install github.com/stevedores-org/local-ci@latest`. If building locally:
+CI installs it via `go install github.com/lornu-ai/local-ci@latest`. If building locally:
 
 ```bash
-go install github.com/stevedores-org/local-ci@latest
+go install github.com/lornu-ai/local-ci@latest
 local-ci --json
 ```
 
@@ -72,6 +72,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
 # Or use local-ci directly
-go install github.com/stevedores-org/local-ci@latest
+go install github.com/lornu-ai/local-ci@latest
 local-ci --json
 ```

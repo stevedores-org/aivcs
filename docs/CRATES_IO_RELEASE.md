@@ -1,6 +1,6 @@
 # crates.io release runbook (AIVCS)
 
-How to publish AIVCS **library crates** to [crates.io](https://crates.io). Owner: **`community-stevedores-org`**.
+How to publish AIVCS **library crates** to [crates.io](https://crates.io). Owner: **`community-lornu-ai`**.
 
 Binary CLI releases (GitHub Releases) stay in [`.github/workflows/release.yml`](../.github/workflows/release.yml). Crate publishing is [`.github/workflows/publish.yml`](../.github/workflows/publish.yml).
 
@@ -23,7 +23,7 @@ Binary CLI releases (GitHub Releases) stay in [`.github/workflows/release.yml`](
 | Target | When to use |
 |--------|-------------|
 | **crates.io** (default) | Public library crates consumed outside the monorepo |
-| **`crates.stevedores.org`** | Private/pre-release (see [oxidizedgraph publish workflow](https://github.com/stevedores-org/oxidizedgraph/blob/main/.github/workflows/publish.yml)) |
+| **`crates.lornu.ai`** | Private/pre-release (see [oxidizedgraph publish workflow](https://github.com/lornu-ai/oxidizedgraph/blob/main/.github/workflows/publish.yml)) |
 | **Path deps** | `lornu-ai/brains`, in-flight cross-repo work — no publish required |
 
 ## Prerequisites
@@ -42,7 +42,7 @@ security add-generic-password -a "$USER" -s "CARGO_REGISTRY_TOKEN" -w "<crates.i
 
 ### GitHub Actions secret
 
-Repo **`stevedores-org/aivcs`** → Settings → Secrets → `CARGO_REGISTRY_TOKEN` (same crates.io API token, scoped to publish).
+Repo **`lornu-ai/aivcs`** → Settings → Secrets → `CARGO_REGISTRY_TOKEN` (same crates.io API token, scoped to publish).
 
 ## Release checklist
 
@@ -58,7 +58,7 @@ Repo **`stevedores-org/aivcs`** → Settings → Secrets → `CARGO_REGISTRY_TOK
    git tag -a v0.3.2 -m "Release v0.3.2"
    git push origin v0.3.2
    ```
-6. **Verify** [publish workflow](https://github.com/stevedores-org/aivcs/actions/workflows/publish.yml) — test job → `publish-crates-io`.
+6. **Verify** [publish workflow](https://github.com/lornu-ai/aivcs/actions/workflows/publish.yml) — test job → `publish-crates-io`.
 7. **Confirm** on crates.io: `oxidized-state`, `nix-env-manager`, `semantic-rag-merge`, `aivcs-core`, `aivcs-ci` all show the new version.
 
 ### Manual publish (fallback)
@@ -98,7 +98,7 @@ oxidized-state → nix-env-manager → semantic-rag-merge → aivcs-core → aiv
 
 | Repo | Publish workflow |
 |------|------------------|
-| [stevedores-org/aivcs](https://github.com/stevedores-org/aivcs) | `publish.yml` (this doc) |
-| [stevedores-org/oxidizedgraph](https://github.com/stevedores-org/oxidizedgraph) | `publish.yml` (single crate + optional `crates.stevedores.org`) |
+| [lornu-ai/aivcs](https://github.com/lornu-ai/aivcs) | `publish.yml` (this doc) |
+| [lornu-ai/oxidizedgraph](https://github.com/lornu-ai/oxidizedgraph) | `publish.yml` (single crate + optional `crates.lornu.ai`) |
 
 Agent skill: [lornu.ai-agent-skills `crates-io`](https://github.com/lornu-ai/lornu.ai-agent-skills/tree/main/skills/crates-io).

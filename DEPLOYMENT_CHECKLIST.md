@@ -1,4 +1,4 @@
-# Fast-Free-Testing Deployment Checklist for stevedores-org/aivcs
+# Fast-Free-Testing Deployment Checklist for lornu-ai/aivcs
 
 ## Phase 1: Core Integration (CURRENT - This PR #295)
 
@@ -95,16 +95,16 @@ sam deploy --guided \
 WEBHOOK_URL="<GitHubWebhookURL from stack outputs>"
 WEBHOOK_SECRET="$(openssl rand -hex 32)"
 
-# Add webhook to stevedores-org/aivcs
+# Add webhook to lornu-ai/aivcs
 gh repo edit \
   --add-webhook \
   --url "$WEBHOOK_URL" \
   --events pull_request \
   --secret "$WEBHOOK_SECRET" \
-  stevedores-org/aivcs
+  lornu-ai/aivcs
 
 # Verify webhook was added
-gh api repos/stevedores-org/aivcs/hooks --jq '.[] | select(.config.url | contains("execute-api")) | {url: .config.url, active: .active}'
+gh api repos/lornu-ai/aivcs/hooks --jq '.[] | select(.config.url | contains("execute-api")) | {url: .config.url, active: .active}'
 ```
 
 ### Store Webhook Secret (IMPORTANT!)
@@ -120,14 +120,14 @@ gh api repos/stevedores-org/aivcs/hooks --jq '.[] | select(.config.url | contain
 
 ```bash
 # Require the CI gate check on main branch
-gh api repos/stevedores-org/aivcs/branches/main/protection \
+gh api repos/lornu-ai/aivcs/branches/main/protection \
   -X PUT \
   -f required_status_checks.strict=true \
   -f required_status_checks.contexts='["Deterministic Gate"]' \
   -f required_pull_request_reviews.required_approving_review_count=1
 
 # Verify
-gh api repos/stevedores-org/aivcs/branches/main/protection \
+gh api repos/lornu-ai/aivcs/branches/main/protection \
   --jq '{status_checks: .required_status_checks.contexts, pull_request_reviews: .required_pull_request_reviews}'
 ```
 
@@ -145,7 +145,7 @@ cd ~/engineering/code/aivcs
 
 git checkout -b test/ci-integration-customer-phase4
 echo "# CI Integration Test - Phase 4" >> README.md
-echo "Testing the fast-free-testing deterministic gate with stevedores-org/aivcs" >> README.md
+echo "Testing the fast-free-testing deterministic gate with lornu-ai/aivcs" >> README.md
 
 git commit -am "test: verify CI gate with customer PR"
 git push -u origin test/ci-integration-customer-phase4
@@ -153,7 +153,7 @@ git push -u origin test/ci-integration-customer-phase4
 
 Then open PR on GitHub:
 ```bash
-open "https://github.com/stevedores-org/aivcs/compare/main...test/ci-integration-customer-phase4"
+open "https://github.com/lornu-ai/aivcs/compare/main...test/ci-integration-customer-phase4"
 ```
 
 ### Verify Webhook Fires
@@ -279,7 +279,7 @@ let policy = IdentityPolicy {
 
 ## Phase 7: Scale to Other Customers (WEEK 4)
 
-**Timeline**: After stevedores-org/aivcs is stable  
+**Timeline**: After lornu-ai/aivcs is stable  
 
 ### For Each New Customer
 
@@ -328,11 +328,11 @@ aws cloudformation wait stack-delete-complete \
 
 ```bash
 # Get webhook ID
-WEBHOOK_ID=$(gh api repos/stevedores-org/aivcs/hooks \
+WEBHOOK_ID=$(gh api repos/lornu-ai/aivcs/hooks \
   --jq '.[] | select(.config.url | contains("execute-api")) | .id')
 
 # Delete webhook
-gh api repos/stevedores-org/aivcs/hooks/$WEBHOOK_ID -X DELETE
+gh api repos/lornu-ai/aivcs/hooks/$WEBHOOK_ID -X DELETE
 ```
 
 ---
@@ -364,11 +364,11 @@ gh api repos/stevedores-org/aivcs/hooks/$WEBHOOK_ID -X DELETE
 - **Code**: principal@lornu.ai
 - **Deployment**: principal@lornu.ai
 - **Support**: principal@lornu.ai
-- **Repository**: https://github.com/stevedores-org/aivcs
+- **Repository**: https://github.com/lornu-ai/aivcs
 
 ## Key Links
 
-- **PR #295**: https://github.com/stevedores-org/aivcs/pull/295
+- **PR #295**: https://github.com/lornu-ai/aivcs/pull/295
 - **Integration Guide**: FAST_FREE_TESTING_INTEGRATION.md
 - **Deployment Guide**: CUSTOMER_DEPLOYMENT.md
 - **fast-free-testing**: https://github.com/lornu-ai/fast-free-testing

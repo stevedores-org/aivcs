@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Identifies a repository (e.g. org/name or URL).
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RepoId {
-    /// Canonical name, e.g. "stevedores-org/aivcs".
+    /// Canonical name, e.g. "lornu-ai/aivcs".
     pub name: String,
 }
 
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_serde_repo_id() {
-        let id = RepoId::new("stevedores-org/aivcs");
+        let id = RepoId::new("lornu-ai/aivcs");
         let json = serde_json::to_string(&id).expect("serialize");
         let back: RepoId = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(id, back);

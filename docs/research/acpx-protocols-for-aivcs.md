@@ -149,7 +149,7 @@ Map AIVCS phases to A2A task states:
 1. Verify the current ACP v1 schema and Rust crate APIs against `agentclientprotocol.com` and `agent-client-protocol` docs.
 2. Draft `docs/protocol-mapping.md` for AIVCS: ACP sessions/prompt turns/updates, MCP tools/resources, A2A skills/tasks/artifacts, and the event envelope.
 3. Prototype a Rust AIVCS ACP agent that supports `initialize`, `session/new`, `session/load`, `session/resume`, and `session/prompt`.
-4. Inspect upstream `stevedores-org/aivcs` auth/gateway work and map it to ACP permission requests plus MCP OAuth/resource-server requirements.
+4. Inspect upstream `lornu-ai/aivcs` auth/gateway work and map it to ACP permission requests plus MCP OAuth/resource-server requirements.
 5. Add conformance tests for ACP prompt turns becoming replayable AIVCS commits with policy decisions and rollback refs.
 6. Decide whether AGNTCY OASF/Directory or ANP DID-based identity is needed for cross-org discovery in phase 1 or should remain a later integration.
 

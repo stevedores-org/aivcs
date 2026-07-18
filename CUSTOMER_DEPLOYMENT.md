@@ -1,6 +1,6 @@
-# Customer Deployment: stevedores-org/aivcs
+# Customer Deployment: lornu-ai/aivcs
 
-**Customer**: stevedores-org/aivcs  
+**Customer**: lornu-ai/aivcs  
 **Offering**: Unlimited free CI checks via fast-free-testing  
 **Status**: Ready for production deployment  
 **Cost**: $0 (AWS free tier)  
@@ -62,16 +62,16 @@ WEBHOOK_URL=$(aws cloudformation describe-stacks \
 
 echo "Webhook URL: $WEBHOOK_URL"
 
-# Add to stevedores-org/aivcs
+# Add to lornu-ai/aivcs
 gh repo edit \
   --add-webhook \
   --url "$WEBHOOK_URL" \
   --events pull_request \
   --secret "$(openssl rand -hex 32)" \
-  stevedores-org/aivcs
+  lornu-ai/aivcs
 
 # Verify webhook was added
-gh repo view stevedores-org/aivcs --json webhooks --jq '.webhooks[]'
+gh repo view lornu-ai/aivcs --json webhooks --jq '.webhooks[]'
 ```
 
 ### Phase 3: Branch Protection
@@ -80,13 +80,13 @@ Enable the CI gate as a required check:
 
 ```bash
 # Update main branch to require the fast-free-testing check
-gh api repos/stevedores-org/aivcs/branches/main/protection \
+gh api repos/lornu-ai/aivcs/branches/main/protection \
   -X PUT \
   -f required_status_checks.strict=true \
   -f required_status_checks.contexts='["Deterministic Gate"]'
 
 # Verify
-gh api repos/stevedores-org/aivcs/branches/main/protection \
+gh api repos/lornu-ai/aivcs/branches/main/protection \
   --jq '.required_status_checks'
 ```
 
@@ -102,7 +102,7 @@ git commit -am "test: verify CI gate integration"
 git push -u origin test/ci-integration-customer
 
 # Open PR on GitHub
-open "https://github.com/stevedores-org/aivcs/compare/main...test/ci-integration-customer"
+open "https://github.com/lornu-ai/aivcs/compare/main...test/ci-integration-customer"
 ```
 
 **Expected flow**:
@@ -143,8 +143,8 @@ Receives GitHub webhook for PR events.
     "title": "Add feature X"
   },
   "repository": {
-    "full_name": "stevedores-org/aivcs",
-    "owner": {"login": "stevedores-org"}
+    "full_name": "lornu-ai/aivcs",
+    "owner": {"login": "lornu-ai"}
   }
 }
 ```
@@ -154,7 +154,7 @@ Receives GitHub webhook for PR events.
 {
   "status": "received",
   "execution_id": "exec_UUID",
-  "repository": "stevedores-org/aivcs",
+  "repository": "lornu-ai/aivcs",
   "pr_number": 123,
   "message": "CI checks queued"
 }
@@ -214,7 +214,7 @@ Subscribe a repo to fast-free-testing.
 {
   "status": "subscribed",
   "webhook_id": "webhook_UUID",
-  "repository": "stevedores-org/aivcs",
+  "repository": "lornu-ai/aivcs",
   "message": "Repository now subscribed to fast-free-testing"
 }
 ```
@@ -297,7 +297,7 @@ curl -X POST http://localhost:8000/sql \
 
 # Get metrics for repo
 curl -X POST http://localhost:8000/sql \
-  -d "SELECT * FROM ci_metrics WHERE repository = 'stevedores-org/aivcs' ORDER BY date DESC"
+  -d "SELECT * FROM ci_metrics WHERE repository = 'lornu-ai/aivcs' ORDER BY date DESC"
 ```
 
 ## Troubleshooting
@@ -312,7 +312,7 @@ curl -X POST http://localhost:8000/sql \
 2. Verify webhook secret:
    ```bash
    # Get secret from GitHub
-   gh api repos/stevedores-org/aivcs/hooks \
+   gh api repos/lornu-ai/aivcs/hooks \
      --jq '.[] | select(.config.url | contains("execute-api")) | .config.secret'
    ```
 
@@ -352,7 +352,7 @@ curl -X POST http://localhost:8000/sql \
 
 2. Check if check run was created:
    ```bash
-   gh api repos/stevedores-org/aivcs/commits/COMMIT_SHA/check-runs
+   gh api repos/lornu-ai/aivcs/commits/COMMIT_SHA/check-runs
    ```
 
 3. Look at orchestrator logs for GitHub API errors:

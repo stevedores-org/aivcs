@@ -12,7 +12,7 @@ export default function CrateCore() {
       </div>
       <p className="text-zinc-400 mb-2">Core library for AIVCS domain logic and orchestration.</p>
       <div className="flex gap-3 text-[12px] text-zinc-500 mb-8">
-        <a href="https://github.com/stevedores-org/aivcs/tree/main/crates/aivcs-core" className="hover:text-violet-400 transition">GitHub</a>
+        <a href="https://github.com/lornu-ai/aivcs/tree/main/crates/aivcs-core" className="hover:text-violet-400 transition">GitHub</a>
         <span className="text-zinc-700">&middot;</span>
         <span>Layer 1</span>
       </div>

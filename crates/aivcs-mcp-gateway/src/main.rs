@@ -20,7 +20,7 @@ const PUBLIC_KEY_PEM: &str = include_str!("../../aivcs-auth/keys/public.pem");
 
 /// Maximum age of a `HumanApproval` grant before it stops counting as a valid
 /// authorisation. Per the AIVCS Zero-Trust MCP Identity Model
-/// (stevedores-org/aivcs#228, Feature 3.1): *"The grant must be single-use and
+/// (lornu-ai/aivcs#228, Feature 3.1): *"The grant must be single-use and
 /// expire (e.g., within 2 hours)."* Expressed in hours rather than as a fixed
 /// `Duration` so the policy value is human-greppable in audit logs.
 const APPROVAL_TTL_HOURS: i64 = 2;
@@ -1497,7 +1497,7 @@ mod tests {
                 serde_json::to_vec(&json!({
                     "tool": "repo.diff.read",
                     "arguments": {},
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1528,7 +1528,7 @@ mod tests {
                     "arguments": {
                         "branch": "develop"
                     },
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1583,7 +1583,7 @@ mod tests {
                     "arguments": {
                         "branch": "develop"
                     },
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1613,7 +1613,7 @@ mod tests {
                     "arguments": {
                         "branch": "develop"
                     },
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1649,7 +1649,7 @@ mod tests {
                     "arguments": {
                         "branch": "develop"
                     },
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1687,7 +1687,7 @@ mod tests {
                 serde_json::to_vec(&json!({
                     "tool": "repo.diff.write",
                     "arguments": {},
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1740,7 +1740,7 @@ mod tests {
                 serde_json::to_vec(&json!({
                     "tool": "repo.diff.read",
                     "arguments": {},
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1756,7 +1756,7 @@ mod tests {
         assert_eq!(res_json["error"], "token_revoked");
     }
 
-    /// Issue [#228](https://github.com/stevedores-org/aivcs/issues/228)
+    /// Issue [#228](https://github.com/lornu-ai/aivcs/issues/228)
     /// Feature 3.1 requires human approvals to expire — the AC says
     /// *"The grant must be single-use and expire (e.g., within 2 hours)."*
     ///
@@ -1823,7 +1823,7 @@ mod tests {
                 serde_json::to_vec(&json!({
                     "tool": "repo.merge.execute",
                     "arguments": { "branch": "develop" },
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))
@@ -1884,7 +1884,7 @@ mod tests {
                         "content": { "vector": [0.1, 0.2, 0.3] },
                         "commit_id": "abc123"
                     },
-                    "repo": "stevedores-org/aivcs"
+                    "repo": "lornu-ai/aivcs"
                 }))
                 .unwrap(),
             ))

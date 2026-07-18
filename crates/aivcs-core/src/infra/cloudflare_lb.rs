@@ -310,12 +310,12 @@ mod tests {
 
     #[test]
     fn parse_allowlist_skips_comments_and_blanks() {
-        let list = parse_allowlist("# canonical\nlornu-ai-origins\n\nstevedores-org-origins\n");
+        let list = parse_allowlist("# canonical\nlornu-ai-origins\n\nlornu-ai-origins\n");
         assert_eq!(
             list,
             vec![
                 "lornu-ai-origins".to_string(),
-                "stevedores-org-origins".to_string()
+                "lornu-ai-origins".to_string()
             ]
         );
     }

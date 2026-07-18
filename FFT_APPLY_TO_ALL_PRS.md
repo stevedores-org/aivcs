@@ -3,7 +3,7 @@
 **Goal**: Run Crossplane validation + Lambda checks on **all PRs** across all repos  
 **Repos included**:
 - `lornu-ai/fast-free-testing` (its own PRs)
-- `stevedores-org/aivcs` (Customer 1)
+- `lornu-ai/aivcs` (Customer 1)
 - `lornu-ai/aivcs-lornu-demo` (Customer 2)
 - Any future repo that needs FFT checks
 
@@ -47,7 +47,7 @@ gh repo edit --add-webhook \
   --url "https://xxxxx.execute-api.us-east-1.amazonaws.com/prod/github" \
   --events pull_request \
   --secret "$(openssl rand -hex 32)" \
-  stevedores-org/aivcs
+  lornu-ai/aivcs
 
 gh repo edit --add-webhook \
   --url "https://xxxxx.execute-api.us-east-1.amazonaws.com/prod/github" \
@@ -60,7 +60,7 @@ gh repo edit --add-webhook \
 
 ```bash
 # For each repo
-for repo in "lornu-ai/fast-free-testing" "stevedores-org/aivcs" "lornu-ai/aivcs-lornu-demo"; do
+for repo in "lornu-ai/fast-free-testing" "lornu-ai/aivcs" "lornu-ai/aivcs-lornu-demo"; do
   echo "Protecting $repo/main..."
   
   gh api "repos/$repo/branches/main/protection" \
@@ -77,7 +77,7 @@ done
 
 ```bash
 # For each repo
-for repo in "lornu-ai/fast-free-testing" "stevedores-org/aivcs" "lornu-ai/aivcs-lornu-demo"; do
+for repo in "lornu-ai/fast-free-testing" "lornu-ai/aivcs" "lornu-ai/aivcs-lornu-demo"; do
   curl -X POST http://aivcsd:8080/api/v1/ci/subscribe/$repo \
     -H "Content-Type: application/json" \
     -d '{
@@ -245,7 +245,7 @@ git push -u origin test/fft-gate-customer
    - [ ] Test on fast-free-testing PRs
 
 2. **Week 2**: Enable on customer repos
-   - [ ] Add webhooks to stevedores-org/aivcs
+   - [ ] Add webhooks to lornu-ai/aivcs
    - [ ] Add webhooks to lornu-ai/aivcs-lornu-demo
    - [ ] Enable branch protection
 

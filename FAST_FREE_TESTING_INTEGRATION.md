@@ -1,13 +1,13 @@
-# Fast-Free-Testing Integration for stevedores-org/aivcs
+# Fast-Free-Testing Integration for lornu-ai/aivcs
 
 **Status**: First customer integration  
-**Client**: stevedores-org/aivcs  
+**Client**: lornu-ai/aivcs  
 **Offering**: Unlimited free CI checks  
 **Deployment Target**: Production  
 
 ## Overview
 
-Integration of `lornu-ai/fast-free-testing` (deterministic, fast, free AWS CI gate) with stevedores-org/aivcs to provide:
+Integration of `lornu-ai/fast-free-testing` (deterministic, fast, free AWS CI gate) with lornu-ai/aivcs to provide:
 
 - ✅ Automatic CI checks on every PR
 - ✅ Real-time status updates in UI
@@ -18,7 +18,7 @@ Integration of `lornu-ai/fast-free-testing` (deterministic, fast, free AWS CI ga
 ## Architecture
 
 ```
-stevedores-org/aivcs PR
+lornu-ai/aivcs PR
          ↓
     GitHub Webhook
          ↓
@@ -227,7 +227,7 @@ cd ~/engineering/code/infra-code
 # - See CLAUDE.md for infra-code guidelines
 # - See AGENTS.md for complete deployment patterns
 
-# Deploy Claim for stevedores-org/aivcs (following infra-code patterns)
+# Deploy Claim for lornu-ai/aivcs (following infra-code patterns)
 kubectl apply -f - <<EOF
 apiVersion: fft.lornu.ai/v1alpha1
 kind: FastFreeTestingGate
@@ -258,7 +258,7 @@ gh repo edit --add-webhook \
   --url "$WEBHOOK_URL" \
   --events pull_request \
   --secret "$(openssl rand -hex 32)" \
-  stevedores-org/aivcs
+  lornu-ai/aivcs
 ```
 
 ### 3. Deploy aivcsd Backend Updates
@@ -272,12 +272,12 @@ git push -u origin feat/fast-free-testing-integration
 # Open PR
 ```
 
-### 4. Subscribe stevedores-org/aivcs
+### 4. Subscribe lornu-ai/aivcs
 
 Call the API:
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/ci/subscribe/stevedores-org/aivcs \
+curl -X POST http://localhost:8080/api/v1/ci/subscribe/lornu-ai/aivcs \
   -H "Content-Type: application/json" \
   -d '{
     "aws_deployment_stack": "stevedores-aivcs-ci-gate",
@@ -343,7 +343,7 @@ let policy = IdentityPolicy {
 
 ## Cost Analysis
 
-### For stevedores-org/aivcs
+### For lornu-ai/aivcs
 
 **Pricing**: $0 (AWS free tier covers unlimited PRs)
 
@@ -405,4 +405,4 @@ let policy = IdentityPolicy {
 **Status**: Ready for implementation  
 **ETA**: 1 week for MVP  
 **Cost**: $0 (free tier)  
-**First customer**: stevedores-org/aivcs ✅
+**First customer**: lornu-ai/aivcs ✅

@@ -44,7 +44,7 @@ export default function GettingStarted() {
 
       <h2 className="text-xl font-semibold mt-8 mb-4">Installation</h2>
 
-      <CodeBlock title="terminal">{`git clone https://github.com/stevedores-org/aivcs.git
+      <CodeBlock title="terminal">{`git clone https://github.com/lornu-ai/aivcs.git
 cd aivcs
 cargo build --release
 ./target/release/aivcs --version`}</CodeBlock>

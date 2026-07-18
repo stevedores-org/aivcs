@@ -1,6 +1,6 @@
 //! Structural diff for oxidizedgraph-style snapshots embedded in commit state.
 //!
-//! TODO(stevedores-org/oxidizedgraph#60): swap this JSON structural diff for
+//! TODO(lornu-ai/oxidizedgraph#60): swap this JSON structural diff for
 //! `oxidizedgraph::diff::Graph::diff` once upstream lands.
 
 use std::collections::{BTreeMap, BTreeSet};

@@ -58,4 +58,4 @@ cargo run -p aivcs-cli -- oci publish --target aivcs-cli --system x86_64-linux
 ## Related
 
 - [plans#71](https://github.com/lornu-ai/plans/issues/71)
-- [stevedores-org/aivcs#281](https://github.com/stevedores-org/aivcs/issues/281)
+- [lornu-ai/aivcs#281](https://github.com/lornu-ai/aivcs/issues/281)

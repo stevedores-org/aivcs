@@ -271,7 +271,7 @@ mod tests {
 
     fn example_event() -> CodeCommittedEvent {
         CodeCommittedEvent {
-            repo: "stevedores-org/aivcs".to_string(),
+            repo: "lornu-ai/aivcs".to_string(),
             branch: "develop".to_string(),
             commit_sha: "abc123".to_string(),
             changed_paths: vec!["state.json".to_string()],
@@ -288,7 +288,7 @@ mod tests {
         let params = event.json_rpc_params();
 
         assert_eq!(params["event"]["kind"], CODE_COMMITTED_KIND);
-        assert_eq!(params["event"]["payload"]["repo"], "stevedores-org/aivcs");
+        assert_eq!(params["event"]["payload"]["repo"], "lornu-ai/aivcs");
         assert_eq!(params["event"]["payload"]["branch"], "develop");
         assert_eq!(params["event"]["payload"]["commit_sha"], "abc123");
         assert_eq!(

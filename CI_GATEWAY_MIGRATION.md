@@ -1,6 +1,6 @@
 # GitHub Actions → Fast-Free-Testing Migration
 
-**Target**: stevedores-org/aivcs (customer: our first "freebie" test case)  
+**Target**: lornu-ai/aivcs (customer: our first "freebie" test case)  
 **Status**: PR #295 backend ready; GHA migration planning phase  
 **Timeline**: After PR #295 merge + AWS deployment  
 
@@ -77,7 +77,7 @@ mv .github/workflows/ci.yml .github/workflows.archived/ci.yml.disabled-2026-06-2
 #     steps:
 #       - run: |
 #           echo "GitHub Actions CI replaced by fast-free-testing"
-#           echo "See: https://github.com/stevedores-org/aivcs/pull/295"
+#           echo "See: https://github.com/lornu-ai/aivcs/pull/295"
 ```
 
 **Option B: Simple stub workflow**
@@ -105,7 +105,7 @@ jobs:
 - [ ] Merge PR #295 — Backend integration ready
 - [ ] Document in PR: "FFT replaces GHA CI for this repo"
 - [ ] Deploy AWS stack: `sam deploy --stack-name stevedores-aivcs-ci-gate`
-- [ ] Add GitHub webhook to stevedores-org/aivcs
+- [ ] Add GitHub webhook to lornu-ai/aivcs
 - [ ] Test with first PR to verify FFT fires
 
 ### Week 1 (After FFT proven working)
@@ -168,7 +168,7 @@ Required status checks:
 
 **Change command**:
 ```bash
-gh api repos/stevedores-org/aivcs/branches/main/protection \
+gh api repos/lornu-ai/aivcs/branches/main/protection \
   -X PUT \
   -f required_status_checks.strict=true \
   -f required_status_checks.contexts='["Deterministic Gate"]'
@@ -222,7 +222,7 @@ When FFT sunset is complete:
 
 ## Long-Term Vision
 
-After stevedores-org/aivcs sunset (proof of concept):
+After lornu-ai/aivcs sunset (proof of concept):
 
 1. **Scale to other repos**: Apply same pattern to other Lornu projects
 2. **Optional nix-checks**: Move package/build checks to separate workflow
@@ -255,5 +255,5 @@ Before sunsetting GHA, verify:
 
 **Current Status**: Awaiting PR #295 merge  
 **Owner**: principal@lornu.ai  
-**Customer**: stevedores-org/aivcs (first free test case)  
+**Customer**: lornu-ai/aivcs (first free test case)  
 **Target Completion**: 2 weeks (with testing phase)

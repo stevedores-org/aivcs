@@ -12,7 +12,7 @@ export default function CrateState() {
       </div>
       <p className="text-zinc-400 mb-2">SurrealDB backend for AIVCS state persistence.</p>
       <div className="flex gap-3 text-[12px] text-zinc-500 mb-8">
-        <a href="https://github.com/stevedores-org/aivcs/tree/main/crates/oxidized-state" className="hover:text-violet-400 transition">GitHub</a>
+        <a href="https://github.com/lornu-ai/aivcs/tree/main/crates/oxidized-state" className="hover:text-violet-400 transition">GitHub</a>
         <span className="text-zinc-700">&middot;</span>
         <span>Layer 0</span>
       </div>

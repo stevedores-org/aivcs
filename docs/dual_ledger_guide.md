@@ -69,7 +69,7 @@ When commits are pushed or a pipeline runs, `aivcs` automatically emits a `CODE_
   "params": {
     "event": {
       "payload": {
-        "repo": "stevedores-org/aivcs",
+        "repo": "lornu-ai/aivcs",
         "branch": "develop",
         "commit_sha": "git_commit_sha_xyz...",
         "aivcs_commit_id": "aivcs_commit_abc123...",

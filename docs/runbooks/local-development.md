@@ -3,7 +3,7 @@
 ## Clone and Build
 
 ```bash
-git clone https://github.com/stevedores-org/aivcs.git
+git clone https://github.com/lornu-ai/aivcs.git
 cd aivcs
 cargo build
 ```

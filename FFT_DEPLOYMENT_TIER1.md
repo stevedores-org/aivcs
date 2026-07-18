@@ -53,12 +53,12 @@ GKE Autopilot (Tier 1)
    gh repo edit --add-webhook \
      --url "$WEBHOOK_URL" \
      --events pull_request \
-     stevedores-org/aivcs
+     lornu-ai/aivcs
    ```
 
 5. **Subscribe via aivcsd API**:
    ```bash
-   curl -X POST http://aivcsd:8080/api/v1/ci/subscribe/stevedores-org/aivcs \
+   curl -X POST http://aivcsd:8080/api/v1/ci/subscribe/lornu-ai/aivcs \
      -H "Content-Type: application/json" \
      -d '{"aws_deployment_stack":"stevedores-aivcs-ci-gate","api_endpoint":"'$WEBHOOK_URL'"}'
    ```

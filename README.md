@@ -166,7 +166,7 @@ The JSON-RPC params contain the AIVCS commit hash. Snapshot events include the s
   "event": {
     "kind": "CODE_COMMITTED",
     "payload": {
-      "repo": "stevedores-org/aivcs",
+      "repo": "lornu-ai/aivcs",
       "branch": "main",
       "commit_sha": "<aivcs-commit-hash>",
       "changed_paths": ["state.json"],
@@ -251,7 +251,7 @@ uv run aivcs pr pipeline \
   --message "docs: add example" \
   --title "feat: my change" \
   --body "Summary of what changed." \
-  --owner stevedores-org \
+  --owner lornu-ai \
   --repo aivcs
 ```
 
@@ -259,18 +259,18 @@ Step-by-step (GitHub or GitLab — same flags):
 
 ```bash
 # 1. Create a feature branch
-aivcs pr branch --name feature/my-change --base main --owner stevedores-org --repo aivcs
+aivcs pr branch --name feature/my-change --base main --owner lornu-ai --repo aivcs
 
 aivcs pr commit \
   --branch feature/my-change \
   --path docs/example.md \
   --file ./example.md \
   --message "docs: add example" \
-  --owner stevedores-org \
+  --owner lornu-ai \
   --repo aivcs
 
 aivcs pr open \
-  --owner stevedores-org \
+  --owner lornu-ai \
   --repo aivcs \
   --head feature/my-change \
   --base main \
@@ -443,7 +443,7 @@ The library automatically detects cloud credentials:
 ## References
 
 - [AgentGit Paper](https://arxiv.org/abs/...) - Original research on Git-like rollback for LLM agents
-- [Issue #1-4](https://github.com/stevedores-org/aivcs/issues) - Architecture and TDD plans
+- [Issue #1-4](https://github.com/lornu-ai/aivcs/issues) - Architecture and TDD plans
 
 ## **Official Contact Information**
 

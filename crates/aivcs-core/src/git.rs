@@ -230,20 +230,20 @@ mod tests {
         // the `.git` suffix. The bare forms appear when a user runs
         // `git clone` against a URL that was hand-typed without `.git`.
         assert_eq!(
-            parse_github_remote("https://github.com/stevedores-org/aivcs.git"),
-            Some("stevedores-org/aivcs".to_string())
+            parse_github_remote("https://github.com/lornu-ai/aivcs.git"),
+            Some("lornu-ai/aivcs".to_string())
         );
         assert_eq!(
-            parse_github_remote("https://github.com/stevedores-org/aivcs"),
-            Some("stevedores-org/aivcs".to_string())
+            parse_github_remote("https://github.com/lornu-ai/aivcs"),
+            Some("lornu-ai/aivcs".to_string())
         );
         assert_eq!(
-            parse_github_remote("git@github.com:stevedores-org/aivcs.git"),
-            Some("stevedores-org/aivcs".to_string())
+            parse_github_remote("git@github.com:lornu-ai/aivcs.git"),
+            Some("lornu-ai/aivcs".to_string())
         );
         assert_eq!(
-            parse_github_remote("git@github.com:stevedores-org/aivcs"),
-            Some("stevedores-org/aivcs".to_string())
+            parse_github_remote("git@github.com:lornu-ai/aivcs"),
+            Some("lornu-ai/aivcs".to_string())
         );
     }
 
@@ -253,12 +253,12 @@ mod tests {
         // certain Git versions / configs) emit this form. Slash separator
         // after the hostname, unlike the SCP-style colon form.
         assert_eq!(
-            parse_github_remote("ssh://git@github.com/stevedores-org/aivcs.git"),
-            Some("stevedores-org/aivcs".to_string())
+            parse_github_remote("ssh://git@github.com/lornu-ai/aivcs.git"),
+            Some("lornu-ai/aivcs".to_string())
         );
         assert_eq!(
-            parse_github_remote("ssh://git@github.com/stevedores-org/aivcs"),
-            Some("stevedores-org/aivcs".to_string())
+            parse_github_remote("ssh://git@github.com/lornu-ai/aivcs"),
+            Some("lornu-ai/aivcs".to_string())
         );
     }
 
@@ -369,7 +369,7 @@ mod tests {
     fn is_valid_github_name_accepts_realistic_names() {
         // Regression guard: real-world names must still parse after the
         // tightening. Underscores, hyphens, dots, mixed case, digits.
-        assert!(is_valid_github_name("stevedores-org"));
+        assert!(is_valid_github_name("lornu-ai"));
         assert!(is_valid_github_name("aivcs"));
         assert!(is_valid_github_name("foo.bar"));
         assert!(is_valid_github_name("foo_bar"));

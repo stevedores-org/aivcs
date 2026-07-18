@@ -8,7 +8,7 @@ stages:
 
 variables:
   NIX_CONFIG: |
-    extra-substituters = https://nix-cache.stevedores.org
+    extra-substituters = https://nix-cache.lornu.ai
     extra-trusted-public-keys = stevedores-1:ZEtb+wHYNR/LDmMDhF3/EpRZDNma8exY2b1TGZ6uS2A=
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short

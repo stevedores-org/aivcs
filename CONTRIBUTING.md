@@ -5,7 +5,7 @@ This is a practical map for contributors who want to make focused, high-value ch
 ## Local Setup
 
 ```bash
-git clone https://github.com/stevedores-org/aivcs.git
+git clone https://github.com/lornu-ai/aivcs.git
 cd aivcs
 cargo test --all
 ```

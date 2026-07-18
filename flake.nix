@@ -2,7 +2,7 @@
   description = "AIVCS - AI Version Control System";
 
   nixConfig = {
-    extra-substituters = [ "https://nix-cache.stevedores.org" ];
+    extra-substituters = [ "https://nix-cache.lornu.ai" ];
     extra-trusted-public-keys = [
       "stevedores-1:ZEtb+wHYNR/LDmMDhF3/EpRZDNma8exY2b1TGZ6uS2A="
       # Legacy key — kept trusted for any artifacts already pushed under
@@ -118,7 +118,7 @@
                 "RUST_LOG=info"
               ];
               Labels = {
-                "org.opencontainers.image.source" = "https://github.com/stevedores-org/aivcs";
+                "org.opencontainers.image.source" = "https://github.com/lornu-ai/aivcs";
                 "org.opencontainers.image.title" = "aivcs";
                 "org.opencontainers.image.version" = pkgVersion;
                 "lornu.ai/managed-by" = "dockworker";
@@ -141,7 +141,7 @@
                 "RUST_LOG=info"
               ];
               Labels = {
-                "org.opencontainers.image.source" = "https://github.com/stevedores-org/aivcs";
+                "org.opencontainers.image.source" = "https://github.com/lornu-ai/aivcs";
                 "org.opencontainers.image.title" = "aivcsd";
                 "org.opencontainers.image.version" = pkgVersion;
                 "lornu.ai/managed-by" = "dockworker";

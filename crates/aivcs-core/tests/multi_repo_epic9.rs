@@ -123,13 +123,13 @@ fn epic9_rollout_allowed_when_all_pass() {
 fn epic9_consolidate_health_per_objective() {
     let repos = vec![
         aivcs_core::RepoCIStatus {
-            repo: repo_id("stevedores-org/aivcs"),
+            repo: repo_id("lornu-ai/aivcs"),
             status: CIStatus::Passed,
             run_id: Some(Uuid::new_v4()),
             updated_at: Utc::now(),
         },
         aivcs_core::RepoCIStatus {
-            repo: repo_id("stevedores-org/oxidizedRAG"),
+            repo: repo_id("lornu-ai/oxidizedRAG"),
             status: CIStatus::Passed,
             run_id: Some(Uuid::new_v4()),
             updated_at: Utc::now(),
@@ -147,13 +147,13 @@ fn epic9_consolidate_health_per_objective() {
 fn epic9_release_provenance_links_artifact_to_run() {
     let run_id = Uuid::new_v4();
     let p = ReleaseProvenance::new(
-        repo_id("stevedores-org/aivcs"),
+        repo_id("lornu-ai/aivcs"),
         run_id,
         "abc123def".to_string(),
         "spec-digest-64chars".to_string(),
         Some("plan-131".to_string()),
     );
-    assert_eq!(p.repo.name, "stevedores-org/aivcs");
+    assert_eq!(p.repo.name, "lornu-ai/aivcs");
     assert_eq!(p.run_id, run_id);
     assert_eq!(p.git_sha, "abc123def");
     assert_eq!(p.spec_digest, "spec-digest-64chars");

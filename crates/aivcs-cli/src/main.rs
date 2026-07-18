@@ -251,7 +251,7 @@ enum Commands {
     /// holds multiple aivcs commits (a multi-step agent run), only the
     /// tip is surfaced in the PR linkage. Intermediate states remain
     /// reachable via `aivcs log` against the CommitId; Phase 1 will
-    /// surface them on the GitHub side. See stevedores-org/aivcs#231.
+    /// surface them on the GitHub side. See lornu-ai/aivcs#231.
     PrNote {
         /// Branch name (defaults to current git branch if omitted)
         #[arg(short, long)]
@@ -2375,7 +2375,7 @@ async fn cmd_pr_note(handle: &SurrealHandle, branch_name_opt: Option<&str>) -> R
     // `ci_snapshot`, where the comment itself buries an opaque
     // workspace digest as the payload. Here the comment is metadata
     // *about* the section, not the metadata payload.
-    // See stevedores-org/aivcs#231 (M2).
+    // See lornu-ai/aivcs#231 (M2).
     println!("<!-- aivcs-linkage -->");
     println!("aivcs-commit: {}", commit.commit_id.hash);
     if let Some(intent_id) = read_objective_id() {

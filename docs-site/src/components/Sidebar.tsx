@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 interface NavItem { label: string; href: string; external?: boolean; }
 interface NavSection { title: string; items: NavItem[]; }
 
-const DOCS = "https://docs.stevedores.org";
+const DOCS = "https://docs.lornu.ai";
 const navigation: NavSection[] = [
   { title: "Overview", items: [
     { label: "Introduction", href: "/" },
@@ -58,9 +58,9 @@ export default function Sidebar() {
         ))}
       </div>
       <div className="px-5 py-4 border-t border-zinc-800/60 text-xs text-zinc-500 flex gap-3">
-        <a href="https://github.com/stevedores-org/aivcs" className="hover:text-violet-400 transition">GitHub</a>
+        <a href="https://github.com/lornu-ai/aivcs" className="hover:text-violet-400 transition">GitHub</a>
         <span className="text-zinc-700">&middot;</span>
-        <a href="https://stevedores.org" className="hover:text-violet-400 transition">stevedores.org</a>
+        <a href="https://lornu.ai" className="hover:text-violet-400 transition">lornu.ai</a>
       </div>
     </nav>
   );

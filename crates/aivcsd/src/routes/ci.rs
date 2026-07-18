@@ -500,7 +500,7 @@ mod tests {
             CREATE ci_executions CONTENT {
                 id: ci_executions:exec_1,
                 pr_number: 296,
-                repository: 'stevedores-org/aivcs',
+                repository: 'lornu-ai/aivcs',
                 status: 'passed',
                 checks: [
                     {
@@ -535,7 +535,7 @@ mod tests {
         let response = get_ci_checks(
             Path(296),
             Query(ChecksQuery {
-                repo: Some("stevedores-org/aivcs".to_string()),
+                repo: Some("lornu-ai/aivcs".to_string()),
                 repository: None,
             }),
         )
@@ -551,7 +551,7 @@ mod tests {
         let api_response: ApiResponse = serde_json::from_slice(&body_bytes).unwrap();
 
         assert_eq!(api_response.pr_number, 296);
-        assert_eq!(api_response.repository, "stevedores-org/aivcs");
+        assert_eq!(api_response.repository, "lornu-ai/aivcs");
         assert_eq!(api_response.status, "passed");
         assert_eq!(api_response.duration_ms, 4000);
         assert_eq!(api_response.checks.len(), 1);
@@ -577,7 +577,7 @@ mod tests {
         let response = get_ci_checks(
             Path(999),
             Query(ChecksQuery {
-                repo: Some("stevedores-org/aivcs".to_string()),
+                repo: Some("lornu-ai/aivcs".to_string()),
                 repository: None,
             }),
         )
@@ -599,7 +599,7 @@ mod tests {
         let response = get_ci_checks(
             Path(296),
             Query(ChecksQuery {
-                repo: Some("stevedores-org/aivcs".to_string()),
+                repo: Some("lornu-ai/aivcs".to_string()),
                 repository: None,
             }),
         )
@@ -690,7 +690,7 @@ mod tests {
                 }
             },
             "repository": {
-                "full_name": "stevedores-org/aivcs"
+                "full_name": "lornu-ai/aivcs"
             }
         });
 
@@ -717,16 +717,16 @@ mod tests {
         assert_eq!(status, StatusCode::ACCEPTED);
 
         // Verify the record was persisted in SurrealDB under `ci_executions`
-        // using the key `stevedores-org/aivcs#42`
+        // using the key `lornu-ai/aivcs#42`
         let query_res = db
-            .query("SELECT * FROM ci_executions WHERE pr_number = 42 AND repository = 'stevedores-org/aivcs'")
+            .query("SELECT * FROM ci_executions WHERE pr_number = 42 AND repository = 'lornu-ai/aivcs'")
             .await;
         let mut res = query_res.unwrap();
         let executions: Vec<DbCIExecution> = res.take(0).unwrap();
         assert_eq!(executions.len(), 1);
         let exec = &executions[0];
         assert_eq!(exec.pr_number, 42);
-        assert_eq!(exec.repository, "stevedores-org/aivcs");
+        assert_eq!(exec.repository, "lornu-ai/aivcs");
         assert_eq!(
             exec.sha.as_deref(),
             Some("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")
