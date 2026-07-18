@@ -73,7 +73,7 @@ tempfile = "3.10"
 
 # External crates (Stevedores ecosystem)
 oxidizedgraph = "0.2.0"
-data-fabric-client = { git = "https://github.com/lornu-ai/data-fabric.git", rev = "36a9e60", package = "data-fabric-client" }
+data-fabric-client = { git = "https://github.com/lornu-ai/data-mesh.git", rev = "cae40ec46ad32abbc4a598235a188b393a15fd0f", package = "data-fabric-client" }
 
 
 # Internal crates (use published versions for crates.io)
