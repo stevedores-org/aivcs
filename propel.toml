@@ -1,0 +1,66 @@
+# propel.toml — Unified CI configuration for aivcs
+# Standard: https://github.com/lornu-ai/ci-checks/issues/4
+
+[repo]
+owner = "lornu-ai"
+name = "aivcs"
+description = "AIVCS - AI Version Control System"
+
+[policy]
+requires_human_approval = false
+required_checks = [
+  "fmt",
+  "clippy",
+  "test",
+  "yamllint",
+  "secrets",
+  "cargo-metadata"
+]
+
+[[checks]]
+name = "fmt"
+description = "Check code formatting"
+command = ["cargo", "fmt", "--all", "--", "--check"]
+timeout_seconds = 120
+enabled = true
+
+[[checks]]
+name = "clippy"
+description = "Run Cargo Clippy lint checks"
+command = ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+timeout_seconds = 600
+enabled = true
+
+[[checks]]
+name = "test"
+description = "Run unit tests"
+command = ["cargo", "test", "--workspace"]
+timeout_seconds = 900
+enabled = true
+
+[[checks]]
+name = "yamllint"
+description = "Lint YAML files (workflows)"
+command = ["nix", "run", "nixpkgs#yamllint", "--", ".github/workflows"]
+timeout_seconds = 120
+enabled = true
+
+[[checks]]
+name = "secrets"
+description = "gitleaks secret detection"
+command = ["nix", "run", "nixpkgs#gitleaks", "--", "detect", "--no-banner", "--redact"]
+timeout_seconds = 120
+enabled = true
+
+[[checks]]
+name = "cargo-metadata"
+description = "Workspace resolves (cargo metadata)"
+command = ["cargo", "metadata", "--format-version", "1", "--no-deps"]
+timeout_seconds = 120
+enabled = true
+
+[propel]
+enabled = true
+provider = "propel.aivcs.io"
+github_status_checks = true
+github_pr_comments = true

@@ -104,6 +104,13 @@
             meta.mainProgram = "aivcsd";
           });
 
+          aivcs-mcp-gateway = craneLib.buildPackage (commonArgs // {
+            inherit cargoArtifacts;
+            cargoExtraArgs = "-p aivcs-mcp-gateway";
+            pname = "aivcs-mcp-gateway";
+            meta.mainProgram = "aivcs-mcp-gateway";
+          });
+
           pkgVersion = "0.3.2";
 
           aivcs-cli-image = pkgs.dockerTools.buildLayeredImage {
@@ -150,16 +157,39 @@
               };
             };
           };
+
+          aivcs-mcp-gateway-image = pkgs.dockerTools.buildLayeredImage {
+            name = "aivcs-mcp-gateway";
+            tag = pkgVersion;
+            contents = [ aivcs-mcp-gateway pkgs.cacert ];
+            config = {
+              Cmd = [ "${aivcs-mcp-gateway}/bin/aivcs-mcp-gateway" ];
+              User = "65532:65532";
+              ExposedPorts = { "8082/tcp" = { }; };
+              Env = [
+                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "RUST_LOG=info"
+              ];
+              Labels = {
+                "org.opencontainers.image.source" = "https://github.com/lornu-ai/aivcs";
+                "org.opencontainers.image.title" = "aivcs-mcp-gateway";
+                "org.opencontainers.image.version" = pkgVersion;
+                "lornu.ai/managed-by" = "dockworker";
+                "lornu.ai/runtime" = "rust";
+                "lornu.ai/component" = "aivcs-mcp-gateway";
+              };
+            };
+          };
         in
         {
-          inherit pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd aivcs-cli-image aivcsd-image;
+          inherit pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd aivcs-mcp-gateway aivcs-cli-image aivcsd-image aivcs-mcp-gateway-image;
         };
 
       linuxPackages = mkSystemPackages "x86_64-linux";
     in
     flake-utils.lib.eachDefaultSystem (system:
       let
-        inherit (mkSystemPackages system) pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd aivcs-cli-image aivcsd-image;
+        inherit (mkSystemPackages system) pkgs craneLib commonArgs cargoArtifacts cargoSrc testSrc workspace aivcs aivcsd aivcs-mcp-gateway aivcs-cli-image aivcsd-image aivcs-mcp-gateway-image;
         wslChecks =
           if system == "x86_64-linux" then {
             aivcs-wsl = self.nixosConfigurations.aivcs-wsl.config.system.build.toplevel;
@@ -193,9 +223,9 @@
 
         packages = {
           default = workspace;
-          inherit aivcs aivcsd;
+          inherit aivcs aivcsd aivcs-mcp-gateway;
         } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
-          inherit aivcs-cli-image aivcsd-image;
+          inherit aivcs-cli-image aivcsd-image aivcs-mcp-gateway-image;
         };
 
         devShells.default = craneLib.devShell {
@@ -207,6 +237,8 @@
             surrealdb
             just
             git
+            gitleaks
+            yamllint
           ];
 
           RUST_BACKTRACE = "1";
