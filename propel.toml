@@ -7,3 +7,10 @@ name = "check"
 description = "Basic CI verification check"
 command = ["echo", "ok"]
 check = true
+
+[[check]]
+name = "yaml-lint"
+description = "Validate YAML format and check secret shapes"
+command = ["sh", "-c", "bun install --cwd .github/actions/yaml-lint && bun run .github/actions/yaml-lint/index.ts"]
+timeout = 180
+check = true

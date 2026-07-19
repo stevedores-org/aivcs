@@ -37,6 +37,8 @@ impl StageResult {
 /// CI stage runner that executes a stage and records events.
 pub struct CiRunner;
 
+const YAML_LINTER_SRC: &str = include_str!("../../../tools/yaml-lint/yaml-lint.js");
+
 impl CiRunner {
     /// Execute a single stage and return the result.
     ///
@@ -51,17 +53,37 @@ impl CiRunner {
             anyhow::bail!("Stage {} has empty command", config.name);
         }
 
-        let exe = &config.command[0];
-        let args = &config.command[1..];
+        let mut exe = config.command[0].clone();
+        let mut args = config.command[1..].to_vec();
+
+        // If this is the yaml_lint stage, write the embedded script to a temp file and execute it
+        let mut temp_file = None;
+        if config.name == "yaml_lint" {
+            let temp_path = std::env::temp_dir().join(format!("yaml-lint-{}.js", uuid::Uuid::new_v4()));
+            std::fs::write(&temp_path, YAML_LINTER_SRC)?;
+            temp_file = Some(temp_path.clone());
+            exe = "bun".to_string();
+            args = vec![temp_path.to_string_lossy().to_string()];
+        }
 
         // Execute with timeout
-        let child = Command::new(exe)
-            .args(args)
+        let child = Command::new(&exe)
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()?;
+            .spawn();
 
-        let output = if config.timeout_secs > 0 {
+        let child = match child {
+            Ok(c) => c,
+            Err(e) => {
+                if let Some(path) = temp_file {
+                    let _ = std::fs::remove_file(path);
+                }
+                return Err(e.into());
+            }
+        };
+
+        let output_res = if config.timeout_secs > 0 {
             tokio::time::timeout(
                 std::time::Duration::from_secs(config.timeout_secs),
                 child.wait_with_output(),
@@ -73,10 +95,17 @@ impl CiRunner {
                     config.name,
                     config.timeout_secs
                 )
-            })??
+            })?
         } else {
-            child.wait_with_output().await?
+            child.wait_with_output().await
         };
+
+        // Cleanup temp file
+        if let Some(path) = temp_file {
+            let _ = std::fs::remove_file(path);
+        }
+
+        let output = output_res?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
         let exit_code = output.status.code().unwrap_or(-1);

@@ -128,7 +128,7 @@
           aivcsd-image = pkgs.dockerTools.buildLayeredImage {
             name = "aivcsd";
             tag = pkgVersion;
-            contents = [ aivcsd pkgs.cacert ];
+            contents = [ aivcsd pkgs.cacert pkgs.bun ];
             config = {
               Cmd = [ "${aivcsd}/bin/aivcsd" ];
               User = "65532:65532";

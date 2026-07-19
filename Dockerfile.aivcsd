@@ -19,9 +19,15 @@ RUN cargo build --release --bin aivcsd
 # Runtime Stage
 FROM debian:bookworm-slim
 
-# Install runtime dependencies (like CA certificates for TLS)
+# Install runtime dependencies (like CA certificates for TLS) and bun
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
+    unzip \
+    && curl -fsSL https://bun.sh/install | bash \
+    && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
+    && apt-get purge -y curl unzip \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

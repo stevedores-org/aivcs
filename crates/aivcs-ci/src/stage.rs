@@ -17,6 +17,9 @@ pub enum BuiltinStage {
 
     /// cargo test --workspace
     CargoTest,
+
+    /// yaml-lint checks in typescript+bun
+    YamlLint,
 }
 
 impl BuiltinStage {
@@ -27,6 +30,7 @@ impl BuiltinStage {
             BuiltinStage::CargoCheck => "cargo_check",
             BuiltinStage::CargoClippy => "cargo_clippy",
             BuiltinStage::CargoTest => "cargo_test",
+            BuiltinStage::YamlLint => "yaml_lint",
         }
     }
 
@@ -65,6 +69,13 @@ impl BuiltinStage {
                     "cargo".to_string(),
                     "test".to_string(),
                     "--workspace".to_string(),
+                ]
+            }
+            BuiltinStage::YamlLint => {
+                vec![
+                    "bun".to_string(),
+                    "run".to_string(),
+                    "tools/yaml-lint/index.ts".to_string(),
                 ]
             }
         }
@@ -142,6 +153,7 @@ mod tests {
         assert_eq!(BuiltinStage::CargoCheck.name(), "cargo_check");
         assert_eq!(BuiltinStage::CargoClippy.name(), "cargo_clippy");
         assert_eq!(BuiltinStage::CargoTest.name(), "cargo_test");
+        assert_eq!(BuiltinStage::YamlLint.name(), "yaml_lint");
     }
 
     #[test]
@@ -153,6 +165,10 @@ mod tests {
         let check_cmd = BuiltinStage::CargoCheck.command();
         assert_eq!(check_cmd[0], "cargo");
         assert!(check_cmd.contains(&"check".to_string()));
+
+        let yaml_cmd = BuiltinStage::YamlLint.command();
+        assert_eq!(yaml_cmd[0], "bun");
+        assert_eq!(yaml_cmd[2], "tools/yaml-lint/index.ts");
     }
 
     #[test]
@@ -161,6 +177,7 @@ mod tests {
         assert!(BuiltinStage::CargoCheck.fix_command().is_none());
         assert!(BuiltinStage::CargoClippy.fix_command().is_none());
         assert!(BuiltinStage::CargoTest.fix_command().is_none());
+        assert!(BuiltinStage::YamlLint.fix_command().is_none());
     }
 
     #[test]

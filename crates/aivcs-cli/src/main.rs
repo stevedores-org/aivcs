@@ -2269,6 +2269,7 @@ async fn cmd_ci_run(
             "check" => StageConfig::from_builtin(BuiltinStage::CargoCheck, 300),
             "clippy" => StageConfig::from_builtin(BuiltinStage::CargoClippy, 600),
             "test" => StageConfig::from_builtin(BuiltinStage::CargoTest, 1200),
+            "yaml_lint" => StageConfig::from_builtin(BuiltinStage::YamlLint, 300),
             _ => anyhow::bail!("Unknown stage: {}", stage_name),
         };
         stage_configs.push(config);
