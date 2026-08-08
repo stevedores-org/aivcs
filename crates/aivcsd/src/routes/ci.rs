@@ -1,228 +1,214 @@
 use crate::AppState;
+use anyhow::Context;
 use axum::{
-    body::Bytes,
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Path, Query},
+    http::StatusCode,
     response::{IntoResponse, Json},
 };
-use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::Sha256;
 use std::env;
 use surrealdb::engine::any::connect;
 use surrealdb::opt::auth::Database;
 use tracing::{error, info, warn};
 
-type HmacSha256 = Hmac<Sha256>;
+const GITHUB_API: &str = "https://api.github.com";
 
-#[derive(Debug, Deserialize)]
-pub struct GithubWebhookPayload {
-    pub action: Option<String>,
-    pub pull_request: Option<PullRequestPayload>,
-    pub repository: Option<RepositoryPayload>,
+#[derive(Debug, Clone)]
+pub struct ReconcilerConfig {
+    pub repositories: Vec<String>,
+    pub interval: std::time::Duration,
+}
+
+impl ReconcilerConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let repositories = env::var("CI_RECONCILER_REPOSITORIES")
+            .context("CI_RECONCILER_REPOSITORIES must be set (owner/repo[,owner/repo...])")?
+            .split(',')
+            .map(str::trim)
+            .filter(|repo| !repo.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        anyhow::ensure!(
+            !repositories.is_empty(),
+            "CI_RECONCILER_REPOSITORIES must contain at least one repository"
+        );
+        anyhow::ensure!(
+            repositories.iter().all(|repo| {
+                let mut parts = repo.split('/');
+                parts.next().is_some_and(|part| !part.is_empty())
+                    && parts.next().is_some_and(|part| !part.is_empty())
+                    && parts.next().is_none()
+            }),
+            "CI_RECONCILER_REPOSITORIES entries must use owner/repo format"
+        );
+        let seconds = env::var("CI_RECONCILER_INTERVAL_SECS")
+            .unwrap_or_else(|_| "30".to_string())
+            .parse::<u64>()
+            .context("CI_RECONCILER_INTERVAL_SECS must be an integer")?;
+        anyhow::ensure!(
+            seconds > 0,
+            "CI_RECONCILER_INTERVAL_SECS must be greater than zero"
+        );
+        Ok(Self {
+            repositories,
+            interval: std::time::Duration::from_secs(seconds),
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PullRequestPayload {
-    pub number: u64,
-    pub head: HeadPayload,
+struct PullRequest {
+    number: u64,
+    head: PullRequestHead,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct HeadPayload {
-    pub sha: String,
+struct PullRequestHead {
+    sha: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RepositoryPayload {
-    pub full_name: String,
+struct CheckRun {
+    name: String,
+    status: String,
+    conclusion: Option<String>,
 }
 
-fn verify_github_signature(headers: &HeaderMap, body: &[u8], secret: &str) -> Result<(), String> {
-    let signature_header = headers
-        .get("x-hub-signature-256")
-        .and_then(|h| h.to_str().ok())
-        .ok_or_else(|| "Missing x-hub-signature-256 header".to_string())?;
+#[derive(Debug, Deserialize)]
+struct CheckRuns {
+    check_runs: Vec<CheckRun>,
+}
 
-    let expected_sig = format!(
-        "sha256={}",
-        hex::encode(
-            HmacSha256::new_from_slice(secret.as_bytes())
-                .map_err(|_| "Invalid HMAC key".to_string())?
-                .chain_update(body)
-                .finalize()
-                .into_bytes()
+fn execution_id(repository: &str, pr_number: u64, sha: &str) -> String {
+    format!("{}#{}#{}", repository, pr_number, sha)
+}
+
+fn execution_status(checks: &[CheckRun]) -> &'static str {
+    if checks.is_empty() {
+        "pending"
+    } else if checks.iter().any(|check| check.status != "completed") {
+        "running"
+    } else if checks.iter().any(|check| {
+        !matches!(
+            check.conclusion.as_deref(),
+            Some("success" | "neutral" | "skipped")
         )
-    );
-
-    if signature_header == expected_sig {
-        Ok(())
+    }) {
+        "failed"
     } else {
-        Err("Invalid signature".to_string())
+        "passed"
     }
 }
 
-pub async fn handle_github_webhook(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> impl IntoResponse {
-    let webhook_secret = match std::env::var("CI_WEBHOOK_SECRET") {
-        Ok(secret) => secret,
-        Err(_) => {
-            error!("CI_WEBHOOK_SECRET not configured");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "status": "error",
-                    "message": "Webhook verification secret not configured"
-                })),
-            )
-                .into_response();
+async fn reconcile_repository(
+    client: &reqwest::Client,
+    token: &str,
+    db: &surrealdb::Surreal<surrealdb::engine::any::Any>,
+    repository: &str,
+) -> anyhow::Result<()> {
+    let pulls = client
+        .get(format!("{GITHUB_API}/repos/{repository}/pulls"))
+        .bearer_auth(token)
+        .header("accept", "application/vnd.github+json")
+        .query(&[("state", "open"), ("per_page", "100")])
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Vec<PullRequest>>()
+        .await?;
+
+    for pull in pulls {
+        if pull.number == 0 || pull.head.sha.trim().is_empty() {
+            warn!(repository, "ignoring malformed pull request from GitHub");
+            continue;
         }
-    };
-
-    // Verify signature
-    if let Err(e) = verify_github_signature(&headers, &body, &webhook_secret) {
-        warn!("Webhook signature verification failed: {}", e);
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({
-                "status": "error",
-                "message": "Invalid webhook signature"
-            })),
-        )
-            .into_response();
-    }
-
-    // Parse payload
-    let payload = match serde_json::from_slice::<GithubWebhookPayload>(&body) {
-        Ok(p) => p,
-        Err(e) => {
-            warn!("Failed to parse webhook payload: {}", e);
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "status": "error",
-                    "message": "Invalid payload format"
-                })),
-            )
-                .into_response();
-        }
-    };
-
-    // Validate payload structure
-    let pr = match &payload.pull_request {
-        Some(pr) => pr,
-        None => {
-            warn!("Webhook missing required pull_request object");
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "status": "error",
-                    "message": "Missing pull_request"
-                })),
-            )
-                .into_response();
-        }
-    };
-
-    let repo = match &payload.repository {
-        Some(repo) => repo,
-        None => {
-            warn!("Webhook missing required repository object");
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "status": "error",
-                    "message": "Missing repository"
-                })),
-            )
-                .into_response();
-        }
-    };
-
-    // Validate PR number is non-zero
-    if pr.number == 0 {
-        warn!("Webhook has zero PR number");
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "status": "error",
-                "message": "PR number must be non-zero"
-            })),
-        )
-            .into_response();
-    }
-
-    // Validate commit SHA is non-empty
-    if pr.head.sha.trim().is_empty() {
-        warn!("Webhook has empty commit SHA");
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "status": "error",
-                "message": "Commit SHA must be non-empty"
-            })),
-        )
-            .into_response();
-    }
-
-    info!(
-        "GitHub webhook verified for {} PR #{} (sha: {})",
-        repo.full_name, pr.number, pr.head.sha
-    );
-
-    // Create/upsert execution record in SurrealDB under `ci_executions`
-    // using the safe delimiter `#` (format: `{repository}#{pr_number}`)
-    let execution_id = format!("{}#{}", repo.full_name, pr.number);
-    let execution_record = json!({
-        "repository": repo.full_name,
-        "pr_number": pr.number,
-        "sha": pr.head.sha,
-        "status": "pending",
-        "checks": [],
-        "duration_ms": 0,
-        "created_at": chrono::Utc::now().to_rfc3339(),
-        "completed_at": serde_json::Value::Null,
-    });
-
-    let upsert_result: Result<Option<DbCIExecution>, _> = state
-        .db
-        .upsert(("ci_executions", &execution_id))
-        .content(execution_record)
-        .await;
-
-    match upsert_result {
-        Ok(_) => {
-            info!(
-                "✅ Recorded FFT execution for {}#{}",
-                repo.full_name, pr.number
+        let checks = client
+            .get(format!(
+                "{GITHUB_API}/repos/{repository}/commits/{}/check-runs",
+                pull.head.sha
+            ))
+            .bearer_auth(token)
+            .header("accept", "application/vnd.github+json")
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<CheckRuns>()
+            .await?
+            .check_runs;
+        let id = execution_id(repository, pull.number, &pull.head.sha);
+        let event_result: Result<Option<serde_json::Value>, _> = db
+            .create(("ci_reconciler_events", id.clone()))
+            .content(json!({
+                "event_id": id,
+                "repository": repository,
+                "pr_number": pull.number,
+                "sha": pull.head.sha,
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            }))
+            .await;
+        let first_seen = event_result.is_ok();
+        let status = execution_status(&checks);
+        let completed_at =
+            (status == "passed" || status == "failed").then(|| chrono::Utc::now().to_rfc3339());
+        let status_update = json!({
+            "status": status,
+            "checks": checks.iter().map(|check| json!({
+                "name": check.name,
+                "status": check.conclusion.as_deref().unwrap_or(&check.status),
+                "duration_ms": 0,
+                "output": null,
+            })).collect::<Vec<_>>(),
+            "duration_ms": 0,
+            "completed_at": completed_at,
+            "source": "github_outbound_reconciler",
+        });
+        if first_seen {
+            let mut execution_record = status_update.clone();
+            let record = execution_record
+                .as_object_mut()
+                .expect("status update is always a JSON object");
+            record.insert("repository".to_string(), json!(repository));
+            record.insert("pr_number".to_string(), json!(pull.number));
+            record.insert("sha".to_string(), json!(pull.head.sha));
+            record.insert(
+                "created_at".to_string(),
+                json!(chrono::Utc::now().to_rfc3339()),
             );
-            (
-                StatusCode::ACCEPTED,
-                Json(json!({
-                    "status": "received",
-                    "execution_id": execution_id,
-                    "repository": repo.full_name,
-                    "pr_number": pr.number,
-                    "message": "CI execution record created"
-                })),
-            )
-                .into_response()
+            record.insert("source".to_string(), json!("github_outbound_reconciler"));
+            let _: Option<DbCIExecution> = db
+                .upsert(("ci_executions", id))
+                .content(execution_record)
+                .await?;
+        } else {
+            let _: Option<DbCIExecution> = db
+                .update(("ci_executions", id))
+                .merge(status_update)
+                .await?;
         }
-        Err(e) => {
-            error!("❌ Failed to record execution: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "status": "error",
-                    "message": format!("Database error: {}", e)
-                })),
-            )
-                .into_response()
+        if first_seen {
+            info!(
+                repository,
+                pr = pull.number,
+                "recorded CI execution from outbound reconciliation"
+            );
         }
+    }
+    Ok(())
+}
+
+pub async fn run_reconciler(state: AppState, token: String, config: ReconcilerConfig) {
+    let client = reqwest::Client::builder()
+        .user_agent("aivcsd-ci-reconciler")
+        .build()
+        .expect("static GitHub client configuration must be valid");
+    loop {
+        for repository in &config.repositories {
+            if let Err(error) = reconcile_repository(&client, &token, &state.db, repository).await {
+                error!(repository, %error, "outbound CI reconciliation failed");
+            }
+        }
+        tokio::time::sleep(config.interval).await;
     }
 }
 
@@ -609,129 +595,30 @@ mod tests {
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
-    #[tokio::test]
-    async fn test_handle_github_webhook_missing_secret() {
-        let _guard = TEST_LOCK.lock().await;
-        env::remove_var("CI_WEBHOOK_SECRET");
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let db_path = temp_dir.path().to_str().unwrap().to_string();
-        let url = format!("surrealkv://{}", db_path);
-        let db = connect(&url).await.unwrap();
-        let cas_dir = temp_dir.path().join("cas");
-        std::fs::create_dir_all(&cas_dir).unwrap();
-        let cas = std::sync::Arc::new(aivcs_core::cas::fs::FsCasStore::new(cas_dir).unwrap());
-        let state = AppState { db, cas };
-
-        let headers = HeaderMap::new();
-        let body = Bytes::from_static(b"{}");
-
-        let response = handle_github_webhook(State(state), headers, body)
-            .await
-            .into_response();
-
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    #[test]
+    fn reconciler_config_requires_repository_allowlist() {
+        unsafe {
+            env::remove_var("CI_RECONCILER_REPOSITORIES");
+        }
+        let error = ReconcilerConfig::from_env().unwrap_err();
+        assert!(error.to_string().contains("CI_RECONCILER_REPOSITORIES"));
     }
 
-    #[tokio::test]
-    async fn test_handle_github_webhook_invalid_signature() {
-        let _guard = TEST_LOCK.lock().await;
-        env::set_var("CI_WEBHOOK_SECRET", "mysecret");
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let db_path = temp_dir.path().to_str().unwrap().to_string();
-        let url = format!("surrealkv://{}", db_path);
-        let db = connect(&url).await.unwrap();
-        let cas_dir = temp_dir.path().join("cas");
-        std::fs::create_dir_all(&cas_dir).unwrap();
-        let cas = std::sync::Arc::new(aivcs_core::cas::fs::FsCasStore::new(cas_dir).unwrap());
-        let state = AppState { db, cas };
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-hub-signature-256",
-            "sha256=invalid-signature-here".parse().unwrap(),
-        );
-        let body = Bytes::from_static(b"{}");
-
-        let response = handle_github_webhook(State(state), headers, body)
-            .await
-            .into_response();
-
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn test_handle_github_webhook_success() {
-        let _guard = TEST_LOCK.lock().await;
-        let secret = "mysecret";
-        env::set_var("CI_WEBHOOK_SECRET", secret);
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let db_path = temp_dir.path().to_str().unwrap().to_string();
-        let url = format!("surrealkv://{}", db_path);
-        let db = connect(&url).await.unwrap();
-        db.use_ns("ci_test").use_db("fft_test").await.unwrap();
-
-        let cas_dir = temp_dir.path().join("cas");
-        std::fs::create_dir_all(&cas_dir).unwrap();
-        let cas = std::sync::Arc::new(aivcs_core::cas::fs::FsCasStore::new(cas_dir).unwrap());
-        let state = AppState {
-            db: db.clone(),
-            cas,
-        };
-
-        let payload_json = json!({
-            "action": "opened",
-            "pull_request": {
-                "number": 42,
-                "head": {
-                    "sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
-                }
-            },
-            "repository": {
-                "full_name": "stevedores-org/aivcs"
-            }
-        });
-
-        let body_bytes = serde_json::to_vec(&payload_json).unwrap();
-        let hmac_sig = format!(
-            "sha256={}",
-            hex::encode(
-                HmacSha256::new_from_slice(secret.as_bytes())
-                    .unwrap()
-                    .chain_update(&body_bytes)
-                    .finalize()
-                    .into_bytes()
-            )
-        );
-
-        let mut headers = HeaderMap::new();
-        headers.insert("x-hub-signature-256", hmac_sig.parse().unwrap());
-
-        let response = handle_github_webhook(State(state), headers, Bytes::from(body_bytes))
-            .await
-            .into_response();
-
-        let status = response.status();
-        assert_eq!(status, StatusCode::ACCEPTED);
-
-        // Verify the record was persisted in SurrealDB under `ci_executions`
-        // using the key `stevedores-org/aivcs#42`
-        let query_res = db
-            .query("SELECT * FROM ci_executions WHERE pr_number = 42 AND repository = 'stevedores-org/aivcs'")
-            .await;
-        let mut res = query_res.unwrap();
-        let executions: Vec<DbCIExecution> = res.take(0).unwrap();
-        assert_eq!(executions.len(), 1);
-        let exec = &executions[0];
-        assert_eq!(exec.pr_number, 42);
-        assert_eq!(exec.repository, "stevedores-org/aivcs");
+    #[test]
+    fn execution_id_deduplicates_repository_pr_and_sha() {
         assert_eq!(
-            exec.sha.as_deref(),
-            Some("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")
+            execution_id("stevedores-org/aivcs", 42, "abc"),
+            "stevedores-org/aivcs#42#abc"
         );
-        assert_eq!(exec.status, "pending");
-        assert_eq!(exec.checks.len(), 0);
+    }
+
+    #[test]
+    fn check_status_is_fail_closed() {
+        let checks = vec![CheckRun {
+            name: "gate".to_string(),
+            status: "completed".to_string(),
+            conclusion: None,
+        }];
+        assert_eq!(execution_status(&checks), "failed");
     }
 }

@@ -105,7 +105,7 @@ jobs:
 - [ ] Merge PR #295 — Backend integration ready
 - [ ] Document in PR: "FFT replaces GHA CI for this repo"
 - [ ] Deploy AWS stack: `sam deploy --stack-name stevedores-aivcs-ci-gate`
-- [ ] Add GitHub webhook to stevedores-org/aivcs
+- [ ] Configure `CI_RECONCILER_REPOSITORIES=stevedores-org/aivcs`
 - [ ] Test with first PR to verify FFT fires
 
 ### Week 1 (After FFT proven working)

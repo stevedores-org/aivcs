@@ -1,17 +1,17 @@
 -- CI Execution Records
 -- Stores the result of each PR's CI check run
-DEFINE TABLE ci_executions SCHEMAFULL;
+DEFINE TABLE ci_executions SCHEMALESS;
 DEFINE FIELD id ON ci_executions TYPE string;
 DEFINE FIELD execution_id ON ci_executions TYPE string;
 DEFINE FIELD repository ON ci_executions TYPE string;
 DEFINE FIELD pr_number ON ci_executions TYPE number;
 DEFINE FIELD pr_sha ON ci_executions TYPE string;
 DEFINE FIELD pr_title ON ci_executions TYPE string;
-DEFINE FIELD status ON ci_executions TYPE string ENUM ['queued', 'running', 'passed', 'failed'];
-DEFINE FIELD conclusion ON ci_executions TYPE string ENUM ['success', 'failure', 'neutral'];
+DEFINE FIELD status ON ci_executions TYPE string ENUM ['pending', 'queued', 'running', 'passed', 'failed'];
+DEFINE FIELD conclusion ON ci_executions TYPE option<string> ENUM ['success', 'failure', 'neutral'];
 DEFINE FIELD started_at ON ci_executions TYPE datetime;
-DEFINE FIELD completed_at ON ci_executions TYPE datetime;
-DEFINE FIELD checks ON ci_executions TYPE object;  -- { type_check: {status, duration_ms, error}, ... }
+DEFINE FIELD completed_at ON ci_executions TYPE option<datetime>;
+DEFINE FIELD checks ON ci_executions TYPE array<object>;  -- [{name, status, duration_ms, output}, ...]
 DEFINE FIELD agent_id ON ci_executions TYPE string;
 DEFINE FIELD approval_required ON ci_executions TYPE bool DEFAULT false;
 DEFINE FIELD approval_granted ON ci_executions TYPE bool DEFAULT false;
@@ -28,8 +28,8 @@ DEFINE FIELD id ON ci_subscriptions TYPE string;
 DEFINE FIELD repository ON ci_subscriptions TYPE string;
 DEFINE FIELD owner ON ci_subscriptions TYPE string;
 DEFINE FIELD enabled ON ci_subscriptions TYPE bool DEFAULT true;
-DEFINE FIELD webhook_id ON ci_subscriptions TYPE string;
-DEFINE FIELD webhook_secret ON ci_subscriptions TYPE string;
+DEFINE FIELD reconciler_enabled ON ci_subscriptions TYPE bool DEFAULT true;
+DEFINE FIELD reconciler_interval_secs ON ci_subscriptions TYPE number DEFAULT 30;
 DEFINE FIELD aws_stack_name ON ci_subscriptions TYPE string;
 DEFINE FIELD api_endpoint ON ci_subscriptions TYPE string;
 DEFINE FIELD created_at ON ci_subscriptions TYPE datetime DEFAULT time::now();

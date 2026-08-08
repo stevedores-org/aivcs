@@ -22,7 +22,7 @@ Deploy changes to aivcsd:
 cd ~/engineering/code/aivcs
 git checkout -b feat/fast-free-testing-integration
 # Changes are already applied:
-# - crates/aivcsd/src/routes/ci.rs (CI webhook endpoints)
+# - crates/aivcsd/src/routes/ci.rs (CI reconciler and checks API)
 # - crates/aivcsd/src/routes/mod.rs (router module)
 # - crates/aivcsd/src/main.rs (wired CI routes + schema 002)
 # - crates/aivcsd/schemas/002_ci_checks.surql (schema)
@@ -34,7 +34,7 @@ cargo test
 git add -A
 git commit -m "feat: add fast-free-testing CI integration
 
-- GitHub webhook endpoint for PR CI checks
+- Outbound GitHub polling for PR CI checks
 - CI execution tracking in SurrealDB
 - Support for agent-identity governance
 - Dashboard integration for CI results"
@@ -128,37 +128,9 @@ After core integration is tested:
 
 ## API Reference
 
-### POST `/api/v1/ci/webhooks/github`
-
-Receives GitHub webhook for PR events.
-
-**Request** (from GitHub):
-```json
-{
-  "action": "synchronize",
-  "pull_request": {
-    "number": 123,
-    "head": {"sha": "abc123", "ref": "feature/x"},
-    "base": {"ref": "main"},
-    "title": "Add feature X"
-  },
-  "repository": {
-    "full_name": "stevedores-org/aivcs",
-    "owner": {"login": "stevedores-org"}
-  }
-}
-```
-
-**Response** (`202 Accepted`):
-```json
-{
-  "status": "received",
-  "execution_id": "exec_UUID",
-  "repository": "stevedores-org/aivcs",
-  "pr_number": 123,
-  "message": "CI checks queued"
-}
-```
+CI executions are discovered by the daemon's outbound GitHub reconciler.
+Configure `GITHUB_TOKEN`, `CI_RECONCILER_REPOSITORIES`, and optionally
+`CI_RECONCILER_INTERVAL_SECS`; no GitHub-to-aivcs callback is required.
 
 ### GET `/api/v1/ci/checks/:pr_number`
 
@@ -213,7 +185,6 @@ Subscribe a repo to fast-free-testing.
 ```json
 {
   "status": "subscribed",
-  "webhook_id": "webhook_UUID",
   "repository": "stevedores-org/aivcs",
   "message": "Repository now subscribed to fast-free-testing"
 }
@@ -247,7 +218,7 @@ All CI execution data stored in SurrealDB:
 ### Table: `ci_subscriptions`
 - `repository` — GitHub repo
 - `enabled` — bool
-- `webhook_id` — GitHub webhook ID
+- `reconciler_enabled` — whether outbound reconciliation is enabled
 - `aws_stack_name` — CloudFormation stack
 - `api_endpoint` — webhook URL
 
@@ -256,7 +227,7 @@ All CI execution data stored in SurrealDB:
 ### CloudWatch Logs
 
 ```bash
-# Watch webhook requests
+# Watch CI reconciliation
 aws logs tail /aws/apigateway/agent-ci-webhook --follow
 
 # Watch orchestrator execution

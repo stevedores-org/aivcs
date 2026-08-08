@@ -27,10 +27,11 @@ async fn main() -> Result<()> {
     aivcs_core::init_tracing(false, Level::INFO);
     info!("🚀 aivcsd starting");
 
-    // Verify required env vars for CI integration at startup
-    std::env::var("GITHUB_TOKEN").context("GITHUB_TOKEN env var must be set at server startup")?;
-    std::env::var("CI_WEBHOOK_SECRET")
-        .context("CI_WEBHOOK_SECRET env var must be set at server startup")?;
+    // CI is reconciled through outbound GitHub API calls. Fail closed when the
+    // token or repository allowlist is absent rather than starting without CI.
+    let github_token = std::env::var("GITHUB_TOKEN")
+        .context("GITHUB_TOKEN env var must be set at server startup")?;
+    let reconciler_config = routes::ci::ReconcilerConfig::from_env()?;
 
     let db_url =
         std::env::var("SURREALDB_URL").unwrap_or_else(|_| "ws://localhost:8000".to_string());
@@ -64,6 +65,14 @@ async fn main() -> Result<()> {
     // Initialize Schema
     let schema = include_str!("../schemas/001_synthetic_principal.surql");
     db.query(schema).await.context("Failed to apply schema")?;
+    let ci_schema = include_str!("../schemas/002_ci_checks.surql");
+    db.query(ci_schema)
+        .await
+        .context("Failed to apply CI checks schema")?;
+    let reconciler_schema = include_str!("../schemas/003_ci_reconciler.surql");
+    db.query(reconciler_schema)
+        .await
+        .context("Failed to apply CI reconciler schema")?;
     info!("✅ Schema initialized successfully");
 
     let cas_dir = std::env::var("AIVCS_CAS_DIR").unwrap_or_else(|_| ".aivcs/cas".to_string());
@@ -74,16 +83,17 @@ async fn main() -> Result<()> {
     info!("📦 Initialized CAS store");
 
     let state = AppState { db, cas };
+    tokio::spawn(routes::ci::run_reconciler(
+        state.clone(),
+        github_token,
+        reconciler_config,
+    ));
 
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/version", get(version_info))
         .route("/api/v1/push", post(push_state))
         .route("/api/v1/blobs/upload", post(upload_blob))
-        .route(
-            "/api/v1/ci/webhooks/github",
-            post(routes::ci::handle_github_webhook),
-        )
         .route(
             "/api/v1/ci/checks/:pr_number",
             get(routes::ci::get_ci_checks),
