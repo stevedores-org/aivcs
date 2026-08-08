@@ -17,7 +17,8 @@ pkgs.testers.nixosTest {
       package = aivcsdPackage;
       settings = {
         GITHUB_TOKEN = "dummy-token-for-e2e";
-        CI_WEBHOOK_SECRET = "dummy-secret-for-e2e";
+        CI_RECONCILER_REPOSITORIES = "stevedores-org/aivcs";
+        CI_RECONCILER_DISPATCH_URL = "https://propel.example.invalid/v1/ci/runs";
         SURREALDB_URL = "ws://localhost:8000";
         AIVCS_CAS_DIR = "/var/lib/aivcsd/cas";
       };

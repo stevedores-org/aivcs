@@ -49,10 +49,10 @@ Each entry includes:
 
 Complete technical specification for Phase 1:
 
-#### 1.1: GitHub Webhook Receiver
-- Validates webhook signature (HMAC-SHA256)
-- Parses push/PR events
-- Creates Run records (in-memory for Phase 1)
+#### 1.1: Outbound GitHub Reconciler
+- Uses a scoped GitHub App/API token for outbound polling
+- Discovers open PR heads and reads their check-runs
+- Creates durable Run records with repository/PR/SHA deduplication
 - Org/repo allowlist filtering
 
 #### 1.2: K8s Nix Build Job
@@ -92,7 +92,7 @@ Pre-flight checks for all 14 images:
 
 - `namespace.yaml` — propel namespace
 - `rbac.yaml` — service accounts + roles (propel-api, propel-runner)
-- `webhook-secret.yaml` — GitHub webhook secret (injected via overlay)
+- `github-token.yaml` — GitHub API token (injected via overlay)
 - `configmap.yaml` — propel-config.toml + allowed orgs/repos
 - `kustomization.yaml` — base manifest aggregation
 
@@ -169,7 +169,7 @@ These workflows will be re-enabled if Propel Phase 1 is delayed beyond 2 weeks.
 
 ### With propel repo (lornu-ai/propel)
 
-- `propel-api` crate implements webhook receiver + K8s scheduler per Phase 1 spec
+- `propel-api` crate implements the CI lifecycle and K8s scheduler per Phase 1 spec
 - `propel-scheduler` crate dispatches Job to K8s
 - `propel-github` crate publishes check-runs
 - Kustomize base in `propel/deploy/base/` (reusable across repos)
@@ -184,7 +184,7 @@ These workflows will be re-enabled if Propel Phase 1 is delayed beyond 2 weeks.
 
 ### With fast-free-testing repo (Phase 1.5+)
 
-- FFT will be first real test of Propel webhook + K8s Job execution
+- FFT will be first real test of Propel lifecycle + K8s Job execution
 - propel.toml will define format, typecheck, test, build checks
 - Flake checks outputs will map to Propel check definitions
 - GHA deploy-lambdas.yml will be archived (replaced by Propel)
@@ -192,14 +192,14 @@ These workflows will be re-enabled if Propel Phase 1 is delayed beyond 2 weeks.
 ### With propel-api crate (Phase 1)
 
 Implementation checklist:
-- [ ] GitHub webhook receiver: POST /v1/webhooks/github
-- [ ] GitHub signature validation (HMAC-SHA256)
+- [ ] Outbound GitHub PR/check-run reconciler
+- [ ] Durable repository/PR/SHA deduplication
 - [ ] Org/repo allowlist filtering
 - [ ] Run creation (in-memory store)
 - [ ] K8s Job creation (via scheduler)
 - [ ] Logs streaming: GET /v1/runs/{run_id}/logs
 - [ ] GitHub Checks API integration (post check-runs)
-- [ ] Webhook secret management (from ConfigMap)
+- [ ] GitHub API token management (from Secret Manager)
 
 ---
 

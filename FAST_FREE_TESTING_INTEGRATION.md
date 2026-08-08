@@ -45,48 +45,14 @@ fast-free-testing API Gateway
 
 ### Phase 1: Backend Integration (API Endpoints)
 
-Add to `crates/aivcsd/src/main.rs`:
+The daemon runs an outbound reconciler. It polls the configured GitHub
+repositories, reads PR head check-runs, and stores execution/status records in
+SurrealDB. The reconciler uses `GITHUB_TOKEN`, a repository allowlist, and
+`CI_RECONCILER_DISPATCH_URL` to start each run through Propel; it does not
+expose a VCS callback endpoint.
 
-```rust
-#[post("/api/v1/ci/webhooks/github")]
-async fn handle_github_webhook(
-    State(state): State<AppState>,
-    Json(payload): Json<GithubWebhookPayload>,
-) -> Result<Json<Value>, Error> {
-    // 1. Validate webhook signature
-    // 2. Parse PR details
-    // 3. Create CI execution record in SurrealDB
-    // 4. Poll fast-free-testing for results
-    // 5. Update GitHub status check
-    // 6. Store audit trail
-    
-    Ok(Json(json!({
-        "status": "received",
-        "execution_id": execution_id,
-        "webhook_id": payload.hook_id
-    })))
-}
-
-#[get("/api/v1/ci/checks/:pr_number")]
-async fn get_pr_checks(
-    State(state): State<AppState>,
-    Path(pr_number): Path<u32>,
-) -> Result<Json<Value>, Error> {
-    // Fetch CI check results from SurrealDB
-    // Return status, results, audit trail
-}
-
-#[post("/api/v1/ci/subscribe/:repo")]
-async fn subscribe_to_ci(
-    State(state): State<AppState>,
-    Path(repo): Path<String>,
-    Json(config): Json<CiSubscriptionConfig>,
-) -> Result<Json<Value>, Error> {
-    // Subscribe repo to fast-free-testing
-    // Store webhook URL and config in SurrealDB
-    // Create webhook on GitHub
-}
-```
+The existing `GET /api/v1/ci/checks/:pr_number?repo=owner/repo` endpoint
+remains read-only and serves the reconciled records.
 
 ### Phase 2: Database Schema (SurrealDB)
 
@@ -116,8 +82,7 @@ DEFINE TABLE ci_subscriptions SCHEMAFULL;
 DEFINE FIELD repository ON ci_subscriptions TYPE string;
 DEFINE FIELD owner ON ci_subscriptions TYPE string;
 DEFINE FIELD enabled ON ci_subscriptions TYPE bool;
-DEFINE FIELD webhook_id ON ci_subscriptions TYPE string;
-DEFINE FIELD webhook_secret ON ci_subscriptions TYPE string;
+DEFINE FIELD reconciler_enabled ON ci_subscriptions TYPE bool;
 DEFINE FIELD aws_deployment_stack ON ci_subscriptions TYPE string;
 DEFINE FIELD created_at ON ci_subscriptions TYPE datetime DEFAULT time::now();
 

@@ -9,7 +9,8 @@
 
 ## Quick Start
 
-The backend is already deployed. Deploy infrastructure via Crossplane and wire GitHub webhook:
+The backend is already deployed. Deploy infrastructure via Crossplane and configure
+the outbound CI reconciler:
 
 ### Step 1: Deploy with Crossplane (lornu-ai/infra-code)
 
@@ -136,15 +137,11 @@ SELECT * FROM ci_audit_log
   )
 ```
 
-### Webhook Secret Management
+### Reconciler Token Management
 
-Each repo has its own webhook secret (stored in GitHub):
-- stevedores-org/aivcs: secret-123... (stored in k8s secret)
-- lornu-ai/aivcs-lornu-demo: secret-456... (stored in k8s secret)
-
-Both validated against their respective `CI_WEBHOOK_SECRET` env var.
-
-**Managed by**: Kubernetes secrets (cross-referencing via Crossplane)
+Each deployment uses a least-privilege GitHub API token projected as
+`GITHUB_TOKEN`. The repository allowlist is configured with
+`CI_RECONCILER_REPOSITORIES`; no inbound callback secret is stored.
 
 ## Monitoring
 
@@ -182,15 +179,15 @@ Expected: ~500 Lambda invocations/month combined (stevedores-org: 250 + lornu-ai
 Same pattern for additional repos via Crossplane:
 1. Create new FastFreeTestingGate Crossplane composite
 2. Crossplane automatically provisions AWS resources
-3. Add GitHub webhook to new repo
-4. Subscribe via API endpoint
+3. Add the repository to `CI_RECONCILER_REPOSITORIES`
+4. Restart the reconciler deployment
 5. All backed by unified SurrealDB
 
 **Infrastructure changes**: Single line YAML per new customer
 
 ## Next Steps
 
-1. **Add webhook** to aivcs-lornu-demo (Step 1-2 above)
+1. **Configure outbound reconciliation** for aivcs-lornu-demo (Step 1-2 above)
 2. **Test** with first PR
 3. **Verify** results in GitHub status check
 4. **Share** webhook setup with other teams
