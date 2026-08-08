@@ -129,8 +129,9 @@ After core integration is tested:
 ## API Reference
 
 CI executions are discovered by the daemon's outbound GitHub reconciler.
-Configure `GITHUB_TOKEN`, `CI_RECONCILER_REPOSITORIES`, and optionally
-`CI_RECONCILER_INTERVAL_SECS`; no GitHub-to-aivcs callback is required.
+Configure `GITHUB_TOKEN`, `CI_RECONCILER_REPOSITORIES`,
+`CI_RECONCILER_DISPATCH_URL`, and optionally `CI_RECONCILER_INTERVAL_SECS`;
+no GitHub-to-aivcs callback is required.
 
 ### GET `/api/v1/ci/checks/:pr_number`
 

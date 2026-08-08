@@ -47,8 +47,9 @@ fast-free-testing API Gateway
 
 The daemon runs an outbound reconciler. It polls the configured GitHub
 repositories, reads PR head check-runs, and stores execution/status records in
-SurrealDB. The reconciler uses `GITHUB_TOKEN` and a repository allowlist; it
-does not expose a VCS callback endpoint.
+SurrealDB. The reconciler uses `GITHUB_TOKEN`, a repository allowlist, and
+`CI_RECONCILER_DISPATCH_URL` to start each run through Propel; it does not
+expose a VCS callback endpoint.
 
 The existing `GET /api/v1/ci/checks/:pr_number?repo=owner/repo` endpoint
 remains read-only and serves the reconciled records.

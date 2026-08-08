@@ -17,6 +17,7 @@ const GITHUB_API: &str = "https://api.github.com";
 #[derive(Debug, Clone)]
 pub struct ReconcilerConfig {
     pub repositories: Vec<String>,
+    pub dispatch_url: String,
     pub interval: std::time::Duration,
 }
 
@@ -42,6 +43,12 @@ impl ReconcilerConfig {
             }),
             "CI_RECONCILER_REPOSITORIES entries must use owner/repo format"
         );
+        let dispatch_url = env::var("CI_RECONCILER_DISPATCH_URL")
+            .context("CI_RECONCILER_DISPATCH_URL must be set for CI execution dispatch")?;
+        anyhow::ensure!(
+            dispatch_url.starts_with("https://"),
+            "CI_RECONCILER_DISPATCH_URL must use HTTPS"
+        );
         let seconds = env::var("CI_RECONCILER_INTERVAL_SECS")
             .unwrap_or_else(|_| "30".to_string())
             .parse::<u64>()
@@ -52,6 +59,7 @@ impl ReconcilerConfig {
         );
         Ok(Self {
             repositories,
+            dispatch_url,
             interval: std::time::Duration::from_secs(seconds),
         })
     }
@@ -106,6 +114,7 @@ async fn reconcile_repository(
     token: &str,
     db: &surrealdb::Surreal<surrealdb::engine::any::Any>,
     repository: &str,
+    dispatch_url: &str,
 ) -> anyhow::Result<()> {
     let pulls = client
         .get(format!("{GITHUB_API}/repos/{repository}/pulls"))
@@ -137,17 +146,36 @@ async fn reconcile_repository(
             .await?
             .check_runs;
         let id = execution_id(repository, pull.number, &pull.head.sha);
-        let event_result: Result<Option<serde_json::Value>, _> = db
-            .create(("ci_reconciler_events", id.clone()))
-            .content(json!({
-                "event_id": id,
-                "repository": repository,
-                "pr_number": pull.number,
-                "sha": pull.head.sha,
-                "created_at": chrono::Utc::now().to_rfc3339(),
-            }))
-            .await;
-        let first_seen = event_result.is_ok();
+        let mut prior_event = db
+            .query("SELECT * FROM ci_reconciler_events WHERE event_id = $event_id LIMIT 1")
+            .bind(("event_id", id.clone()))
+            .await?;
+        let prior_events: Vec<serde_json::Value> = prior_event.take(0)?;
+        let first_seen = prior_events.is_empty();
+        if first_seen {
+            client
+                .post(dispatch_url)
+                .bearer_auth(token)
+                .json(&json!({
+                    "repository": repository,
+                    "pr_number": pull.number,
+                    "sha": pull.head.sha,
+                    "source": "aivcsd_outbound_reconciler",
+                }))
+                .send()
+                .await?
+                .error_for_status()?;
+            let _: Option<serde_json::Value> = db
+                .create(("ci_reconciler_events", id.clone()))
+                .content(json!({
+                    "event_id": id,
+                    "repository": repository,
+                    "pr_number": pull.number,
+                    "sha": pull.head.sha,
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                }))
+                .await?;
+        }
         let status = execution_status(&checks);
         let completed_at =
             (status == "passed" || status == "failed").then(|| chrono::Utc::now().to_rfc3339());
@@ -204,7 +232,10 @@ pub async fn run_reconciler(state: AppState, token: String, config: ReconcilerCo
         .expect("static GitHub client configuration must be valid");
     loop {
         for repository in &config.repositories {
-            if let Err(error) = reconcile_repository(&client, &token, &state.db, repository).await {
+            if let Err(error) =
+                reconcile_repository(&client, &token, &state.db, repository, &config.dispatch_url)
+                    .await
+            {
                 error!(repository, %error, "outbound CI reconciliation failed");
             }
         }
