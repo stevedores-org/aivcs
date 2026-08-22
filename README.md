@@ -1,3 +1,14 @@
+# ⚠️ Repository Moved
+
+> [!IMPORTANT]
+> **This repository has migrated to a new home.**
+>
+> **Note:** This is currently available publicly at the new home: [https://github.com/aivcs-io/aivcs](https://github.com/aivcs-io/aivcs)
+>
+> Please update your bookmarks, remotes, and dependencies to point to [https://github.com/aivcs-io/aivcs](https://github.com/aivcs-io/aivcs).
+
+---
+
 # AIVCS - AI Agent Version Control System
 
 A Rust-based version control system for AI agents, implementing **AgentGit 2.0** concepts for state rollback, branching, and semantic merging.
